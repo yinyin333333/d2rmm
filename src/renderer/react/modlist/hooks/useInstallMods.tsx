@@ -10,6 +10,7 @@ import {
   useInstalledMods,
   useModsToInstall,
 } from 'renderer/react/context/ModsContext';
+import { useNormalizeCRLFOnInstall } from 'renderer/react/context/NormalizeCRLFOnInstallContext';
 import { useOutputModName } from 'renderer/react/context/OutputModNameContext';
 import { useOutputPath } from 'renderer/react/context/OutputPathContext';
 import { usePreExtractedDataPath } from 'renderer/react/context/PreExtractedDataPathContext';
@@ -31,6 +32,7 @@ export default function useInstallMods(
   const [isPreExtractedData] = useIsPreExtractedData();
   const [preExtractedDataPath] = usePreExtractedDataPath();
   const [outputModName] = useOutputModName();
+  const [normalizeOutputCRLF] = useNormalizeCRLFOnInstall();
   const outputPath = useOutputPath();
   const logger = useLogger();
   const modsToInstall = useModsToInstall();
@@ -52,6 +54,7 @@ export default function useInstallMods(
         isDryRun: isUninstall,
         isPreExtractedData,
         mergedPath: outputPath,
+        normalizeOutputCRLF,
         outputModName,
         preExtractedDataPath,
         savesPath,
@@ -114,6 +117,7 @@ export default function useInstallMods(
     isUninstall,
     logger,
     modsToInstall,
+    normalizeOutputCRLF,
     outputModName,
     outputPath,
     preExtractedDataPath,

@@ -13,12 +13,16 @@ import ruRU from '../../locales/ru-RU.json';
 import zhCN from '../../locales/zh-CN.json';
 import zhTW from '../../locales/zh-TW.json';
 
+function getSystemLocale(): string | null {
+  return Intl.DateTimeFormat().resolvedOptions().locale ?? null;
+}
+
 export async function initI18n(): Promise<void> {
   const locale =
     // get locale passed from main thread
     process.env.LOCALE ??
     // fall back to default locale for system
-    navigator.language ??
+    getSystemLocale() ??
     // fall back to English
     'en-US';
 

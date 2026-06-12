@@ -1,7 +1,9 @@
 import BridgeAPI from 'renderer/BridgeAPI';
+import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useSanitizedGamePath } from 'renderer/react/context/GamePathContext';
 import { useInstallBeforeRun } from 'renderer/react/context/InstallBeforeRunContext';
 import { useIsInstallConfigChanged } from 'renderer/react/context/ModsContext';
+import { useOutputModName } from 'renderer/react/context/OutputModNameContext';
 import useAsyncCallback from 'renderer/react/hooks/useAsyncCallback';
 import useGameLaunchArgs from 'renderer/react/hooks/useGameLaunchArgs';
 import useInstallMods from 'renderer/react/modlist/hooks/useInstallMods';
@@ -22,7 +24,15 @@ export default function RunGameButton(_props: Props): JSX.Element {
 
   const gamePath = useSanitizedGamePath();
   const args = useGameLaunchArgs();
-  const command = useMemo(() => ['D2R.exe'].concat(args).join(' '), [args]);
+  const [outputModName] = useOutputModName();
+  const [d2rLoaderSettings] = useD2RLoaderSettings();
+  const command = useMemo(
+    () =>
+      d2rLoaderSettings.useD2RLoader
+        ? 'D2RLoader.exe'
+        : ['D2R.exe'].concat(args).join(' '),
+    [args, d2rLoaderSettings.useD2RLoader],
+  );
 
   const [isInstallBeforeRunEnabled] = useInstallBeforeRun();
 
@@ -34,9 +44,34 @@ export default function RunGameButton(_props: Props): JSX.Element {
         return;
       }
     }
+    if (d2rLoaderSettings.useD2RLoader) {
+      const pathD2RLoaderExe = resolvePath(gamePath, 'D2RLoader.exe');
+      await BridgeAPI.prepareD2RLoaderLaunch(gamePath, {
+        defaultMod: outputModName,
+        skipTitleScreen: d2rLoaderSettings.skipTitleScreen,
+        showGroundSockets: d2rLoaderSettings.showGroundSockets,
+        extraSharedTabs: d2rLoaderSettings.extraSharedTabs,
+        forceTcpip: d2rLoaderSettings.forceTcpip,
+        globalPlugins: d2rLoaderSettings.globalPlugins,
+        devConsole: d2rLoaderSettings.devConsole,
+        detectEarlyCrashes: d2rLoaderSettings.detectEarlyCrashes,
+        damageIndicator: d2rLoaderSettings.damageIndicator,
+        jsonResourceLoads: d2rLoaderSettings.jsonResourceLoads,
+      });
+      await BridgeAPI.execute(pathD2RLoaderExe, []);
+      return;
+    }
+
     const pathD2rExe = resolvePath(gamePath, 'D2R.exe');
     await BridgeAPI.execute(pathD2rExe, args);
-  }, [isInstallBeforeRunEnabled, onInstallMods, args, gamePath]);
+  }, [
+    isInstallBeforeRunEnabled,
+    onInstallMods,
+    d2rLoaderSettings,
+    gamePath,
+    outputModName,
+    args,
+  ]);
 
   const tooltipText = isInstallConfigChanged
     ? `${t('run.tooltip', { command })} ${t('run.tooltip.unsaved')}`

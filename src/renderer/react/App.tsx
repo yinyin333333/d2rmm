@@ -6,6 +6,7 @@ import ModManagerLogs from 'renderer/react/ModManagerLogs';
 import ModManagerSettings from 'renderer/react/ModManagerSettings';
 import { AppUpdaterContextProvider } from 'renderer/react/context/AppUpdaterContext';
 import { DataPathContextProvider } from 'renderer/react/context/DataPathContext';
+import { D2RLoaderSettingsContextProvider } from 'renderer/react/context/D2RLoaderSettingsContext';
 import {
   DialogManagerContextProvider,
   DialogRenderer,
@@ -19,6 +20,7 @@ import { IsPreExtractedDataContextProvider } from 'renderer/react/context/IsPreE
 import { LogsProvider } from 'renderer/react/context/LogContext';
 import { ModsContextProvider } from 'renderer/react/context/ModsContext';
 import { NexusModsContextProvider } from 'renderer/react/context/NexusModsContext';
+import { NormalizeCRLFOnInstallContextProvider } from 'renderer/react/context/NormalizeCRLFOnInstallContext';
 import { OutputModNameContextProvider } from 'renderer/react/context/OutputModNameContext';
 import { OutputPathContextProvider } from 'renderer/react/context/OutputPathContext';
 import { PreExtractedDataPathContextProvider } from 'renderer/react/context/PreExtractedDataPathContext';
@@ -182,6 +184,8 @@ const CONTEXT_PROVIDERS = [
   // mod data
   ModsContextProvider,
   // preferences
+  D2RLoaderSettingsContextProvider,
+  NormalizeCRLFOnInstallContextProvider,
   InstallBeforeRunContextProvider,
   SavesPathContextProvider,
   OutputPathContextProvider,

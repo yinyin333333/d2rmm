@@ -1,5 +1,6 @@
 import type {
   CopiedFile,
+  D2RLoaderSettings,
   IBridgeAPI,
   IInstallModsOptions,
   Mod,
@@ -48,6 +49,7 @@ import { encodeJson, parseJson } from './JSONParser';
 import { getModAPI, resetNextStringIDState } from './ModAPI';
 import { parseSprite } from './SpriteParser';
 import { encodeTsv, parseTsv } from './TSVParser';
+import { updateD2RLoaderIni } from './D2RLoader';
 import './asar';
 import { datamod } from './datamod';
 import { getQuickJSProxyAPI, getQuickJS } from './quickjs';
@@ -135,6 +137,70 @@ type CopyDirResult = {
   copiedFiles: CopiedFile[];
   errors: string[];
 };
+
+const CRLF_NORMALIZE_EXTENSIONS = new Set([
+  '.txt',
+  '.json',
+  '.lua',
+  '.tbl',
+  '.timelines',
+]);
+
+function normalizeOutputCRLF(outputRootPath: string): {
+  checked: number;
+  converted: number;
+  errors: string[];
+} {
+  const errors: string[] = [];
+  let checked = 0;
+  let converted = 0;
+  const pending = [path.resolve(outputRootPath)];
+
+  while (pending.length > 0) {
+    const currentPath = pending.pop();
+    if (currentPath == null) {
+      continue;
+    }
+
+    let entries;
+    try {
+      entries = readdirSync(currentPath, { withFileTypes: true });
+    } catch (e) {
+      errors.push(`Failed to read directory "${currentPath}": ${String(e)}`);
+      continue;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== '.git') {
+          pending.push(entryPath);
+        }
+        continue;
+      }
+
+      if (
+        !CRLF_NORMALIZE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
+      ) {
+        continue;
+      }
+
+      checked += 1;
+      try {
+        const text = readFileSync(entryPath, 'utf-8');
+        const normalized = text.replace(/\r?\n/g, '\r\n');
+        if (normalized !== text) {
+          writeFileSync(entryPath, Buffer.from(normalized, 'utf-8'));
+          converted += 1;
+        }
+      } catch (e) {
+        errors.push(`Failed to normalize "${entryPath}": ${String(e)}`);
+      }
+    }
+  }
+
+  return { checked, converted, errors };
+}
 
 function copyDirSync(
   src: string,
@@ -322,6 +388,39 @@ export const BridgeAPI: IBridgeAPI = {
     }
 
     return cascStorageIsOpen;
+  },
+
+  prepareD2RLoaderLaunch: async (
+    gamePath: string,
+    settings: D2RLoaderSettings,
+  ) => {
+    console.debug('BridgeAPI.prepareD2RLoaderLaunch', { gamePath, settings });
+
+    const gameRoot = path.resolve(gamePath);
+    const exePath = validatePathIsSafe(
+      gameRoot,
+      path.resolve(gameRoot, 'D2RLoader.exe'),
+    );
+    const iniPath = validatePathIsSafe(
+      gameRoot,
+      path.resolve(gameRoot, 'D2RLoader.ini'),
+    );
+
+    if (!existsSync(exePath) || !statSync(exePath).isFile()) {
+      throw te('settings.d2rLoader.missingExe');
+    }
+
+    if (!existsSync(iniPath) || !statSync(iniPath).isFile()) {
+      throw te('settings.d2rLoader.missingIni');
+    }
+
+    try {
+      const iniText = readFileSync(iniPath, 'utf-8');
+      const updatedIniText = updateD2RLoaderIni(iniText, settings);
+      writeFileSync(iniPath, Buffer.from(updatedIniText, 'utf-8'));
+    } catch (e) {
+      throw te('worker.bridgeapi.prepareD2RLoaderLaunch.failed', null, e);
+    }
   },
 
   closeStorage: async () => {
@@ -1655,6 +1754,35 @@ const config = JSON.parse(D2RMM.getConfigJSON());
           const destPath = path.resolve(getOutputPath(), filePath);
           mkdirSync(path.dirname(destPath), { recursive: true });
           writeFileSync(destPath, data);
+        }
+
+        if (
+          runtime.options.normalizeOutputCRLF &&
+          !runtime.options.isDirectMode
+        ) {
+          try {
+            const { checked, converted, errors } = normalizeOutputCRLF(
+              getOutputRootPath(),
+            );
+            console.log(
+              `[CRLF normalize] Checked files: ${checked}. Converted files: ${converted}.`,
+            );
+            if (errors.length > 0) {
+              console.warn(
+                `[CRLF normalize] ${errors.length} file(s) failed during normalization.`,
+              );
+              for (const error of errors.slice(0, 20)) {
+                console.warn(error);
+              }
+              if (errors.length > 20) {
+                console.warn(
+                  `[CRLF normalize] ...and ${errors.length - 20} more error(s).`,
+                );
+              }
+            }
+          } catch (e) {
+            console.warn('[CRLF normalize] Failed to normalize output files.', e);
+          }
         }
       } else if (runtime.options.isDirectMode) {
         // uninstall path for direct mode

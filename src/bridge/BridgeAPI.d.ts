@@ -12,9 +12,23 @@ export type IInstallModsOptions = {
   isDryRun: boolean;
   isPreExtractedData: boolean;
   mergedPath: string;
+  normalizeOutputCRLF: boolean;
   outputModName: string;
   preExtractedDataPath: string;
   savesPath: string;
+};
+
+export type D2RLoaderSettings = {
+  defaultMod: string;
+  skipTitleScreen: boolean;
+  showGroundSockets: boolean;
+  extraSharedTabs: number;
+  forceTcpip: boolean;
+  globalPlugins: boolean;
+  devConsole: boolean;
+  detectEarlyCrashes: boolean;
+  damageIndicator: number;
+  jsonResourceLoads: boolean;
 };
 
 export type Mod = {
@@ -60,6 +74,10 @@ export type IBridgeAPI = {
     options: IInstallModsOptions,
   ) => Promise<string[]>;
   openStorage: (gamePath: string, forceOnline?: boolean) => Promise<boolean>;
+  prepareD2RLoaderLaunch: (
+    gamePath: string,
+    settings: D2RLoaderSettings,
+  ) => Promise<void>;
   readDirectory: (
     filePath: string,
   ) => Promise<{ name: string; isDirectory: boolean }[]>;

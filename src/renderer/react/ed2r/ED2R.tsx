@@ -130,6 +130,7 @@ function useRuntimeOptions(): IInstallModsOptions {
     isDryRun: false,
     isPreExtractedData,
     mergedPath: outputPath,
+    normalizeOutputCRLF: false,
     outputModName,
     preExtractedDataPath,
     savesPath,

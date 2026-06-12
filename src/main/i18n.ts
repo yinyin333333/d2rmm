@@ -34,12 +34,20 @@ function getSavedLocale(): string | null {
   }
 }
 
+function getSystemLocale(): string | null {
+  try {
+    return app.getLocale();
+  } catch {
+    return Intl.DateTimeFormat().resolvedOptions().locale ?? null;
+  }
+}
+
 export function getInitialLocale(): string {
   return (
     // get locale saved to d2rmm-locale.json
     getSavedLocale() ??
     // fall back to default locale for system
-    navigator.language ??
+    getSystemLocale() ??
     // fall back to English
     'en-US'
   );

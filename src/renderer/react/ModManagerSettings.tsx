@@ -4,6 +4,8 @@ import { LocaleAPI } from 'renderer/LocaleAPI';
 import ShellAPI from 'renderer/ShellAPI';
 import { LOCALE_DISPLAY_NAMES } from 'renderer/i18n';
 import { useAppUpdaterContext } from 'renderer/react/context/AppUpdaterContext';
+import type { D2RLoaderSettingsState } from 'renderer/react/context/D2RLoaderSettingsContext';
+import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useDataPath } from 'renderer/react/context/DataPathContext';
 import { useExtraGameLaunchArgs } from 'renderer/react/context/ExtraGameLaunchArgsContext';
 import {
@@ -12,6 +14,7 @@ import {
 } from 'renderer/react/context/GamePathContext';
 import { useIsDirectMode } from 'renderer/react/context/IsDirectModeContext';
 import { useIsPreExtractedData } from 'renderer/react/context/IsPreExtractedDataContext';
+import { useNormalizeCRLFOnInstall } from 'renderer/react/context/NormalizeCRLFOnInstallContext';
 import { useOutputModName } from 'renderer/react/context/OutputModNameContext';
 import { useOutputPath } from 'renderer/react/context/OutputPathContext';
 import { usePreExtractedDataPath } from 'renderer/react/context/PreExtractedDataPathContext';
@@ -26,7 +29,7 @@ import { useAsyncMemo } from 'renderer/react/hooks/useAsyncMemo';
 import { useIsFocused } from 'renderer/react/hooks/useIsFocused';
 import InstallBeforeRunSettings from 'renderer/react/mmsettings/InstallBeforeRunSettings';
 import i18next from 'i18next';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import {
@@ -47,6 +50,7 @@ import {
   ListItemText,
   MenuItem,
   Stack,
+  Switch,
   TextField,
   Tooltip,
   Typography,
@@ -82,9 +86,24 @@ const StyledAccordionDetails = styled(AccordionDetails)(() => ({}));
 
 type Props = Record<string, never>;
 
+function parseExtraSharedTabsInput(value: string): number | null {
+  if (value.trim() === '') {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : null;
+}
+
 export default function ModManagerSettings(_props: Props): JSX.Element {
   const { t } = useTranslation();
   const [extraArgs, setExtraArgs] = useExtraGameLaunchArgs();
+  const [normalizeOutputCRLF, setNormalizeOutputCRLF] =
+    useNormalizeCRLFOnInstall();
+  const [d2rLoaderSettings, setD2RLoaderSettings] = useD2RLoaderSettings();
+  const [extraSharedTabsInput, setExtraSharedTabsInput] = useState(() =>
+    String(d2rLoaderSettings.extraSharedTabs),
+  );
   const [rawGamePath, setRawGamePath] = useGamePath();
   const gamePath = useSanitizedGamePath();
   const [isDirectMode, setIsDirectMode] = useIsDirectMode();
@@ -117,6 +136,23 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
   );
 
   const dataSource = isPreExtractedData ? 'directory' : 'casc';
+
+  const setD2RLoaderSetting = useCallback(
+    <TKey extends keyof D2RLoaderSettingsState>(
+      key: TKey,
+      value: D2RLoaderSettingsState[TKey],
+    ) => {
+      setD2RLoaderSettings((settings) => ({
+        ...settings,
+        [key]: value,
+      }));
+    },
+    [setD2RLoaderSettings],
+  );
+
+  useEffect(() => {
+    setExtraSharedTabsInput(String(d2rLoaderSettings.extraSharedTabs));
+  }, [d2rLoaderSettings.extraSharedTabs]);
 
   const isValidGamePath =
     useAsyncMemo(useCallback(() => getIsValidGamePath(gamePath), [gamePath])) ??
@@ -156,7 +192,14 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
   return (
     <List
       disablePadding={true}
-      sx={{ width: '100%', flex: 1, overflow: 'auto', border: 'none' }}
+      sx={{
+        border: 'none',
+        display: 'flex',
+        flex: 1,
+        flexDirection: 'column',
+        overflow: 'auto',
+        width: '100%',
+      }}
     >
       <StyledAccordion
         defaultExpanded={
@@ -169,6 +212,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
         disableGutters={true}
         elevation={0}
         square={true}
+        sx={{ order: 0 }}
       >
         <StyledAccordionSummary
           aria-controls="general-content"
@@ -353,6 +397,14 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
             </Typography>
           </Alert>
           <InstallBeforeRunSettings />
+          <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
+          <Typography color="text.secondary" variant="subtitle2">
+            {t('settings.general.normalizeCRLFOnInstall.description')}
+          </Typography>
+          <Switch
+            checked={normalizeOutputCRLF}
+            onChange={(_event, checked) => setNormalizeOutputCRLF(checked)}
+          />
         </StyledAccordionDetails>
       </StyledAccordion>
       <StyledAccordion
@@ -360,6 +412,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
         disableGutters={true}
         elevation={0}
         square={true}
+        sx={{ order: 2 }}
       >
         <StyledAccordionSummary
           aria-controls="direct-mode-content"
@@ -408,6 +461,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
         disableGutters={true}
         elevation={0}
         square={true}
+        sx={{ order: 3 }}
       >
         <StyledAccordionSummary
           aria-controls="launcher-content"
@@ -460,10 +514,294 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
         </StyledAccordionDetails>
       </StyledAccordion>
       <StyledAccordion
+        defaultExpanded={useRef(d2rLoaderSettings.useD2RLoader).current}
+        disableGutters={true}
+        elevation={0}
+        square={true}
+        sx={{ order: 1 }}
+      >
+        <StyledAccordionSummary
+          aria-controls="d2r-loader-content"
+          expandIcon={<ExpandMore />}
+          id="d2r-loader-header"
+        >
+          <Typography sx={{ marginLeft: 1 }}>
+            {t('settings.d2rLoader.title')}
+          </Typography>
+        </StyledAccordionSummary>
+        <StyledAccordionDetails id="d2r-loader-content">
+          <Typography color="text.secondary" variant="subtitle2">
+            {t('settings.d2rLoader.description')}
+          </Typography>
+          <ListItemButton
+            onClick={() =>
+              setD2RLoaderSetting(
+                'useD2RLoader',
+                !d2rLoaderSettings.useD2RLoader,
+              )
+            }
+          >
+            <ListItemIcon>
+              <Checkbox
+                checked={d2rLoaderSettings.useD2RLoader}
+                disableRipple={true}
+                edge="start"
+                inputProps={{
+                  'aria-labelledby': 'enable-d2r-loader',
+                }}
+                tabIndex={-1}
+              />
+            </ListItemIcon>
+            <ListItemText
+              id="enable-d2r-loader"
+              primary={t('settings.d2rLoader.useD2RLoader')}
+            />
+          </ListItemButton>
+          {d2rLoaderSettings.useD2RLoader ? (
+            <>
+              <ListItemButton
+                disabled={!d2rLoaderSettings.useD2RLoader}
+                onClick={() =>
+                  setD2RLoaderSetting(
+                    'skipTitleScreen',
+                    !d2rLoaderSettings.skipTitleScreen,
+                  )
+                }
+              >
+                <ListItemIcon>
+                  <Checkbox
+                    checked={d2rLoaderSettings.skipTitleScreen}
+                    disabled={!d2rLoaderSettings.useD2RLoader}
+                    disableRipple={true}
+                    edge="start"
+                    inputProps={{
+                      'aria-labelledby': 'd2r-loader-skip-title-screen',
+                    }}
+                    tabIndex={-1}
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  id="d2r-loader-skip-title-screen"
+                  primary={t('settings.d2rLoader.skipTitleScreen')}
+                />
+              </ListItemButton>
+              <ListItemButton
+                disabled={!d2rLoaderSettings.useD2RLoader}
+                onClick={() =>
+                  setD2RLoaderSetting(
+                    'showGroundSockets',
+                    !d2rLoaderSettings.showGroundSockets,
+                  )
+                }
+              >
+                <ListItemIcon>
+                  <Checkbox
+                    checked={d2rLoaderSettings.showGroundSockets}
+                    disabled={!d2rLoaderSettings.useD2RLoader}
+                    disableRipple={true}
+                    edge="start"
+                    inputProps={{
+                      'aria-labelledby': 'd2r-loader-show-ground-sockets',
+                    }}
+                    tabIndex={-1}
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  id="d2r-loader-show-ground-sockets"
+                  primary={t('settings.d2rLoader.showGroundSockets')}
+                />
+              </ListItemButton>
+              <TextField
+                disabled={!d2rLoaderSettings.useD2RLoader}
+                fullWidth={true}
+                inputProps={{ min: 0 }}
+                label={t('settings.d2rLoader.extraSharedTabs')}
+                onBlur={() => {
+                  const parsed =
+                    parseExtraSharedTabsInput(extraSharedTabsInput);
+                  setExtraSharedTabsInput(
+                    String(parsed ?? d2rLoaderSettings.extraSharedTabs),
+                  );
+                }}
+                onChange={(event) => {
+                  const { value } = event.target;
+                  setExtraSharedTabsInput(value);
+
+                  const parsed = parseExtraSharedTabsInput(value);
+                  if (parsed != null) {
+                    setD2RLoaderSetting('extraSharedTabs', parsed);
+                  }
+                }}
+                sx={{ marginTop: 1 }}
+                type="number"
+                value={extraSharedTabsInput}
+                variant="filled"
+              />
+              <ListItemButton
+                disabled={!d2rLoaderSettings.useD2RLoader}
+                onClick={() =>
+                  setD2RLoaderSetting(
+                    'forceTcpip',
+                    !d2rLoaderSettings.forceTcpip,
+                  )
+                }
+              >
+                <ListItemIcon>
+                  <Checkbox
+                    checked={d2rLoaderSettings.forceTcpip}
+                    disabled={!d2rLoaderSettings.useD2RLoader}
+                    disableRipple={true}
+                    edge="start"
+                    inputProps={{
+                      'aria-labelledby': 'd2r-loader-force-tcpip',
+                    }}
+                    tabIndex={-1}
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  id="d2r-loader-force-tcpip"
+                  primary={t('settings.d2rLoader.forceTcpip')}
+                />
+              </ListItemButton>
+              <ListItemButton
+                disabled={!d2rLoaderSettings.useD2RLoader}
+                onClick={() =>
+                  setD2RLoaderSetting(
+                    'globalPlugins',
+                    !d2rLoaderSettings.globalPlugins,
+                  )
+                }
+              >
+                <ListItemIcon>
+                  <Checkbox
+                    checked={d2rLoaderSettings.globalPlugins}
+                    disabled={!d2rLoaderSettings.useD2RLoader}
+                    disableRipple={true}
+                    edge="start"
+                    inputProps={{
+                      'aria-labelledby': 'd2r-loader-global-plugins',
+                    }}
+                    tabIndex={-1}
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  id="d2r-loader-global-plugins"
+                  primary={t('settings.d2rLoader.globalPlugins')}
+                />
+              </ListItemButton>
+              <ListItemButton
+                disabled={!d2rLoaderSettings.useD2RLoader}
+                onClick={() =>
+                  setD2RLoaderSetting(
+                    'devConsole',
+                    !d2rLoaderSettings.devConsole,
+                  )
+                }
+              >
+                <ListItemIcon>
+                  <Checkbox
+                    checked={d2rLoaderSettings.devConsole}
+                    disabled={!d2rLoaderSettings.useD2RLoader}
+                    disableRipple={true}
+                    edge="start"
+                    inputProps={{
+                      'aria-labelledby': 'd2r-loader-dev-console',
+                    }}
+                    tabIndex={-1}
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  id="d2r-loader-dev-console"
+                  primary={t('settings.d2rLoader.devConsole')}
+                />
+              </ListItemButton>
+              <ListItemButton
+                disabled={!d2rLoaderSettings.useD2RLoader}
+                onClick={() =>
+                  setD2RLoaderSetting(
+                    'detectEarlyCrashes',
+                    !d2rLoaderSettings.detectEarlyCrashes,
+                  )
+                }
+              >
+                <ListItemIcon>
+                  <Checkbox
+                    checked={d2rLoaderSettings.detectEarlyCrashes}
+                    disabled={!d2rLoaderSettings.useD2RLoader}
+                    disableRipple={true}
+                    edge="start"
+                    inputProps={{
+                      'aria-labelledby': 'd2r-loader-detect-early-crashes',
+                    }}
+                    tabIndex={-1}
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  id="d2r-loader-detect-early-crashes"
+                  primary={t('settings.d2rLoader.detectEarlyCrashes')}
+                />
+              </ListItemButton>
+              <TextField
+                disabled={!d2rLoaderSettings.useD2RLoader}
+                fullWidth={true}
+                label={t('settings.d2rLoader.damageIndicator')}
+                onChange={(event) =>
+                  setD2RLoaderSetting(
+                    'damageIndicator',
+                    Number(event.target.value),
+                  )
+                }
+                select={true}
+                sx={{ marginTop: 1 }}
+                value={d2rLoaderSettings.damageIndicator}
+                variant="filled"
+              >
+                <MenuItem value={0}>
+                  {t('settings.d2rLoader.damageIndicator.disabled')}
+                </MenuItem>
+                <MenuItem value={1}>
+                  {t('settings.d2rLoader.damageIndicator.full')}
+                </MenuItem>
+                <MenuItem value={2}>
+                  {t('settings.d2rLoader.damageIndicator.damageOnly')}
+                </MenuItem>
+              </TextField>
+              <ListItemButton
+                disabled={!d2rLoaderSettings.useD2RLoader}
+                onClick={() =>
+                  setD2RLoaderSetting(
+                    'jsonResourceLoads',
+                    !d2rLoaderSettings.jsonResourceLoads,
+                  )
+                }
+              >
+                <ListItemIcon>
+                  <Checkbox
+                    checked={d2rLoaderSettings.jsonResourceLoads}
+                    disabled={!d2rLoaderSettings.useD2RLoader}
+                    disableRipple={true}
+                    edge="start"
+                    inputProps={{
+                      'aria-labelledby': 'd2r-loader-json-resource-loads',
+                    }}
+                    tabIndex={-1}
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  id="d2r-loader-json-resource-loads"
+                  primary={t('settings.d2rLoader.jsonResourceLoads')}
+                />
+              </ListItemButton>
+            </>
+          ) : null}
+        </StyledAccordionDetails>
+      </StyledAccordion>
+      <StyledAccordion
         defaultExpanded={false}
         disableGutters={true}
         elevation={0}
         square={true}
+        sx={{ order: 4 }}
       >
         <StyledAccordionSummary
           aria-controls="display-content"
@@ -515,6 +853,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
         disableGutters={true}
         elevation={0}
         square={true}
+        sx={{ order: 5 }}
       >
         <StyledAccordionSummary
           aria-controls="nexus-content"
@@ -633,6 +972,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
         disableGutters={true}
         elevation={0}
         square={true}
+        sx={{ order: 6 }}
       >
         <StyledAccordionSummary
           aria-controls="updates-content"
