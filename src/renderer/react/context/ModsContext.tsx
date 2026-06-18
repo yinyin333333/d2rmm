@@ -18,6 +18,8 @@ import useModsContextConfigOverrides, {
 } from 'renderer/react/context/hooks/useModsContextConfigOverrides';
 import useSavedState from 'renderer/react/hooks/useSavedState';
 import useToast from 'renderer/react/hooks/useToast';
+import deferUntilAfterFirstPaint from 'renderer/utils/deferUntilAfterFirstPaint';
+import { startupMark, startupMeasure } from 'shared/startupProfiler';
 import React, {
   useCallback,
   useContext,
@@ -97,6 +99,7 @@ export type IModsContext = {
   enabledMods: IEnabledMods;
   installedMods: IInstalledMods;
   isInstallConfigChanged: boolean;
+  isLoadingMods: boolean;
   modConfigOverrides: IModConfigOverrides;
   mods: IMods;
   modsToInstall: IOrderedMods;
@@ -153,7 +156,10 @@ export function ModsContextProvider({
 
   const getMods = useCallback(
     async (ids?: string[]): Promise<Mod[]> => {
+      const label =
+        ids == null ? 'first/full mod list load' : 'partial mod list load';
       const modIDs = ids ?? (await BridgeAPI.readModDirectory());
+      startupMark('renderer', `${label}: ${modIDs.length} candidates`);
       const mods: Mod[] = [];
       for (const modID of modIDs) {
         try {
@@ -196,9 +202,35 @@ export function ModsContextProvider({
   );
 
   const [modsWithoutOverrides, setMods] = useState<Mod[]>([]);
+  const [isLoadingMods, setIsLoadingMods] = useState(true);
 
   useEffect(() => {
-    getMods().then(setMods).catch(console.error);
+    startupMark('renderer', 'first ModList load scheduled after first paint');
+    let isMounted = true;
+    const cancel = deferUntilAfterFirstPaint(() => {
+      startupMark('renderer', 'first ModList load deferred start');
+      startupMeasure('renderer', 'first ModList load', getMods)
+        .then((mods) => {
+          if (!isMounted) {
+            return;
+          }
+          setMods(mods);
+          startupMark(
+            'renderer',
+            `first ModList load completed with ${mods.length} mods`,
+          );
+        })
+        .catch(console.error)
+        .finally(() => {
+          if (isMounted) {
+            setIsLoadingMods(false);
+          }
+        });
+    });
+    return () => {
+      isMounted = false;
+      cancel();
+    };
   }, [getMods]);
 
   const setModConfig = useCallback(
@@ -221,32 +253,45 @@ export function ModsContextProvider({
   const refreshMods = useCallback(
     async (ids?: string[]): Promise<IMods> => {
       // manually refresh mods
-      const mods = await getMods(ids);
-      if (ids != null) {
-        // partial update
-        setMods((oldMods) =>
-          oldMods
-            // remove deleted mods
-            .filter(
-              (oldMod) =>
-                // either we're not updating this mod
-                !ids.some((id) => id === oldMod.id) ||
-                // or the mod still exists
-                mods.some((mod) => mod.id === oldMod.id),
-            )
-            // update existing mods
-            .map((oldMod) => mods.find((mod) => mod.id === oldMod.id) ?? oldMod)
-            // add new mods
-            .concat(
-              mods.filter(
-                (mod) => !oldMods.some((oldMod) => oldMod.id === mod.id),
-              ),
-            ),
-        );
-      } else {
-        setMods(mods);
+      if (ids == null) {
+        setIsLoadingMods(true);
       }
-      return mods;
+      try {
+        const mods = await startupMeasure('renderer', 'refreshMods', () =>
+          getMods(ids),
+        );
+        if (ids != null) {
+          // partial update
+          setMods((oldMods) =>
+            oldMods
+              // remove deleted mods
+              .filter(
+                (oldMod) =>
+                  // either we're not updating this mod
+                  !ids.some((id) => id === oldMod.id) ||
+                  // or the mod still exists
+                  mods.some((mod) => mod.id === oldMod.id),
+              )
+              // update existing mods
+              .map(
+                (oldMod) => mods.find((mod) => mod.id === oldMod.id) ?? oldMod,
+              )
+              // add new mods
+              .concat(
+                mods.filter(
+                  (mod) => !oldMods.some((oldMod) => oldMod.id === mod.id),
+                ),
+              ),
+          );
+        } else {
+          setMods(mods);
+        }
+        return mods;
+      } finally {
+        if (ids == null) {
+          setIsLoadingMods(false);
+        }
+      }
     },
     [getMods],
   );
@@ -421,6 +466,7 @@ export function ModsContextProvider({
       enabledMods,
       installedMods,
       isInstallConfigChanged,
+      isLoadingMods,
       modConfigOverrides,
       mods,
       modsToInstall,
@@ -441,6 +487,7 @@ export function ModsContextProvider({
       enabledMods,
       installedMods,
       isInstallConfigChanged,
+      isLoadingMods,
       modConfigOverrides,
       mods,
       modsToInstall,
@@ -496,6 +543,14 @@ export function useMods(): [IMods, IModsRefresher] {
     throw new Error('No preferences context available.');
   }
   return [context.mods, context.refreshMods];
+}
+
+export function useIsLoadingMods(): boolean {
+  const context = useContext(Context);
+  if (context == null) {
+    throw new Error('No preferences context available.');
+  }
+  return context.isLoadingMods;
 }
 
 export function useSectionHeaders(): [ISectionHeaders, ISectionHeadersMutator] {

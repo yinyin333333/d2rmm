@@ -4,6 +4,7 @@ import { isOrderedSectionHeader } from 'renderer/react/ReorderUtils';
 import { useIsDirectMode } from 'renderer/react/context/IsDirectModeContext';
 import {
   useEnabledMods,
+  useIsLoadingMods,
   useMods,
   useOrdereredItems,
 } from 'renderer/react/context/ModsContext';
@@ -29,6 +30,7 @@ import { LoadingButton } from '@mui/lab';
 import {
   Box,
   ButtonGroup,
+  CircularProgress,
   Divider,
   InputAdornment,
   Link,
@@ -53,6 +55,7 @@ export default function ModList(): JSX.Element {
   const [orderedItems, reorderItems] = useOrdereredItems();
   const [enabledMods] = useEnabledMods();
   const [isDirectMode] = useIsDirectMode();
+  const isLoadingMods = useIsLoadingMods();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFilter, setSearchFilter] = useState('');
@@ -150,7 +153,24 @@ export default function ModList(): JSX.Element {
         disablePadding={true}
         sx={{ width: '100%', flex: 1, overflow: 'auto' }}
       >
-        {renderedItems.length === 0 && (
+        {renderedItems.length === 0 && isLoadingMods && (
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              gap: 2,
+              color: 'text.secondary',
+              p: 4,
+            }}
+          >
+            <CircularProgress size={28} />
+            <Typography variant="body1">{t('modlist.loading')}</Typography>
+          </Box>
+        )}
+        {renderedItems.length === 0 && !isLoadingMods && (
           <Box
             sx={{
               display: 'flex',

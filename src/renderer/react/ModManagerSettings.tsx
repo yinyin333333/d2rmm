@@ -1,9 +1,6 @@
 import { getBaseSavesPath } from 'renderer/AppInfoAPI';
 import BridgeAPI from 'renderer/BridgeAPI';
-import { LocaleAPI } from 'renderer/LocaleAPI';
 import ShellAPI from 'renderer/ShellAPI';
-import { LOCALE_DISPLAY_NAMES } from 'renderer/i18n';
-import { useAppUpdaterContext } from 'renderer/react/context/AppUpdaterContext';
 import type { D2RLoaderSettingsState } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useDataPath } from 'renderer/react/context/DataPathContext';
@@ -28,7 +25,6 @@ import useNexusAuthState from 'renderer/react/context/hooks/useNexusAuthState';
 import { useAsyncMemo } from 'renderer/react/hooks/useAsyncMemo';
 import { useIsFocused } from 'renderer/react/hooks/useIsFocused';
 import InstallBeforeRunSettings from 'renderer/react/mmsettings/InstallBeforeRunSettings';
-import i18next from 'i18next';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ExpandMore from '@mui/icons-material/ExpandMore';
@@ -123,18 +119,6 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
 
   const [themeMode, setThemeMode] = useThemeMode();
 
-  const [locale, setLocale] = useState(LocaleAPI.getLocale());
-  const onLocaleChange = useCallback(
-    async (newLocale: string): Promise<void> => {
-      setLocale(newLocale);
-      // set locale in renderer thread
-      await i18next.changeLanguage(newLocale);
-      // set locale in main/worker threads
-      await LocaleAPI.setLocale(newLocale);
-    },
-    [setLocale],
-  );
-
   const dataSource = isPreExtractedData ? 'directory' : 'casc';
 
   const setD2RLoaderSetting = useCallback(
@@ -181,13 +165,6 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
     registerAsNxmProtocolHandler,
     unregisterAsNxmProtocolHandler,
   } = useNexusAuthState();
-
-  const {
-    update,
-    onInstallUpdate,
-    isDialogEnabled: isAppUpdaterDialogEnabled,
-    setIsDialogEnabled: setIsAppUpdaterDialogEnabled,
-  } = useAppUpdaterContext();
 
   return (
     <List
@@ -829,23 +806,6 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
             </MenuItem>
             <MenuItem value="dark">{t('settings.display.theme.dark')}</MenuItem>
           </TextField>
-          <TextField
-            fullWidth={true}
-            label={t('settings.display.language.label')}
-            onChange={(event) =>
-              onLocaleChange(event.target.value).catch(console.error)
-            }
-            select={true}
-            sx={{ marginTop: 2 }}
-            value={locale}
-            variant="filled"
-          >
-            {Object.entries(LOCALE_DISPLAY_NAMES).map(([locale, label]) => (
-              <MenuItem key={locale} value={locale}>
-                {label}
-              </MenuItem>
-            ))}
-          </TextField>
         </StyledAccordionDetails>
       </StyledAccordion>
       <StyledAccordion
@@ -965,61 +925,6 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
               </Alert>
             )}
           </Stack>
-        </StyledAccordionDetails>
-      </StyledAccordion>
-      <StyledAccordion
-        defaultExpanded={false}
-        disableGutters={true}
-        elevation={0}
-        square={true}
-        sx={{ order: 6 }}
-      >
-        <StyledAccordionSummary
-          aria-controls="updates-content"
-          expandIcon={<ExpandMore />}
-          id="updates-header"
-        >
-          <Typography sx={{ marginLeft: 1 }}>
-            {t('settings.updates.title')}
-          </Typography>
-        </StyledAccordionSummary>
-        <StyledAccordionDetails id="updates-content">
-          <ListItemButton
-            onClick={() => {
-              setIsAppUpdaterDialogEnabled(!isAppUpdaterDialogEnabled);
-            }}
-          >
-            <ListItemIcon>
-              <Checkbox
-                checked={isAppUpdaterDialogEnabled}
-                disableRipple={true}
-                edge="start"
-                inputProps={{
-                  'aria-labelledby': 'enable-app-updater-dialog',
-                }}
-                tabIndex={-1}
-              />
-            </ListItemIcon>
-            <ListItemText
-              id="enable-app-updater-dialog"
-              primary={t('settings.updates.enableNotifications')}
-            />
-          </ListItemButton>
-          {update == null ? null : (
-            <Alert severity="warning">
-              <Typography>
-                {t('settings.updates.available', { version: update.version })}
-              </Typography>
-              <Button
-                color="warning"
-                onClick={onInstallUpdate}
-                sx={{ marginTop: 1 }}
-                variant="contained"
-              >
-                {t('settings.updates.update')}
-              </Button>
-            </Alert>
-          )}
         </StyledAccordionDetails>
       </StyledAccordion>
     </List>

@@ -4,23 +4,23 @@ import log from 'electron-log/main';
 import path from 'path';
 import 'regenerator-runtime/runtime';
 import { tl } from '../shared/i18n';
+import { startupMark, startupMeasure } from '../shared/startupProfiler';
 import { initAppInfoAPI } from './AppInfoAPI';
 import { initConsoleAPI } from './ConsoleAPI';
 import { initEventAPI } from './EventAPI';
 import { initIPC } from './IPC';
-import { initLocaleAPI } from './LocaleAPI';
 import { initNxmProtocolAPI } from './NxmProtocolAPI';
 import { RendererIPCAPI } from './RendererIPCAPI';
 import { initRequestAPI } from './RequestAPI';
 import { initShellAPI } from './ShellAPI';
-import { initUpdateInstallerAPI } from './UpdateInstallerAPI';
 import { getWorkers, spawnNewWorker } from './Workers';
-import { getInitialLocale, initI18n } from './i18n';
+import { initI18n } from './i18n';
 import { initPreferences } from './preferences';
 import { resolveHtmlPath } from './util';
 import { CURRENT_VERSION } from './version';
 
 (async () => {
+  startupMark('main', 'main process entry');
   const isSingleInstance = app.requestSingleInstanceLock();
   if (!isSingleInstance) {
     app.quit();
@@ -76,9 +76,10 @@ import { CURRENT_VERSION } from './version';
   };
 
   const createWindow = async () => {
+    startupMark('main', 'createWindow start');
     console.debug('[main] Initializing...');
     if (isDevelopment) {
-      await installExtensions();
+      await startupMeasure('main', 'installExtensions', installExtensions);
     }
 
     const RESOURCES_PATH = app.isPackaged
@@ -89,31 +90,45 @@ import { CURRENT_VERSION } from './version';
       return path.join(RESOURCES_PATH, ...paths);
     };
 
+    const preloadPath = path.join(__dirname, 'preload.js');
+    startupMark('main', `preload path setup: ${preloadPath}`);
+    startupMark('main', 'BrowserWindow constructor start');
     mainWindow = new BrowserWindow({
       show: false,
       width: 1024,
       height: 728,
       icon: getAssetPath('icon.png'),
       webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
+        preload: preloadPath,
         contextIsolation: true,
-        additionalArguments: [`--locale=${getInitialLocale()}`],
       },
     });
+    startupMark('main', 'BrowserWindow constructor completed');
     mainWindow.setTitle(
       `[D2RMM] Diablo II: Resurrected Mod Manager ${CURRENT_VERSION}`,
     );
     mainWindow.removeMenu();
 
     mainWindow.on('ready-to-show', () => {
+      startupMark('main', 'ready-to-show');
       if (!mainWindow) {
         throw new Error('"mainWindow" is not defined');
       }
       if (process.env.START_MINIMIZED) {
         mainWindow.minimize();
+        startupMark('main', 'window minimized');
       } else {
         mainWindow.show();
+        startupMark('main', 'window shown');
       }
+    });
+
+    mainWindow.webContents.on('dom-ready', () => {
+      startupMark('main', 'dom-ready');
+    });
+
+    mainWindow.webContents.on('did-finish-load', () => {
+      startupMark('main', 'did-finish-load');
     });
 
     mainWindow.on('closed', () => {
@@ -127,35 +142,34 @@ import { CURRENT_VERSION } from './version';
     });
 
     console.debug('[main] Initializing IPC...');
-    await initIPC(mainWindow);
+    await startupMeasure('main', 'initIPC', () => initIPC(mainWindow!));
     console.debug('[main] Initializing EventAPI...');
-    await initEventAPI();
+    await startupMeasure('main', 'initEventAPI', initEventAPI);
     console.debug('[main] Initializing ConsoleAPI...');
-    await initConsoleAPI();
+    await startupMeasure('main', 'initConsoleAPI', initConsoleAPI);
     console.debug('[main] Initializing AppInfoAPI...');
-    await initAppInfoAPI();
-    console.debug('[worker] Initializing LocaleAPI...');
-    await initLocaleAPI();
+    await startupMeasure('main', 'initAppInfoAPI', initAppInfoAPI);
     console.debug('[main] Initializing ShellAPI...');
-    await initShellAPI();
+    await startupMeasure('main', 'initShellAPI', initShellAPI);
     console.debug('[main] Initializing RequestAPI...');
-    await initRequestAPI();
-    console.debug('[main] Initializing UpdateInstallerAPI...');
-    await initUpdateInstallerAPI();
+    await startupMeasure('main', 'initRequestAPI', initRequestAPI);
     console.debug('[main] Initializing NxmProtocolAPI...');
-    await initNxmProtocolAPI();
+    await startupMeasure('main', 'initNxmProtocolAPI', initNxmProtocolAPI);
     console.debug('[main] Initialized');
 
     try {
       console.debug('[main] Spawning worker...');
-      await spawnNewWorker();
+      await startupMeasure('main', 'spawnNewWorker', spawnNewWorker);
       console.debug('[main] Worker spawned successfully!');
     } catch (e) {
       console.error(tl('main.worker.spawnFailed'), e);
       app.quit();
     }
 
-    await mainWindow.loadURL(resolveHtmlPath('index.html'));
+    await startupMeasure('main', 'loadURL', () =>
+      mainWindow!.loadURL(resolveHtmlPath('index.html')),
+    );
+    startupMark('main', 'createWindow completed');
   };
 
   app.on('window-all-closed', () => {
@@ -198,14 +212,17 @@ import { CURRENT_VERSION } from './version';
     }
   });
 
+  startupMark('main', 'initPreferences start');
   initPreferences();
+  startupMark('main', 'initPreferences completed');
 
   console.debug('[main] Initializing i18n...');
-  initI18n().catch(console.error);
+  startupMeasure('main', 'initI18n', initI18n).catch(console.error);
 
   app
     .whenReady()
     .then(() => {
+      startupMark('main', 'app.whenReady resolved');
       createWindow().catch(console.error);
       app.on('activate', () => {
         // On macOS it's common to re-create a window in the app when the

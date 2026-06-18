@@ -5,7 +5,9 @@ import {
 } from 'renderer/react/context/DialogContext';
 import useAsyncCallback from 'renderer/react/hooks/useAsyncCallback';
 import useSavedState from 'renderer/react/hooks/useSavedState';
+import deferUntilAfterFirstPaint from 'renderer/utils/deferUntilAfterFirstPaint';
 import { tl } from 'shared/i18n';
+import { startupMark, startupMeasure } from 'shared/startupProfiler';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -99,15 +101,38 @@ export default function useNxmProtocolRegistrar(): [
       return;
     }
     isInitialCheckDone.current = true;
-    (async () => {
-      const isRegisteredNew = await NxmProtocolAPI.getIsRegistered();
-      setIsRegistered(isRegisteredNew);
-      if (!isRejected && !isRegisteredNew) {
-        showRegistrarDialog();
-      }
-    })()
-      .then()
-      .catch(console.error);
+    startupMark(
+      'renderer',
+      'NxmProtocolAPI.getIsRegistered scheduled after first paint',
+    );
+    let isMounted = true;
+    const cancel = deferUntilAfterFirstPaint(() => {
+      startupMark('renderer', 'NxmProtocolAPI.getIsRegistered deferred start');
+      (async () => {
+        const isRegisteredNew = await startupMeasure(
+          'renderer',
+          'NxmProtocolAPI.getIsRegistered',
+          NxmProtocolAPI.getIsRegistered,
+        );
+        if (!isMounted) {
+          return;
+        }
+        setIsRegistered(isRegisteredNew);
+        startupMark(
+          'renderer',
+          `NxmProtocolAPI.getIsRegistered completed: ${String(isRegisteredNew)}`,
+        );
+        if (!isRejected && !isRegisteredNew) {
+          showRegistrarDialog();
+        }
+      })()
+        .then()
+        .catch(console.error);
+    });
+    return () => {
+      isMounted = false;
+      cancel();
+    };
   }, [isRejected, showRegistrarDialog]);
 
   return [isRegistered, onRegister, onUnregister];

@@ -1,13 +1,23 @@
 import type { D2RLoaderSettings } from 'bridge/BridgeAPI';
 
-type IniValueType = 'boolean' | 'integer' | 'quoted-string';
+export type D2RLoaderConfigFormat = 'ini' | 'toml';
 
-type IniSetting = {
+type D2RLoaderValueType = 'boolean' | 'integer' | 'quoted-string';
+
+type D2RLoaderSetting = {
   value: boolean | number | string;
-  type: IniValueType;
+  type: D2RLoaderValueType;
 };
 
-type IniSectionMap = Record<string, Record<string, IniSetting>>;
+type D2RLoaderSectionMap = Record<string, Record<string, D2RLoaderSetting>>;
+
+export const D2R_LOADER_CONFIG_FILES: Array<{
+  fileName: string;
+  format: D2RLoaderConfigFormat;
+}> = [
+  { fileName: 'D2RLoader.toml', format: 'toml' },
+  { fileName: 'D2RLoader.ini', format: 'ini' },
+];
 
 export function normalizeD2RLoaderSettings(
   settings: D2RLoaderSettings,
@@ -24,7 +34,9 @@ export function normalizeD2RLoaderSettings(
   };
 }
 
-function getD2RLoaderIniMap(settings: D2RLoaderSettings): IniSectionMap {
+function getD2RLoaderConfigMap(
+  settings: D2RLoaderSettings,
+): D2RLoaderSectionMap {
   const normalized = normalizeD2RLoaderSettings(settings);
   return {
     Game: {
@@ -78,7 +90,7 @@ function splitLines(text: string): string[] {
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
 }
 
-function formatIniValue(setting: IniSetting): string {
+function formatD2RLoaderValue(setting: D2RLoaderSetting): string {
   switch (setting.type) {
     case 'boolean':
       return setting.value ? 'true' : 'false';
@@ -120,14 +132,19 @@ function trimTrailingEmptyLine(lines: string[]): string[] {
   return lines;
 }
 
-export function updateD2RLoaderIni(
-  iniText: string,
+export function updateD2RLoaderConfig(
+  configText: string,
   settings: D2RLoaderSettings,
+  format: D2RLoaderConfigFormat,
 ): string {
-  const newline = detectNewline(iniText);
-  const hadTrailingNewline = /\r?\n$/.test(iniText);
-  const lines = trimTrailingEmptyLine(splitLines(iniText));
-  const sectionMap = getD2RLoaderIniMap(settings);
+  const newline = detectNewline(configText);
+  const hadTrailingNewline = /\r?\n$/.test(configText);
+  const lines = trimTrailingEmptyLine(splitLines(configText));
+  const sectionMap = getD2RLoaderConfigMap(settings);
+  const keyLinePattern =
+    format === 'toml'
+      ? /^(\s*)([^=;\s#][^=]*?)(\s*=\s*)(.*)$/
+      : /^(\s*)([^=;\s][^=]*?)(\s*=\s*)(.*)$/;
 
   for (const [sectionName, sectionSettings] of Object.entries(sectionMap)) {
     let sectionStart = lines.findIndex((line) => {
@@ -146,11 +163,11 @@ export function updateD2RLoaderIni(
     let sectionEnd = findSectionEnd(lines, sectionStart);
 
     for (const [key, setting] of Object.entries(sectionSettings)) {
-      const value = formatIniValue(setting);
+      const value = formatD2RLoaderValue(setting);
       let found = false;
 
       for (let i = sectionStart + 1; i < sectionEnd; i += 1) {
-        const match = lines[i].match(/^(\s*)([^=;\s][^=]*?)(\s*=\s*)(.*)$/);
+        const match = lines[i].match(keyLinePattern);
         if (match?.[2].trim() === key) {
           lines[i] = `${match[1]}${key}${match[3]}${value}`;
           found = true;
@@ -167,4 +184,18 @@ export function updateD2RLoaderIni(
   }
 
   return `${lines.join(newline)}${hadTrailingNewline ? newline : ''}`;
+}
+
+export function updateD2RLoaderIni(
+  iniText: string,
+  settings: D2RLoaderSettings,
+): string {
+  return updateD2RLoaderConfig(iniText, settings, 'ini');
+}
+
+export function updateD2RLoaderToml(
+  tomlText: string,
+  settings: D2RLoaderSettings,
+): string {
+  return updateD2RLoaderConfig(tomlText, settings, 'toml');
 }

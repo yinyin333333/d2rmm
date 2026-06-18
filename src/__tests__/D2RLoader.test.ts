@@ -1,6 +1,9 @@
 import {
+  D2R_LOADER_CONFIG_FILES,
   normalizeD2RLoaderSettings,
+  updateD2RLoaderConfig,
   updateD2RLoaderIni,
+  updateD2RLoaderToml,
 } from '../main/worker/D2RLoader';
 
 const SETTINGS = {
@@ -69,7 +72,9 @@ describe('D2RLoader INI writer', () => {
     );
 
     expect(output).toContain('[Advanced]\r\nglobal_plugins = false');
-    expect(output).toContain('[Advanced.Logging]\r\ndetect_early_crashes = true');
+    expect(output).toContain(
+      '[Advanced.Logging]\r\ndetect_early_crashes = true',
+    );
   });
 
   it('clamps numeric settings', () => {
@@ -81,5 +86,58 @@ describe('D2RLoader INI writer', () => {
 
     expect(normalized.extraSharedTabs).toBe(0);
     expect(normalized.damageIndicator).toBe(0);
+  });
+});
+
+describe('D2RLoader TOML writer', () => {
+  it('prefers TOML before INI when both config files exist', () => {
+    expect(D2R_LOADER_CONFIG_FILES.map(({ fileName }) => fileName)).toEqual([
+      'D2RLoader.toml',
+      'D2RLoader.ini',
+    ]);
+  });
+
+  it('updates TOML keys while preserving comments and table order', () => {
+    const input = [
+      '# header',
+      '',
+      '[Game]',
+      '# current mod',
+      'default_mod = "OldMod"',
+      '',
+      '[Items]',
+      'show_ground_sockets = false',
+      '',
+      '[Advanced.Logging]',
+      'damage_indicator = 0',
+      '',
+    ].join('\n');
+
+    const output = updateD2RLoaderToml(input, SETTINGS);
+
+    expect(output).toContain('# header\n\n[Game]');
+    expect(output).toContain('# current mod\ndefault_mod = "D2RMMRE"');
+    expect(output.indexOf('[Game]')).toBeLessThan(output.indexOf('[Items]'));
+    expect(output.indexOf('[Items]')).toBeLessThan(
+      output.indexOf('[Advanced.Logging]'),
+    );
+  });
+
+  it('writes TOML booleans as lowercase and integers unquoted', () => {
+    const output = updateD2RLoaderConfig('[Game]\n', SETTINGS, 'toml');
+
+    expect(output).toContain('skip_title_screen = true');
+    expect(output).toContain('extra_shared_tabs = 3');
+    expect(output).toContain('damage_indicator = 2');
+  });
+
+  it('adds missing TOML tables', () => {
+    const output = updateD2RLoaderToml(
+      '[Game]\ndefault_mod = "Old"\n',
+      SETTINGS,
+    );
+
+    expect(output).toContain('[Advanced]\nglobal_plugins = false');
+    expect(output).toContain('[Advanced.Logging]\ndetect_early_crashes = true');
   });
 });

@@ -8,6 +8,7 @@ import getNexusModID from 'renderer/react/context/utils/getNexusModID';
 import getUpdatesFromDownloads from 'renderer/react/context/utils/getUpdatesFromDownloads';
 import useAsyncCallback from 'renderer/react/hooks/useAsyncCallback';
 import { compareVersions } from 'renderer/utils/version';
+import { startupMark, startupMeasure } from 'shared/startupProfiler';
 
 export default function useCheckModsForUpdates(
   nexusAuthState: INexusAuthState,
@@ -18,34 +19,40 @@ export default function useCheckModsForUpdates(
   return useAsyncCallback(async (): Promise<void> => {
     const modsToCheck = mods.filter((mod) => getNexusModID(mod) != null);
     if (nexusAuthState.apiKey == null || modsToCheck.length === 0) {
+      startupMark('renderer', 'mod update check skipped');
       return;
     }
 
     // TODO: handle errors in a better way
-    const results = await Promise.all(
-      modsToCheck.map(
-        async (
-          mod,
-        ): Promise<
-          [Mod, ModUpdaterNexusDownload[], ModUpdaterNexusDownload[]]
-        > => {
-          const currentVersion = mod.info.version ?? '0';
+    const results = await startupMeasure(
+      'renderer',
+      `mod update check for ${modsToCheck.length} mods`,
+      () =>
+        Promise.all(
+          modsToCheck.map(
+            async (
+              mod,
+            ): Promise<
+              [Mod, ModUpdaterNexusDownload[], ModUpdaterNexusDownload[]]
+            > => {
+              const currentVersion = mod.info.version ?? '0';
 
-          const nexusDownloads = (
-            await ModUpdaterAPI.getDownloadsViaNexus(
-              nexusAuthState.apiKey as string,
-              getNexusModID(mod) as string,
-            )
-          ).sort((a, b) => compareVersions(a.version, b.version));
+              const nexusDownloads = (
+                await ModUpdaterAPI.getDownloadsViaNexus(
+                  nexusAuthState.apiKey as string,
+                  getNexusModID(mod) as string,
+                )
+              ).sort((a, b) => compareVersions(a.version, b.version));
 
-          const nexusUpdates = getUpdatesFromDownloads(
-            currentVersion,
-            nexusDownloads,
-          );
+              const nexusUpdates = getUpdatesFromDownloads(
+                currentVersion,
+                nexusDownloads,
+              );
 
-          return [mod, nexusDownloads, nexusUpdates];
-        },
-      ),
+              return [mod, nexusDownloads, nexusUpdates];
+            },
+          ),
+        ),
     );
 
     setUpdates((oldUpdates) => {
