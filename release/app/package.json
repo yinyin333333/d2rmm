@@ -4,9 +4,7 @@
   "description": "A mod manager for Diablo II: Resurrected.",
   "main": "./dist/main/main.js",
   "author": {
-    "name": "Oleg Lokhvitsky",
-    "email": "olegbl@gmail.com",
-    "url": "https://github.com/olegbl/d2rmm"
+    "name": "yinyin333333"
   },
   "scripts": {
     "electron-rebuild": "node -r ts-node/register ../../.erb/scripts/electron-rebuild.js",

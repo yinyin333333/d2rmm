@@ -28,9 +28,10 @@ export default function RunGameButton(_props: Props): JSX.Element {
   const [d2rLoaderSettings] = useD2RLoaderSettings();
   const command = useMemo(
     () =>
-      d2rLoaderSettings.useD2RLoader
-        ? 'D2RLoader.exe'
-        : ['D2R.exe'].concat(args).join(' '),
+      [
+        d2rLoaderSettings.useD2RLoader ? 'D2RLoader.exe' : 'D2R.exe',
+        ...args,
+      ].join(' '),
     [args, d2rLoaderSettings.useD2RLoader],
   );
 
@@ -58,7 +59,7 @@ export default function RunGameButton(_props: Props): JSX.Element {
         damageIndicator: d2rLoaderSettings.damageIndicator,
         jsonResourceLoads: d2rLoaderSettings.jsonResourceLoads,
       });
-      await BridgeAPI.execute(pathD2RLoaderExe, []);
+      await BridgeAPI.execute(pathD2RLoaderExe, args);
       return;
     }
 

@@ -32,7 +32,7 @@
     "*.{html,md,yml}": ["prettier --single-quote --write"]
   },
   "build": {
-    "productName": "D2RMM",
+    "productName": "D2RMM Custom",
     "appId": "com.lokhvitsky.D2RMM",
     "artifactName": "${productName} ${version}.${ext}",
     "asar": true,
@@ -106,9 +106,7 @@
     "url": "git+https://github.com/olegbl/d2rmm.git"
   },
   "author": {
-    "name": "Oleg Lokhvitsky",
-    "email": "olegbl@gmail.com",
-    "url": "https://github.com/olegbl/d2rmm"
+    "name": "yinyin333333"
   },
   "contributors": [],
   "license": "MIT",
