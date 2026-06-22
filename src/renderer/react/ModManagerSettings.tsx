@@ -91,6 +91,89 @@ function parseExtraSharedTabsInput(value: string): number | null {
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : null;
 }
 
+const SEED_ARG = '-seed';
+
+const LAUNCH_ARG_OPTIONS = [
+  { arg: '-ns', label: 'settings.launcher.arg.noSound' },
+  { arg: '-w', label: 'settings.launcher.arg.window' },
+  { arg: '-skiplogovideo', label: 'settings.launcher.arg.skipIntro' },
+  { arg: '-enablerespec', label: 'settings.launcher.arg.respec' },
+  { arg: '-resetofflinemaps', label: 'settings.launcher.arg.resetMaps' },
+] as const;
+
+function normalizeExtraArgs(args: string[]): string[] {
+  return args.map((arg) => arg.trim()).filter(Boolean);
+}
+
+function parseExtraArgsText(value: string): string[] {
+  return normalizeExtraArgs(value.split(/\s+/));
+}
+
+function hasExtraArg(args: string[], arg: string): boolean {
+  return normalizeExtraArgs(args).includes(arg);
+}
+
+function setExtraArgEnabled(
+  args: string[],
+  arg: string,
+  enabled: boolean,
+): string[] {
+  const normalizedArgs = normalizeExtraArgs(args);
+  if (enabled) {
+    return hasExtraArg(normalizedArgs, arg)
+      ? normalizedArgs
+      : [...normalizedArgs, arg];
+  }
+  return normalizedArgs.filter((value) => value !== arg);
+}
+
+function getSeedValue(args: string[]): string {
+  const normalizedArgs = normalizeExtraArgs(args);
+  const seedIndex = normalizedArgs.indexOf(SEED_ARG);
+  if (seedIndex === -1) {
+    return '';
+  }
+
+  const value = normalizedArgs[seedIndex + 1];
+  return value != null && !value.startsWith('-') ? value : '';
+}
+
+function removeSeedArg(args: string[]): string[] {
+  const normalizedArgs = normalizeExtraArgs(args);
+  const result: string[] = [];
+  for (let i = 0; i < normalizedArgs.length; i += 1) {
+    if (normalizedArgs[i] === SEED_ARG) {
+      const nextArg = normalizedArgs[i + 1];
+      if (nextArg != null && !nextArg.startsWith('-')) {
+        i += 1;
+      }
+      continue;
+    }
+    result.push(normalizedArgs[i]);
+  }
+  return result;
+}
+
+function setSeedEnabled(args: string[], enabled: boolean): string[] {
+  const seedValue = getSeedValue(args);
+  const nextArgs = removeSeedArg(args);
+  return enabled
+    ? [...nextArgs, SEED_ARG, ...(seedValue !== '' ? [seedValue] : [])]
+    : nextArgs;
+}
+
+function setSeedValue(args: string[], value: string): string[] {
+  const numericValue = value.replace(/\D/g, '');
+  if (!hasExtraArg(args, SEED_ARG)) {
+    return normalizeExtraArgs(args);
+  }
+  return [
+    ...removeSeedArg(args),
+    SEED_ARG,
+    ...(numericValue !== '' ? [numericValue] : []),
+  ];
+}
+
 export default function ModManagerSettings(_props: Props): JSX.Element {
   const { t } = useTranslation();
   const [extraArgs, setExtraArgs] = useExtraGameLaunchArgs();
@@ -120,6 +203,9 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
   const [themeMode, setThemeMode] = useThemeMode();
 
   const dataSource = isPreExtractedData ? 'directory' : 'casc';
+  const normalizedExtraArgs = normalizeExtraArgs(extraArgs);
+  const isSeedEnabled = hasExtraArg(normalizedExtraArgs, SEED_ARG);
+  const seedValue = getSeedValue(normalizedExtraArgs);
 
   const setD2RLoaderSetting = useCallback(
     <TKey extends keyof D2RLoaderSettingsState>(
@@ -456,38 +542,77 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
           <TextField
             fullWidth={true}
             label={t('settings.launcher.extraArgs.label')}
-            onChange={(event) => setExtraArgs(event.target.value.split(' '))}
-            value={extraArgs.join(' ')}
+            onChange={(event) =>
+              setExtraArgs(parseExtraArgsText(event.target.value))
+            }
+            value={normalizedExtraArgs.join(' ')}
             variant="filled"
           />
-          {['-enablerespec', '-resetofflinemaps', '-w'].map((arg) => (
+          {LAUNCH_ARG_OPTIONS.map(({ arg, label }) => (
             <ListItemButton
               key={arg}
               onClick={() => {
-                if (extraArgs.map((a) => a.trim()).includes(arg)) {
-                  setExtraArgs(extraArgs.filter((a) => a.trim() !== arg));
-                } else {
-                  setExtraArgs([...extraArgs, arg]);
-                }
+                setExtraArgs((args) =>
+                  setExtraArgEnabled(args, arg, !hasExtraArg(args, arg)),
+                );
               }}
             >
               <ListItemIcon>
                 <Checkbox
-                  checked={extraArgs.map((a) => a.trim()).includes(arg)}
+                  checked={hasExtraArg(normalizedExtraArgs, arg)}
                   disableRipple={true}
                   edge="start"
                   inputProps={{
-                    'aria-labelledby': 'enable-respec',
+                    'aria-labelledby': `launcher-arg-${arg}`,
                   }}
                   tabIndex={-1}
                 />
               </ListItemIcon>
               <ListItemText
-                id="enable-respec"
-                primary={t('settings.launcher.arg.include', { arg })}
+                id={`launcher-arg-${arg}`}
+                primary={t(label)}
+                secondary={arg}
               />
             </ListItemButton>
           ))}
+          <ListItemButton
+            onClick={() => {
+              setExtraArgs((args) =>
+                setSeedEnabled(args, !hasExtraArg(args, SEED_ARG)),
+              );
+            }}
+          >
+            <ListItemIcon>
+              <Checkbox
+                checked={isSeedEnabled}
+                disableRipple={true}
+                edge="start"
+                inputProps={{
+                  'aria-labelledby': 'launcher-arg-seed',
+                }}
+                tabIndex={-1}
+              />
+            </ListItemIcon>
+            <ListItemText
+              id="launcher-arg-seed"
+              primary={t('settings.launcher.arg.seed')}
+              secondary={SEED_ARG}
+            />
+          </ListItemButton>
+          <TextField
+            disabled={!isSeedEnabled}
+            fullWidth={true}
+            inputProps={{
+              inputMode: 'numeric',
+              pattern: '[0-9]*',
+            }}
+            label={t('settings.launcher.arg.seedValue.label')}
+            onChange={(event) => {
+              setExtraArgs((args) => setSeedValue(args, event.target.value));
+            }}
+            value={seedValue}
+            variant="filled"
+          />
         </StyledAccordionDetails>
       </StyledAccordion>
       <StyledAccordion

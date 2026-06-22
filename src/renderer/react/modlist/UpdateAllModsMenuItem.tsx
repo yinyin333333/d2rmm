@@ -1,5 +1,5 @@
 import type { ModUpdaterDownload } from 'bridge/ModUpdaterAPI';
-import { useMods } from 'renderer/react/context/ModsContext';
+import { useIsLoadingMods, useMods } from 'renderer/react/context/ModsContext';
 import useModInstaller from 'renderer/react/context/hooks/useModInstaller';
 import useModUpdates from 'renderer/react/context/hooks/useModUpdates';
 import useNexusAuthState from 'renderer/react/context/hooks/useNexusAuthState';
@@ -17,6 +17,7 @@ export default function UpdateAllModsMenuItem({
   onHideMenu: () => void;
 }): JSX.Element | null {
   const { t } = useTranslation();
+  const isLoadingMods = useIsLoadingMods();
   const showToast = useToast();
   const { nexusAuthState } = useNexusAuthState();
   const installMod = useModInstaller(nexusAuthState);
@@ -57,6 +58,10 @@ export default function UpdateAllModsMenuItem({
   }, [mods, updates, nexusAuthState.isPremium]);
 
   const onUpdateAll = useAsyncCallback(async () => {
+    if (isLoadingMods) {
+      return;
+    }
+
     onHideMenu();
     for (const { modID, modName, nexusModID, download } of pendingUpdates) {
       try {
@@ -74,14 +79,18 @@ export default function UpdateAllModsMenuItem({
         });
       }
     }
-  }, [onHideMenu, pendingUpdates, installMod, showToast, t]);
+  }, [isLoadingMods, onHideMenu, pendingUpdates, installMod, showToast, t]);
 
   if (pendingUpdates.length === 0) {
     return null;
   }
 
   return (
-    <MenuItem disableRipple={true} onClick={onUpdateAll}>
+    <MenuItem
+      disabled={isLoadingMods}
+      disableRipple={true}
+      onClick={onUpdateAll}
+    >
       <SystemUpdateAlt sx={{ marginRight: 1 }} />
       {t('modlist.menu.updateAll', { count: pendingUpdates.length })}
     </MenuItem>

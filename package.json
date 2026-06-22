@@ -33,7 +33,7 @@
   },
   "build": {
     "productName": "D2RMM Custom",
-    "appId": "com.lokhvitsky.D2RMM",
+    "appId": "com.yinyin333333.D2RMMCustom",
     "artifactName": "${productName} ${version}.${ext}",
     "asar": true,
     "asarUnpack": [
@@ -97,13 +97,13 @@
     "afterSign": "./afterSign.js",
     "publish": {
       "provider": "github",
-      "owner": "olegbl",
-      "repo": "olegbl"
+      "owner": "yinyin333333",
+      "repo": "d2rmm"
     }
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/olegbl/d2rmm.git"
+    "url": "git+https://github.com/yinyin333333/d2rmm.git"
   },
   "author": {
     "name": "yinyin333333"
@@ -111,10 +111,10 @@
   "contributors": [],
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/olegbl/d2rmm/issues"
+    "url": "https://github.com/yinyin333333/d2rmm/issues"
   },
   "keywords": [],
-  "homepage": "https://github.com/olegbl/d2rmm#readme",
+  "homepage": "https://github.com/yinyin333333/d2rmm#readme",
   "devDependencies": {
     "@babel/preset-env": "^7",
     "@babel/preset-react": "^7",

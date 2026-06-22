@@ -2,7 +2,10 @@ import BridgeAPI from 'renderer/BridgeAPI';
 import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useSanitizedGamePath } from 'renderer/react/context/GamePathContext';
 import { useInstallBeforeRun } from 'renderer/react/context/InstallBeforeRunContext';
-import { useIsInstallConfigChanged } from 'renderer/react/context/ModsContext';
+import {
+  useIsInstallConfigChanged,
+  useIsLoadingMods,
+} from 'renderer/react/context/ModsContext';
 import { useOutputModName } from 'renderer/react/context/OutputModNameContext';
 import useAsyncCallback from 'renderer/react/hooks/useAsyncCallback';
 import useGameLaunchArgs from 'renderer/react/hooks/useGameLaunchArgs';
@@ -21,6 +24,7 @@ type Props = Record<string, never>;
 export default function RunGameButton(_props: Props): JSX.Element {
   const { t } = useTranslation();
   const isInstallConfigChanged = useIsInstallConfigChanged();
+  const isLoadingMods = useIsLoadingMods();
 
   const gamePath = useSanitizedGamePath();
   const args = useGameLaunchArgs();
@@ -40,6 +44,10 @@ export default function RunGameButton(_props: Props): JSX.Element {
   const onInstallMods = useInstallMods();
 
   const onPress = useAsyncCallback(async () => {
+    if (isLoadingMods) {
+      return;
+    }
+
     if (isInstallBeforeRunEnabled) {
       if (!(await onInstallMods())) {
         return;
@@ -72,27 +80,33 @@ export default function RunGameButton(_props: Props): JSX.Element {
     gamePath,
     outputModName,
     args,
+    isLoadingMods,
   ]);
 
   const tooltipText = isInstallConfigChanged
     ? `${t('run.tooltip', { command })} ${t('run.tooltip.unsaved')}`
     : t('run.tooltip', { command });
 
+  const button = (
+    <Button
+      disabled={isLoadingMods}
+      onClick={onPress}
+      startIcon={
+        !isInstallConfigChanged ? (
+          <PlayCircleFilled />
+        ) : (
+          <PlayCircleOutlineOutlined />
+        )
+      }
+      variant={!isInstallConfigChanged ? 'contained' : 'outlined'}
+    >
+      {t('run.button')}
+    </Button>
+  );
+
   return (
     <Tooltip title={tooltipText}>
-      <Button
-        onClick={onPress}
-        startIcon={
-          !isInstallConfigChanged ? (
-            <PlayCircleFilled />
-          ) : (
-            <PlayCircleOutlineOutlined />
-          )
-        }
-        variant={!isInstallConfigChanged ? 'contained' : 'outlined'}
-      >
-        {t('run.button')}
-      </Button>
+      <span style={{ display: 'inline-flex' }}>{button}</span>
     </Tooltip>
   );
 }

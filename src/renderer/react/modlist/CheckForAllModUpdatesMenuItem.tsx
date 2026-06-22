@@ -1,3 +1,4 @@
+import { useIsLoadingMods } from 'renderer/react/context/ModsContext';
 import useCheckModsForUpdates from 'renderer/react/context/hooks/useCheckModsForUpdates';
 import useNexusAuthState from 'renderer/react/context/hooks/useNexusAuthState';
 import useAsyncCallback from 'renderer/react/hooks/useAsyncCallback';
@@ -11,16 +12,25 @@ export default function CheckForAllModUpdatesMenuItem({
   onHideMenu: () => void;
 }): JSX.Element {
   const { t } = useTranslation();
+  const isLoadingMods = useIsLoadingMods();
   const { nexusAuthState } = useNexusAuthState();
   const checkModsForUpdates = useCheckModsForUpdates(nexusAuthState);
 
   const onCheckForUpdates = useAsyncCallback(async () => {
+    if (isLoadingMods) {
+      return;
+    }
+
     onHideMenu();
     await checkModsForUpdates();
-  }, [checkModsForUpdates, onHideMenu]);
+  }, [checkModsForUpdates, isLoadingMods, onHideMenu]);
 
   return (
-    <MenuItem disableRipple={true} onClick={onCheckForUpdates}>
+    <MenuItem
+      disabled={isLoadingMods}
+      disableRipple={true}
+      onClick={onCheckForUpdates}
+    >
       <Update sx={{ marginRight: 1 }} />
       {t('modlist.menu.checkUpdates')}
     </MenuItem>
