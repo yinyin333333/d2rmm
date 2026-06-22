@@ -25,6 +25,16 @@ import useNexusAuthState from 'renderer/react/context/hooks/useNexusAuthState';
 import { useAsyncMemo } from 'renderer/react/hooks/useAsyncMemo';
 import { useIsFocused } from 'renderer/react/hooks/useIsFocused';
 import InstallBeforeRunSettings from 'renderer/react/mmsettings/InstallBeforeRunSettings';
+import {
+  SEED_ARG,
+  getSeedValue,
+  hasExtraArg,
+  normalizeLaunchArgs,
+  parseExtraArgsText,
+  removeSeedArg,
+  setExtraArgEnabled,
+  setSeedValue,
+} from 'renderer/react/utils/launchArgs';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ExpandMore from '@mui/icons-material/ExpandMore';
@@ -91,8 +101,6 @@ function parseExtraSharedTabsInput(value: string): number | null {
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : null;
 }
 
-const SEED_ARG = '-seed';
-
 const LAUNCH_ARG_OPTIONS = [
   { arg: '-ns', label: 'settings.launcher.arg.noSound' },
   { arg: '-w', label: 'settings.launcher.arg.window' },
@@ -101,82 +109,12 @@ const LAUNCH_ARG_OPTIONS = [
   { arg: '-resetofflinemaps', label: 'settings.launcher.arg.resetMaps' },
 ] as const;
 
-function normalizeExtraArgs(args: string[]): string[] {
-  return args.map((arg) => arg.trim()).filter(Boolean);
-}
-
-function parseExtraArgsText(value: string): string[] {
-  return normalizeExtraArgs(value.split(/\s+/));
-}
-
-function hasExtraArg(args: string[], arg: string): boolean {
-  return normalizeExtraArgs(args).includes(arg);
-}
-
-function setExtraArgEnabled(
-  args: string[],
-  arg: string,
-  enabled: boolean,
-): string[] {
-  const normalizedArgs = normalizeExtraArgs(args);
-  if (enabled) {
-    return hasExtraArg(normalizedArgs, arg)
-      ? normalizedArgs
-      : [...normalizedArgs, arg];
-  }
-  return normalizedArgs.filter((value) => value !== arg);
-}
-
-function getSeedValue(args: string[]): string {
-  const normalizedArgs = normalizeExtraArgs(args);
-  const seedIndex = normalizedArgs.indexOf(SEED_ARG);
-  if (seedIndex === -1) {
-    return '';
-  }
-
-  const value = normalizedArgs[seedIndex + 1];
-  return value != null && !value.startsWith('-') ? value : '';
-}
-
-function removeSeedArg(args: string[]): string[] {
-  const normalizedArgs = normalizeExtraArgs(args);
-  const result: string[] = [];
-  for (let i = 0; i < normalizedArgs.length; i += 1) {
-    if (normalizedArgs[i] === SEED_ARG) {
-      const nextArg = normalizedArgs[i + 1];
-      if (nextArg != null && !nextArg.startsWith('-')) {
-        i += 1;
-      }
-      continue;
-    }
-    result.push(normalizedArgs[i]);
-  }
-  return result;
-}
-
-function setSeedEnabled(args: string[], enabled: boolean): string[] {
-  const seedValue = getSeedValue(args);
-  const nextArgs = removeSeedArg(args);
-  return enabled
-    ? [...nextArgs, SEED_ARG, ...(seedValue !== '' ? [seedValue] : [])]
-    : nextArgs;
-}
-
-function setSeedValue(args: string[], value: string): string[] {
-  const numericValue = value.replace(/\D/g, '');
-  if (!hasExtraArg(args, SEED_ARG)) {
-    return normalizeExtraArgs(args);
-  }
-  return [
-    ...removeSeedArg(args),
-    SEED_ARG,
-    ...(numericValue !== '' ? [numericValue] : []),
-  ];
-}
-
 export default function ModManagerSettings(_props: Props): JSX.Element {
   const { t } = useTranslation();
   const [extraArgs, setExtraArgs] = useExtraGameLaunchArgs();
+  const [isSeedEditorEnabled, setIsSeedEditorEnabled] = useState(() =>
+    hasExtraArg(extraArgs, SEED_ARG),
+  );
   const [normalizeOutputCRLF, setNormalizeOutputCRLF] =
     useNormalizeCRLFOnInstall();
   const [d2rLoaderSettings, setD2RLoaderSettings] = useD2RLoaderSettings();
@@ -203,9 +141,9 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
   const [themeMode, setThemeMode] = useThemeMode();
 
   const dataSource = isPreExtractedData ? 'directory' : 'casc';
-  const normalizedExtraArgs = normalizeExtraArgs(extraArgs);
-  const isSeedEnabled = hasExtraArg(normalizedExtraArgs, SEED_ARG);
-  const seedValue = getSeedValue(normalizedExtraArgs);
+  const normalizedExtraArgs = normalizeLaunchArgs(extraArgs);
+  const seedValue = getSeedValue(extraArgs);
+  const isSeedInputEnabled = isSeedEditorEnabled || seedValue !== '';
 
   const setD2RLoaderSetting = useCallback(
     <TKey extends keyof D2RLoaderSettingsState>(
@@ -542,9 +480,11 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
           <TextField
             fullWidth={true}
             label={t('settings.launcher.extraArgs.label')}
-            onChange={(event) =>
-              setExtraArgs(parseExtraArgsText(event.target.value))
-            }
+            onChange={(event) => {
+              const parsedArgs = parseExtraArgsText(event.target.value);
+              setExtraArgs(parsedArgs);
+              setIsSeedEditorEnabled(hasExtraArg(parsedArgs, SEED_ARG));
+            }}
             value={normalizedExtraArgs.join(' ')}
             variant="filled"
           />
@@ -577,14 +517,17 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
           ))}
           <ListItemButton
             onClick={() => {
-              setExtraArgs((args) =>
-                setSeedEnabled(args, !hasExtraArg(args, SEED_ARG)),
-              );
+              if (isSeedInputEnabled) {
+                setIsSeedEditorEnabled(false);
+                setExtraArgs(removeSeedArg);
+              } else {
+                setIsSeedEditorEnabled(true);
+              }
             }}
           >
             <ListItemIcon>
               <Checkbox
-                checked={isSeedEnabled}
+                checked={isSeedInputEnabled}
                 disableRipple={true}
                 edge="start"
                 inputProps={{
@@ -600,7 +543,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
             />
           </ListItemButton>
           <TextField
-            disabled={!isSeedEnabled}
+            disabled={!isSeedInputEnabled}
             fullWidth={true}
             inputProps={{
               inputMode: 'numeric',
