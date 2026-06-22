@@ -184,6 +184,7 @@
   "settings.d2rLoader.jsonResourceLoads": "Log JSON resource loads",
   "settings.d2rLoader.missingExe": "D2RLoader.exe was not found in the selected game directory.",
   "settings.d2rLoader.missingIni": "D2RLoader.ini or D2RLoader.toml was not found in the selected game directory.",
+  "settings.d2rLoader.noTomlSettings": "No editable settings were found in D2RLoader.toml.",
   "settings.d2rLoader.showGroundSockets": "Show ground sockets",
   "settings.d2rLoader.skipTitleScreen": "Skip title screen",
   "settings.d2rLoader.title": "D2RLoader",

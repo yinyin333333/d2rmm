@@ -10,6 +10,7 @@ import {
 
 const mockState = {
   installMods: jest.fn(),
+  readD2RLoaderConfig: jest.fn(),
   readModDirectory: jest.fn(),
 };
 
@@ -33,6 +34,9 @@ jest.mock('renderer/IPC', () => ({
             if (api === 'readModDirectory') {
               return mockState.readModDirectory(...args);
             }
+            if (api === 'readD2RLoaderConfig') {
+              return mockState.readD2RLoaderConfig(...args);
+            }
             return [];
           },
       },
@@ -46,7 +50,9 @@ jest.mock('renderer/AppInfoAPI', () => ({
 
 describe('App', () => {
   beforeEach(() => {
+    localStorage.clear();
     mockState.installMods.mockResolvedValue(undefined);
+    mockState.readD2RLoaderConfig.mockResolvedValue(null);
     mockState.readModDirectory.mockResolvedValue([]);
   });
 
@@ -63,6 +69,46 @@ describe('App', () => {
     const logsTab = screen.getByRole('tab', { name: 'Logs' });
     fireEvent.click(logsTab);
     expect(logsTab).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('should render dynamic D2RLoader TOML settings', async () => {
+    localStorage.setItem(
+      'd2r-loader-settings',
+      JSON.stringify({ useD2RLoader: true }),
+    );
+    mockState.readD2RLoaderConfig.mockResolvedValue({
+      fileName: 'D2RLoader.toml',
+      format: 'toml',
+      settings: [
+        {
+          id: 'd2rcore.items.show_ground_sockets',
+          section: 'd2rcore.items',
+          key: 'show_ground_sockets',
+          value: false,
+          valueType: 'boolean',
+          description: 'Show socket counts on normal/superior ground items.',
+        },
+        {
+          id: 'd2rloader.default_mod',
+          section: 'd2rloader',
+          key: 'default_mod',
+          value: '',
+          valueType: 'string',
+          description: 'Automatically pass -mod and -txt with this value.',
+        },
+      ],
+    });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    expect(await screen.findByText('d2rcore.items')).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'Show socket counts on normal/superior ground items.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Default mod')).not.toBeInTheDocument();
   });
 
   it('should disable install and run while the initial mod list is loading', async () => {

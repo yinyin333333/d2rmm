@@ -66,6 +66,7 @@ export default function RunGameButton(_props: Props): JSX.Element {
         detectEarlyCrashes: d2rLoaderSettings.detectEarlyCrashes,
         damageIndicator: d2rLoaderSettings.damageIndicator,
         jsonResourceLoads: d2rLoaderSettings.jsonResourceLoads,
+        tomlSettings: d2rLoaderSettings.tomlSettings,
       });
       await BridgeAPI.execute(pathD2RLoaderExe, args);
       return;

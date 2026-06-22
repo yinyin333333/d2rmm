@@ -1,3 +1,8 @@
+import type {
+  D2RLoaderConfig,
+  D2RLoaderConfigValue,
+  D2RLoaderTomlSetting,
+} from 'bridge/BridgeAPI';
 import { getBaseSavesPath } from 'renderer/AppInfoAPI';
 import BridgeAPI from 'renderer/BridgeAPI';
 import ShellAPI from 'renderer/ShellAPI';
@@ -35,7 +40,7 @@ import {
   setExtraArgEnabled,
   setSeedValue,
 } from 'renderer/react/utils/launchArgs';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import {
@@ -109,12 +114,54 @@ const LAUNCH_ARG_OPTIONS = [
   { arg: '-resetofflinemaps', label: 'settings.launcher.arg.resetMaps' },
 ] as const;
 
+function formatD2RLoaderTomlLabel(key: string): string {
+  const label = key.replace(/_/g, ' ');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function getD2RLoaderTomlNumberBounds(setting: D2RLoaderTomlSetting): {
+  min?: number;
+  max?: number;
+} {
+  if (
+    setting.section === 'd2rcore.stash' &&
+    setting.key === 'set_shared_tabs'
+  ) {
+    return { min: 5 };
+  }
+
+  if (
+    setting.section === 'd2rcore.stash' &&
+    setting.key === 'set_materials_limit'
+  ) {
+    return { min: 99, max: 255 };
+  }
+
+  return {};
+}
+
+function isEditableD2RLoaderTomlSetting(
+  setting: D2RLoaderTomlSetting,
+): boolean {
+  return (
+    setting.section !== 'd2rcore.fonts' &&
+    setting.id !== 'd2rloader.default_mod'
+  );
+}
+
 export default function ModManagerSettings(_props: Props): JSX.Element {
   const { t } = useTranslation();
   const [extraArgs, setExtraArgs] = useExtraGameLaunchArgs();
   const [isSeedEditorEnabled, setIsSeedEditorEnabled] = useState(() =>
     hasExtraArg(extraArgs, SEED_ARG),
   );
+  const [d2rLoaderConfig, setD2RLoaderConfig] =
+    useState<D2RLoaderConfig | null>(null);
+  const [isD2RLoaderConfigLoading, setIsD2RLoaderConfigLoading] =
+    useState(false);
+  const [d2rLoaderTomlInputValues, setD2RLoaderTomlInputValues] = useState<
+    Record<string, string>
+  >({});
   const [normalizeOutputCRLF, setNormalizeOutputCRLF] =
     useNormalizeCRLFOnInstall();
   const [d2rLoaderSettings, setD2RLoaderSettings] = useD2RLoaderSettings();
@@ -158,6 +205,88 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
     [setD2RLoaderSettings],
   );
 
+  const setD2RLoaderTomlSetting = useCallback(
+    (id: string, value: D2RLoaderConfigValue) => {
+      setD2RLoaderSettings((settings) => ({
+        ...settings,
+        tomlSettings: {
+          ...(settings.tomlSettings ?? {}),
+          [id]: value,
+        },
+      }));
+    },
+    [setD2RLoaderSettings],
+  );
+
+  const getD2RLoaderTomlSettingValue = useCallback(
+    (setting: D2RLoaderTomlSetting): D2RLoaderConfigValue =>
+      d2rLoaderSettings.tomlSettings?.[setting.id] ?? setting.value,
+    [d2rLoaderSettings.tomlSettings],
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsD2RLoaderConfigLoading(true);
+    BridgeAPI.readD2RLoaderConfig(gamePath)
+      .then((config) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setD2RLoaderConfig(config);
+        if (config?.format === 'toml') {
+          const settingIDs = new Set(config.settings.map(({ id }) => id));
+          setD2RLoaderSettings((settings) => {
+            const tomlSettings = Object.fromEntries(
+              Object.entries(settings.tomlSettings ?? {}).filter(([id]) =>
+                settingIDs.has(id),
+              ),
+            );
+            return { ...settings, tomlSettings };
+          });
+        }
+      })
+      .catch((error) => {
+        console.error(error);
+        if (isMounted) {
+          setD2RLoaderConfig(null);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsD2RLoaderConfigLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [gamePath, setD2RLoaderSettings]);
+
+  const d2rLoaderTomlSections = useMemo(() => {
+    if (d2rLoaderConfig?.format !== 'toml') {
+      return [];
+    }
+
+    const sections: Array<{
+      section: string;
+      settings: D2RLoaderTomlSetting[];
+    }> = [];
+
+    for (const setting of d2rLoaderConfig.settings.filter(
+      isEditableD2RLoaderTomlSetting,
+    )) {
+      let section = sections.find((entry) => entry.section === setting.section);
+      if (section == null) {
+        section = { section: setting.section, settings: [] };
+        sections.push(section);
+      }
+      section.settings.push(setting);
+    }
+
+    return sections;
+  }, [d2rLoaderConfig]);
+
   useEffect(() => {
     setExtraSharedTabsInput(String(d2rLoaderSettings.extraSharedTabs));
   }, [d2rLoaderSettings.extraSharedTabs]);
@@ -189,6 +318,100 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
     registerAsNxmProtocolHandler,
     unregisterAsNxmProtocolHandler,
   } = useNexusAuthState();
+
+  const renderD2RLoaderTomlSetting = (
+    setting: D2RLoaderTomlSetting,
+  ): JSX.Element => {
+    const value = getD2RLoaderTomlSettingValue(setting);
+    const label = formatD2RLoaderTomlLabel(setting.key);
+    const description = setting.description || setting.id;
+
+    if (setting.valueType === 'boolean') {
+      const checked = value === true;
+      return (
+        <ListItemButton
+          disabled={!d2rLoaderSettings.useD2RLoader}
+          key={setting.id}
+          onClick={() => setD2RLoaderTomlSetting(setting.id, !checked)}
+        >
+          <ListItemIcon>
+            <Checkbox
+              checked={checked}
+              disabled={!d2rLoaderSettings.useD2RLoader}
+              disableRipple={true}
+              edge="start"
+              inputProps={{
+                'aria-labelledby': `d2r-loader-toml-${setting.id}`,
+              }}
+              tabIndex={-1}
+            />
+          </ListItemIcon>
+          <ListItemText
+            id={`d2r-loader-toml-${setting.id}`}
+            primary={label}
+            secondary={description}
+          />
+        </ListItemButton>
+      );
+    }
+
+    if (setting.valueType === 'integer' || setting.valueType === 'float') {
+      const inputValue = d2rLoaderTomlInputValues[setting.id] ?? String(value);
+      return (
+        <TextField
+          disabled={!d2rLoaderSettings.useD2RLoader}
+          fullWidth={true}
+          helperText={description}
+          inputProps={getD2RLoaderTomlNumberBounds(setting)}
+          key={setting.id}
+          label={label}
+          onBlur={() => {
+            setD2RLoaderTomlInputValues((inputValues) => {
+              const nextInputValues = { ...inputValues };
+              delete nextInputValues[setting.id];
+              return nextInputValues;
+            });
+          }}
+          onChange={(event) => {
+            const { value: nextInputValue } = event.target;
+            setD2RLoaderTomlInputValues((inputValues) => ({
+              ...inputValues,
+              [setting.id]: nextInputValue,
+            }));
+
+            if (nextInputValue.trim() === '') {
+              return;
+            }
+
+            const parsedValue = Number(nextInputValue);
+            if (Number.isFinite(parsedValue)) {
+              setD2RLoaderTomlSetting(setting.id, parsedValue);
+            }
+          }}
+          sx={{ marginTop: 1 }}
+          type="number"
+          value={inputValue}
+          variant="filled"
+        />
+      );
+    }
+
+    return (
+      <TextField
+        disabled={!d2rLoaderSettings.useD2RLoader}
+        fullWidth={true}
+        helperText={description}
+        key={setting.id}
+        label={label}
+        onChange={(event) =>
+          setD2RLoaderTomlSetting(setting.id, event.target.value)
+        }
+        sx={{ marginTop: 1 }}
+        value={String(value)}
+        variant="filled"
+      />
+    );
+  };
 
   return (
     <List
@@ -603,241 +826,270 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
             />
           </ListItemButton>
           {d2rLoaderSettings.useD2RLoader ? (
-            <>
-              <ListItemButton
-                disabled={!d2rLoaderSettings.useD2RLoader}
-                onClick={() =>
-                  setD2RLoaderSetting(
-                    'skipTitleScreen',
-                    !d2rLoaderSettings.skipTitleScreen,
-                  )
-                }
-              >
-                <ListItemIcon>
-                  <Checkbox
-                    checked={d2rLoaderSettings.skipTitleScreen}
-                    disabled={!d2rLoaderSettings.useD2RLoader}
-                    disableRipple={true}
-                    edge="start"
-                    inputProps={{
-                      'aria-labelledby': 'd2r-loader-skip-title-screen',
-                    }}
-                    tabIndex={-1}
-                  />
-                </ListItemIcon>
-                <ListItemText
-                  id="d2r-loader-skip-title-screen"
-                  primary={t('settings.d2rLoader.skipTitleScreen')}
-                />
-              </ListItemButton>
-              <ListItemButton
-                disabled={!d2rLoaderSettings.useD2RLoader}
-                onClick={() =>
-                  setD2RLoaderSetting(
-                    'showGroundSockets',
-                    !d2rLoaderSettings.showGroundSockets,
-                  )
-                }
-              >
-                <ListItemIcon>
-                  <Checkbox
-                    checked={d2rLoaderSettings.showGroundSockets}
-                    disabled={!d2rLoaderSettings.useD2RLoader}
-                    disableRipple={true}
-                    edge="start"
-                    inputProps={{
-                      'aria-labelledby': 'd2r-loader-show-ground-sockets',
-                    }}
-                    tabIndex={-1}
-                  />
-                </ListItemIcon>
-                <ListItemText
-                  id="d2r-loader-show-ground-sockets"
-                  primary={t('settings.d2rLoader.showGroundSockets')}
-                />
-              </ListItemButton>
-              <TextField
-                disabled={!d2rLoaderSettings.useD2RLoader}
-                fullWidth={true}
-                inputProps={{ min: 0 }}
-                label={t('settings.d2rLoader.extraSharedTabs')}
-                onBlur={() => {
-                  const parsed =
-                    parseExtraSharedTabsInput(extraSharedTabsInput);
-                  setExtraSharedTabsInput(
-                    String(parsed ?? d2rLoaderSettings.extraSharedTabs),
-                  );
-                }}
-                onChange={(event) => {
-                  const { value } = event.target;
-                  setExtraSharedTabsInput(value);
-
-                  const parsed = parseExtraSharedTabsInput(value);
-                  if (parsed != null) {
-                    setD2RLoaderSetting('extraSharedTabs', parsed);
+            isD2RLoaderConfigLoading ? (
+              <LinearProgress sx={{ marginTop: 1 }} />
+            ) : d2rLoaderConfig?.format === 'toml' ? (
+              d2rLoaderTomlSections.length === 0 ? (
+                <Typography color="text.secondary" sx={{ marginTop: 1 }}>
+                  {t('settings.d2rLoader.noTomlSettings')}
+                </Typography>
+              ) : (
+                <>
+                  {d2rLoaderTomlSections.map(
+                    ({ section, settings }, sectionIndex) => (
+                      <Box
+                        key={section}
+                        sx={{ marginTop: sectionIndex ? 2 : 1 }}
+                      >
+                        {sectionIndex === 0 ? null : (
+                          <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
+                        )}
+                        <Typography color="text.secondary" variant="subtitle2">
+                          {section}
+                        </Typography>
+                        {settings.map(renderD2RLoaderTomlSetting)}
+                      </Box>
+                    ),
+                  )}
+                </>
+              )
+            ) : (
+              <>
+                <ListItemButton
+                  disabled={!d2rLoaderSettings.useD2RLoader}
+                  onClick={() =>
+                    setD2RLoaderSetting(
+                      'skipTitleScreen',
+                      !d2rLoaderSettings.skipTitleScreen,
+                    )
                   }
-                }}
-                sx={{ marginTop: 1 }}
-                type="number"
-                value={extraSharedTabsInput}
-                variant="filled"
-              />
-              <ListItemButton
-                disabled={!d2rLoaderSettings.useD2RLoader}
-                onClick={() =>
-                  setD2RLoaderSetting(
-                    'forceTcpip',
-                    !d2rLoaderSettings.forceTcpip,
-                  )
-                }
-              >
-                <ListItemIcon>
-                  <Checkbox
-                    checked={d2rLoaderSettings.forceTcpip}
-                    disabled={!d2rLoaderSettings.useD2RLoader}
-                    disableRipple={true}
-                    edge="start"
-                    inputProps={{
-                      'aria-labelledby': 'd2r-loader-force-tcpip',
-                    }}
-                    tabIndex={-1}
+                >
+                  <ListItemIcon>
+                    <Checkbox
+                      checked={d2rLoaderSettings.skipTitleScreen}
+                      disabled={!d2rLoaderSettings.useD2RLoader}
+                      disableRipple={true}
+                      edge="start"
+                      inputProps={{
+                        'aria-labelledby': 'd2r-loader-skip-title-screen',
+                      }}
+                      tabIndex={-1}
+                    />
+                  </ListItemIcon>
+                  <ListItemText
+                    id="d2r-loader-skip-title-screen"
+                    primary={t('settings.d2rLoader.skipTitleScreen')}
                   />
-                </ListItemIcon>
-                <ListItemText
-                  id="d2r-loader-force-tcpip"
-                  primary={t('settings.d2rLoader.forceTcpip')}
-                />
-              </ListItemButton>
-              <ListItemButton
-                disabled={!d2rLoaderSettings.useD2RLoader}
-                onClick={() =>
-                  setD2RLoaderSetting(
-                    'globalPlugins',
-                    !d2rLoaderSettings.globalPlugins,
-                  )
-                }
-              >
-                <ListItemIcon>
-                  <Checkbox
-                    checked={d2rLoaderSettings.globalPlugins}
-                    disabled={!d2rLoaderSettings.useD2RLoader}
-                    disableRipple={true}
-                    edge="start"
-                    inputProps={{
-                      'aria-labelledby': 'd2r-loader-global-plugins',
-                    }}
-                    tabIndex={-1}
+                </ListItemButton>
+                <ListItemButton
+                  disabled={!d2rLoaderSettings.useD2RLoader}
+                  onClick={() =>
+                    setD2RLoaderSetting(
+                      'showGroundSockets',
+                      !d2rLoaderSettings.showGroundSockets,
+                    )
+                  }
+                >
+                  <ListItemIcon>
+                    <Checkbox
+                      checked={d2rLoaderSettings.showGroundSockets}
+                      disabled={!d2rLoaderSettings.useD2RLoader}
+                      disableRipple={true}
+                      edge="start"
+                      inputProps={{
+                        'aria-labelledby': 'd2r-loader-show-ground-sockets',
+                      }}
+                      tabIndex={-1}
+                    />
+                  </ListItemIcon>
+                  <ListItemText
+                    id="d2r-loader-show-ground-sockets"
+                    primary={t('settings.d2rLoader.showGroundSockets')}
                   />
-                </ListItemIcon>
-                <ListItemText
-                  id="d2r-loader-global-plugins"
-                  primary={t('settings.d2rLoader.globalPlugins')}
+                </ListItemButton>
+                <TextField
+                  disabled={!d2rLoaderSettings.useD2RLoader}
+                  fullWidth={true}
+                  inputProps={{ min: 0 }}
+                  label={t('settings.d2rLoader.extraSharedTabs')}
+                  onBlur={() => {
+                    const parsed =
+                      parseExtraSharedTabsInput(extraSharedTabsInput);
+                    setExtraSharedTabsInput(
+                      String(parsed ?? d2rLoaderSettings.extraSharedTabs),
+                    );
+                  }}
+                  onChange={(event) => {
+                    const { value } = event.target;
+                    setExtraSharedTabsInput(value);
+
+                    const parsed = parseExtraSharedTabsInput(value);
+                    if (parsed != null) {
+                      setD2RLoaderSetting('extraSharedTabs', parsed);
+                    }
+                  }}
+                  sx={{ marginTop: 1 }}
+                  type="number"
+                  value={extraSharedTabsInput}
+                  variant="filled"
                 />
-              </ListItemButton>
-              <ListItemButton
-                disabled={!d2rLoaderSettings.useD2RLoader}
-                onClick={() =>
-                  setD2RLoaderSetting(
-                    'devConsole',
-                    !d2rLoaderSettings.devConsole,
-                  )
-                }
-              >
-                <ListItemIcon>
-                  <Checkbox
-                    checked={d2rLoaderSettings.devConsole}
-                    disabled={!d2rLoaderSettings.useD2RLoader}
-                    disableRipple={true}
-                    edge="start"
-                    inputProps={{
-                      'aria-labelledby': 'd2r-loader-dev-console',
-                    }}
-                    tabIndex={-1}
+                <ListItemButton
+                  disabled={!d2rLoaderSettings.useD2RLoader}
+                  onClick={() =>
+                    setD2RLoaderSetting(
+                      'forceTcpip',
+                      !d2rLoaderSettings.forceTcpip,
+                    )
+                  }
+                >
+                  <ListItemIcon>
+                    <Checkbox
+                      checked={d2rLoaderSettings.forceTcpip}
+                      disabled={!d2rLoaderSettings.useD2RLoader}
+                      disableRipple={true}
+                      edge="start"
+                      inputProps={{
+                        'aria-labelledby': 'd2r-loader-force-tcpip',
+                      }}
+                      tabIndex={-1}
+                    />
+                  </ListItemIcon>
+                  <ListItemText
+                    id="d2r-loader-force-tcpip"
+                    primary={t('settings.d2rLoader.forceTcpip')}
                   />
-                </ListItemIcon>
-                <ListItemText
-                  id="d2r-loader-dev-console"
-                  primary={t('settings.d2rLoader.devConsole')}
-                />
-              </ListItemButton>
-              <ListItemButton
-                disabled={!d2rLoaderSettings.useD2RLoader}
-                onClick={() =>
-                  setD2RLoaderSetting(
-                    'detectEarlyCrashes',
-                    !d2rLoaderSettings.detectEarlyCrashes,
-                  )
-                }
-              >
-                <ListItemIcon>
-                  <Checkbox
-                    checked={d2rLoaderSettings.detectEarlyCrashes}
-                    disabled={!d2rLoaderSettings.useD2RLoader}
-                    disableRipple={true}
-                    edge="start"
-                    inputProps={{
-                      'aria-labelledby': 'd2r-loader-detect-early-crashes',
-                    }}
-                    tabIndex={-1}
+                </ListItemButton>
+                <ListItemButton
+                  disabled={!d2rLoaderSettings.useD2RLoader}
+                  onClick={() =>
+                    setD2RLoaderSetting(
+                      'globalPlugins',
+                      !d2rLoaderSettings.globalPlugins,
+                    )
+                  }
+                >
+                  <ListItemIcon>
+                    <Checkbox
+                      checked={d2rLoaderSettings.globalPlugins}
+                      disabled={!d2rLoaderSettings.useD2RLoader}
+                      disableRipple={true}
+                      edge="start"
+                      inputProps={{
+                        'aria-labelledby': 'd2r-loader-global-plugins',
+                      }}
+                      tabIndex={-1}
+                    />
+                  </ListItemIcon>
+                  <ListItemText
+                    id="d2r-loader-global-plugins"
+                    primary={t('settings.d2rLoader.globalPlugins')}
                   />
-                </ListItemIcon>
-                <ListItemText
-                  id="d2r-loader-detect-early-crashes"
-                  primary={t('settings.d2rLoader.detectEarlyCrashes')}
-                />
-              </ListItemButton>
-              <TextField
-                disabled={!d2rLoaderSettings.useD2RLoader}
-                fullWidth={true}
-                label={t('settings.d2rLoader.damageIndicator')}
-                onChange={(event) =>
-                  setD2RLoaderSetting(
-                    'damageIndicator',
-                    Number(event.target.value),
-                  )
-                }
-                select={true}
-                sx={{ marginTop: 1 }}
-                value={d2rLoaderSettings.damageIndicator}
-                variant="filled"
-              >
-                <MenuItem value={0}>
-                  {t('settings.d2rLoader.damageIndicator.disabled')}
-                </MenuItem>
-                <MenuItem value={1}>
-                  {t('settings.d2rLoader.damageIndicator.full')}
-                </MenuItem>
-                <MenuItem value={2}>
-                  {t('settings.d2rLoader.damageIndicator.damageOnly')}
-                </MenuItem>
-              </TextField>
-              <ListItemButton
-                disabled={!d2rLoaderSettings.useD2RLoader}
-                onClick={() =>
-                  setD2RLoaderSetting(
-                    'jsonResourceLoads',
-                    !d2rLoaderSettings.jsonResourceLoads,
-                  )
-                }
-              >
-                <ListItemIcon>
-                  <Checkbox
-                    checked={d2rLoaderSettings.jsonResourceLoads}
-                    disabled={!d2rLoaderSettings.useD2RLoader}
-                    disableRipple={true}
-                    edge="start"
-                    inputProps={{
-                      'aria-labelledby': 'd2r-loader-json-resource-loads',
-                    }}
-                    tabIndex={-1}
+                </ListItemButton>
+                <ListItemButton
+                  disabled={!d2rLoaderSettings.useD2RLoader}
+                  onClick={() =>
+                    setD2RLoaderSetting(
+                      'devConsole',
+                      !d2rLoaderSettings.devConsole,
+                    )
+                  }
+                >
+                  <ListItemIcon>
+                    <Checkbox
+                      checked={d2rLoaderSettings.devConsole}
+                      disabled={!d2rLoaderSettings.useD2RLoader}
+                      disableRipple={true}
+                      edge="start"
+                      inputProps={{
+                        'aria-labelledby': 'd2r-loader-dev-console',
+                      }}
+                      tabIndex={-1}
+                    />
+                  </ListItemIcon>
+                  <ListItemText
+                    id="d2r-loader-dev-console"
+                    primary={t('settings.d2rLoader.devConsole')}
                   />
-                </ListItemIcon>
-                <ListItemText
-                  id="d2r-loader-json-resource-loads"
-                  primary={t('settings.d2rLoader.jsonResourceLoads')}
-                />
-              </ListItemButton>
-            </>
+                </ListItemButton>
+                <ListItemButton
+                  disabled={!d2rLoaderSettings.useD2RLoader}
+                  onClick={() =>
+                    setD2RLoaderSetting(
+                      'detectEarlyCrashes',
+                      !d2rLoaderSettings.detectEarlyCrashes,
+                    )
+                  }
+                >
+                  <ListItemIcon>
+                    <Checkbox
+                      checked={d2rLoaderSettings.detectEarlyCrashes}
+                      disabled={!d2rLoaderSettings.useD2RLoader}
+                      disableRipple={true}
+                      edge="start"
+                      inputProps={{
+                        'aria-labelledby': 'd2r-loader-detect-early-crashes',
+                      }}
+                      tabIndex={-1}
+                    />
+                  </ListItemIcon>
+                  <ListItemText
+                    id="d2r-loader-detect-early-crashes"
+                    primary={t('settings.d2rLoader.detectEarlyCrashes')}
+                  />
+                </ListItemButton>
+                <TextField
+                  disabled={!d2rLoaderSettings.useD2RLoader}
+                  fullWidth={true}
+                  label={t('settings.d2rLoader.damageIndicator')}
+                  onChange={(event) =>
+                    setD2RLoaderSetting(
+                      'damageIndicator',
+                      Number(event.target.value),
+                    )
+                  }
+                  select={true}
+                  sx={{ marginTop: 1 }}
+                  value={d2rLoaderSettings.damageIndicator}
+                  variant="filled"
+                >
+                  <MenuItem value={0}>
+                    {t('settings.d2rLoader.damageIndicator.disabled')}
+                  </MenuItem>
+                  <MenuItem value={1}>
+                    {t('settings.d2rLoader.damageIndicator.full')}
+                  </MenuItem>
+                  <MenuItem value={2}>
+                    {t('settings.d2rLoader.damageIndicator.damageOnly')}
+                  </MenuItem>
+                </TextField>
+                <ListItemButton
+                  disabled={!d2rLoaderSettings.useD2RLoader}
+                  onClick={() =>
+                    setD2RLoaderSetting(
+                      'jsonResourceLoads',
+                      !d2rLoaderSettings.jsonResourceLoads,
+                    )
+                  }
+                >
+                  <ListItemIcon>
+                    <Checkbox
+                      checked={d2rLoaderSettings.jsonResourceLoads}
+                      disabled={!d2rLoaderSettings.useD2RLoader}
+                      disableRipple={true}
+                      edge="start"
+                      inputProps={{
+                        'aria-labelledby': 'd2r-loader-json-resource-loads',
+                      }}
+                      tabIndex={-1}
+                    />
+                  </ListItemIcon>
+                  <ListItemText
+                    id="d2r-loader-json-resource-loads"
+                    primary={t('settings.d2rLoader.jsonResourceLoads')}
+                  />
+                </ListItemButton>
+              </>
+            )
           ) : null}
         </StyledAccordionDetails>
       </StyledAccordion>

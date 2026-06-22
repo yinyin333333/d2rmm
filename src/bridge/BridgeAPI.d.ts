@@ -29,6 +29,35 @@ export type D2RLoaderSettings = {
   detectEarlyCrashes: boolean;
   damageIndicator: number;
   jsonResourceLoads: boolean;
+  tomlSettings?: D2RLoaderTomlSettings;
+};
+
+export type D2RLoaderConfigFormat = 'ini' | 'toml';
+
+export type D2RLoaderConfigValue = boolean | number | string;
+
+export type D2RLoaderTomlSettings = Record<string, D2RLoaderConfigValue>;
+
+export type D2RLoaderTomlValueType =
+  | 'boolean'
+  | 'integer'
+  | 'float'
+  | 'string'
+  | 'raw';
+
+export type D2RLoaderTomlSetting = {
+  id: string;
+  section: string;
+  key: string;
+  value: D2RLoaderConfigValue;
+  valueType: D2RLoaderTomlValueType;
+  description: string;
+};
+
+export type D2RLoaderConfig = {
+  fileName: string;
+  format: D2RLoaderConfigFormat;
+  settings: D2RLoaderTomlSetting[];
 };
 
 export type Mod = {
@@ -74,6 +103,7 @@ export type IBridgeAPI = {
     options: IInstallModsOptions,
   ) => Promise<string[]>;
   openStorage: (gamePath: string, forceOnline?: boolean) => Promise<boolean>;
+  readD2RLoaderConfig: (gamePath: string) => Promise<D2RLoaderConfig | null>;
   prepareD2RLoaderLaunch: (
     gamePath: string,
     settings: D2RLoaderSettings,

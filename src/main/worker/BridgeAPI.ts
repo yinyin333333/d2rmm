@@ -42,7 +42,11 @@ import {
   makeCascOpenStorageArgs,
   readCString,
 } from './CascLib';
-import { D2R_LOADER_CONFIG_FILES, updateD2RLoaderConfig } from './D2RLoader';
+import {
+  D2R_LOADER_CONFIG_FILES,
+  createD2RLoaderConfig,
+  updateD2RLoaderConfig,
+} from './D2RLoader';
 import { EventAPI } from './EventAPI';
 import { provideAPI } from './IPC';
 import { InstallationRuntime } from './InstallationRuntime';
@@ -77,6 +81,24 @@ function getOutputRootPath(): string {
     return path.resolve(runtime!.options.dataPath);
   }
   return path.resolve(runtime!.options.mergedPath, '../');
+}
+
+function getD2RLoaderConfigFile(gameRoot: string): {
+  fileName: string;
+  format: (typeof D2R_LOADER_CONFIG_FILES)[number]['format'];
+  path: string;
+} | null {
+  return (
+    D2R_LOADER_CONFIG_FILES.map((candidate) => ({
+      ...candidate,
+      path: validatePathIsSafe(
+        gameRoot,
+        path.resolve(gameRoot, candidate.fileName),
+      ),
+    })).find(({ path: configPath }) => {
+      return existsSync(configPath) && statSync(configPath).isFile();
+    }) ?? null
+  );
 }
 
 function getPreExtractedDataPath(): string {
@@ -390,6 +412,27 @@ export const BridgeAPI: IBridgeAPI = {
     return cascStorageIsOpen;
   },
 
+  readD2RLoaderConfig: async (gamePath: string) => {
+    console.debug('BridgeAPI.readD2RLoaderConfig', { gamePath });
+    const gameRoot = path.resolve(gamePath);
+    const configFile = getD2RLoaderConfigFile(gameRoot);
+
+    if (configFile == null) {
+      return null;
+    }
+
+    try {
+      const configText = readFileSync(configFile.path, 'utf-8');
+      return createD2RLoaderConfig(
+        configFile.fileName,
+        configFile.format,
+        configText,
+      );
+    } catch (e) {
+      throw te('worker.bridgeapi.prepareD2RLoaderLaunch.failed', null, e);
+    }
+  },
+
   prepareD2RLoaderLaunch: async (
     gamePath: string,
     settings: D2RLoaderSettings,
@@ -406,15 +449,7 @@ export const BridgeAPI: IBridgeAPI = {
       throw te('settings.d2rLoader.missingExe');
     }
 
-    const configFile = D2R_LOADER_CONFIG_FILES.map((candidate) => ({
-      ...candidate,
-      path: validatePathIsSafe(
-        gameRoot,
-        path.resolve(gameRoot, candidate.fileName),
-      ),
-    })).find(({ path: configPath }) => {
-      return existsSync(configPath) && statSync(configPath).isFile();
-    });
+    const configFile = getD2RLoaderConfigFile(gameRoot);
 
     if (configFile == null) {
       throw te('settings.d2rLoader.missingIni');
