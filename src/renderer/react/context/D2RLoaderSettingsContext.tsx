@@ -26,6 +26,7 @@ const DEFAULT_D2R_LOADER_SETTINGS: D2RLoaderSettingsState = {
   detectEarlyCrashes: false,
   damageIndicator: 0,
   jsonResourceLoads: false,
+  tomlSettings: {},
 };
 
 const D2RLoaderSettingsContext =

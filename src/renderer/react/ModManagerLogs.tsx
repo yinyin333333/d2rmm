@@ -1,5 +1,4 @@
 import type { ILogLevel } from 'bridge/ConsoleAPI';
-import { LocaleAPI } from 'renderer/LocaleAPI';
 import { useIsInstalling } from 'renderer/react/context/InstallContext';
 import {
   useLogLevels,
@@ -184,9 +183,7 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
                 WebkitBoxOrient: 'vertical',
               },
             }}
-            secondary={new Date(log.timestamp).toLocaleTimeString(
-              LocaleAPI.getLocale(),
-            )}
+            secondary={new Date(log.timestamp).toLocaleTimeString('en-US')}
           />
         </ListItemButton>
       );

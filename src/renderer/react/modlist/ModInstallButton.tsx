@@ -1,5 +1,8 @@
 import { useIsInstalling } from 'renderer/react/context/InstallContext';
-import { useIsInstallConfigChanged } from 'renderer/react/context/ModsContext';
+import {
+  useIsInstallConfigChanged,
+  useIsLoadingMods,
+} from 'renderer/react/context/ModsContext';
 import useInstallMods from 'renderer/react/modlist/hooks/useInstallMods';
 import { useTranslation } from 'react-i18next';
 import { SaveOutlined } from '@mui/icons-material';
@@ -18,11 +21,13 @@ export default function ModInstallButton({
 }: Props): JSX.Element {
   const { t } = useTranslation();
   const isInstallConfigChanged = useIsInstallConfigChanged();
+  const isLoadingMods = useIsLoadingMods();
   const [isInstalling] = useIsInstalling();
   const onInstallMods = useInstallMods(isUninstall);
 
   const button = (
     <LoadingButton
+      disabled={isLoadingMods || isInstalling}
       loading={isInstalling}
       loadingPosition="start"
       onClick={onInstallMods}
@@ -34,7 +39,11 @@ export default function ModInstallButton({
   );
 
   if (tooltip != null) {
-    return <Tooltip title={tooltip}>{button}</Tooltip>;
+    return (
+      <Tooltip title={tooltip}>
+        <span style={{ display: 'inline-flex' }}>{button}</span>
+      </Tooltip>
+    );
   }
 
   return button;

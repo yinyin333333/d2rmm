@@ -1,11 +1,10 @@
 /**
  * Base webpack config used across other specific configs
  */
-
 import { execSync } from 'child_process';
 import webpack from 'webpack';
-import webpackPaths from './webpack.paths';
 import { dependencies as externals } from '../../release/app/package.json';
+import webpackPaths from './webpack.paths';
 
 const gitCommitHash = (() => {
   try {

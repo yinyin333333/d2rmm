@@ -9,6 +9,16 @@ import { encodeTsv, parseTsv } from './TSVParser';
 let nextStringIDRaw: string | null = null;
 let nextStringID: number = 0;
 
+const DATA_MOD_METADATA_FILES = new Set([
+  'config.json',
+  'mod.gen.js',
+  'mod.gen.js.map',
+  'mod.js',
+  'mod.json',
+  'mod.ts',
+  'modinfo.json',
+]);
+
 export function resetNextStringIDState(): void {
   nextStringIDRaw = null;
   nextStringID = 0;
@@ -138,6 +148,16 @@ export function getModAPI(runtime: InstallationRuntime): AsyncModAPI {
         await runtime.fileManager.write(relativePath, runtime.mod.id);
       }
     },
+    copyDataModFiles: async (overwrite = false) => {
+      console.debug('D2RMM.copyDataModFiles');
+      const copiedRelativePaths = await copyDataModFilesToMemory(
+        runtime,
+        overwrite,
+      );
+      for (const relativePath of copiedRelativePaths) {
+        await runtime.fileManager.write(relativePath, runtime.mod.id);
+      }
+    },
     readTxt: async (filePath) => {
       filePath = processPathForPlatform(filePath);
       console.debug('D2RMM.readTxt', filePath);
@@ -204,6 +224,43 @@ export function getModAPI(runtime: InstallationRuntime): AsyncModAPI {
       return stringID;
     },
   };
+}
+
+async function copyDataModFilesToMemory(
+  runtime: InstallationRuntime,
+  overwrite: boolean,
+): Promise<string[]> {
+  const result: string[] = [];
+  const appPath = await runtime.BridgeAPI.getAppPath();
+  const modPath = path.resolve(appPath, 'mods', runtime.mod.id);
+
+  const entries = readdirSync(modPath, { withFileTypes: true });
+  for (const entry of entries) {
+    if (DATA_MOD_METADATA_FILES.has(entry.name.toLowerCase())) {
+      continue;
+    }
+
+    const srcPath = path.resolve(modPath, entry.name);
+    const relativeToMod = path.relative(modPath, srcPath);
+    if (relativeToMod.startsWith('..') || path.isAbsolute(relativeToMod)) {
+      throw new Error(
+        `Path "${srcPath}" points outside of allowed directory "${modPath}".`,
+      );
+    }
+
+    // The installer writes relative to <mpq>/data, so MPQ-root siblings need ../.
+    const dstRelative =
+      entry.name.toLowerCase() === 'data' ? '' : path.join('..', entry.name);
+    const copiedRelativePaths = await copySourceFilesToMemory(
+      runtime,
+      srcPath,
+      dstRelative,
+      overwrite,
+    );
+    result.push(...copiedRelativePaths);
+  }
+
+  return result;
 }
 
 async function copySourceFilesToMemory(

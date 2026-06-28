@@ -1,12 +1,10 @@
 import 'renderer/css/App.css';
-import AppUpdaterDialog from 'renderer/react/AppUpdaterDialog';
 import ErrorBoundary from 'renderer/react/ErrorBoundary';
 import InstallationProgressBar from 'renderer/react/InstallationProgressBar';
 import ModManagerLogs from 'renderer/react/ModManagerLogs';
 import ModManagerSettings from 'renderer/react/ModManagerSettings';
-import { AppUpdaterContextProvider } from 'renderer/react/context/AppUpdaterContext';
-import { DataPathContextProvider } from 'renderer/react/context/DataPathContext';
 import { D2RLoaderSettingsContextProvider } from 'renderer/react/context/D2RLoaderSettingsContext';
+import { DataPathContextProvider } from 'renderer/react/context/DataPathContext';
 import {
   DialogManagerContextProvider,
   DialogRenderer,
@@ -33,13 +31,6 @@ import {
 import ThemeContextProvider from 'renderer/react/context/ThemeContext';
 import { ToastContextProvider } from 'renderer/react/context/ToastContext';
 import { UpdatesContextProvider } from 'renderer/react/context/UpdatesContext';
-import ED2R from 'renderer/react/ed2r/ED2R';
-import { ClipboardContextProvider } from 'renderer/react/ed2r/ED2RClipboardContext';
-import { GameDataContextProvider } from 'renderer/react/ed2r/ED2RGameDataContext';
-import { GameFilesContextProvider } from 'renderer/react/ed2r/ED2RGameFilesContext';
-import { ItemDragContextProvider } from 'renderer/react/ed2r/ED2RItemDragContext';
-import { SaveFilesContextProvider } from 'renderer/react/ed2r/ED2RSaveFilesContext';
-import { SelectedFileContextProvider } from 'renderer/react/ed2r/ED2RSelectedFileContext';
 import useModDropZone from 'renderer/react/hooks/useModDropZone';
 import ModList from 'renderer/react/modlist/ModList';
 import { Suspense } from 'react';
@@ -126,7 +117,6 @@ function RootRoute() {
         >
           <TabList onChange={(_event, value) => setTab(value)}>
             <Tab label={t('tabs.mods')} value="mods" />
-            <Tab label={t('tabs.saves')} value="ed2r" />
             <Tab label={t('tabs.settings')} value="settings" />
             <Tab label={t('tabs.logs')} value="logs" />
           </TabList>
@@ -137,14 +127,11 @@ function RootRoute() {
         <TabPanelBox value="mods">
           <ModList />
         </TabPanelBox>
-        <TabPanelBox value="ed2r">
-          <ED2R />
-        </TabPanelBox>
         <TabPanelBox value="settings">
-          <ModManagerSettings />
+          {tab === 'settings' ? <ModManagerSettings /> : null}
         </TabPanelBox>
         <TabPanelBox value="logs">
-          <ModManagerLogs />
+          {tab === 'logs' ? <ModManagerLogs /> : null}
         </TabPanelBox>
       </Box>
     </TabContext>
@@ -159,7 +146,6 @@ function Content() {
           <Route element={<RootRoute />} path="/" />
         </Routes>
       </Router>
-      <AppUpdaterDialog />
       <DialogRenderer />
     </>
   );
@@ -168,19 +154,11 @@ function Content() {
 // from inner to outer
 const CONTEXT_PROVIDERS = [
   // installation & updates
-  AppUpdaterContextProvider,
   NexusModsContextProvider,
   UpdatesContextProvider,
   InstallContextProvider,
   // ui
   TabContextProvider,
-  // save editor
-  ItemDragContextProvider,
-  ClipboardContextProvider,
-  SelectedFileContextProvider,
-  SaveFilesContextProvider,
-  GameDataContextProvider,
-  GameFilesContextProvider,
   // mod data
   ModsContextProvider,
   // preferences

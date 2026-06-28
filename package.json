@@ -10,10 +10,6 @@
     "build:casclib:win": "node ./.erb/scripts/build-casclib-win.js",
     "build:casclib:mac": "node ./.erb/scripts/build-casclib-mac.js",
     "build:casclib:linux": "node ./.erb/scripts/build-casclib-linux.js",
-    "build:updater": "concurrently \"npm run build:updater:win\" \"npm run build:updater:mac\" \"npm run build:updater:linux\"",
-    "build:updater:win": "pkg -t node22-win-x64 -o tools/updater.exe src/updater/main.js",
-    "build:updater:mac": "pkg -t node22-macos-arm64 -o tools/updater src/updater/main.js",
-    "build:updater:linux": "pkg -t node22-linux-x64 -o tools/updater src/updater/main.js",
     "build:config-schema": "npx typescript-json-schema --strictNullChecks --require --noExtraProps --aliasRefs --out \"mods/config-schema.json\" \"src/bridge/ModConfig.d.ts\" \"ModConfig\"",
     "rebuild": "npx @electron/rebuild --parallel --types prod,dev,optional --module-dir release/app",
     "lint": "node lint.js",
@@ -36,8 +32,8 @@
     "*.{html,md,yml}": ["prettier --single-quote --write"]
   },
   "build": {
-    "productName": "D2RMM",
-    "appId": "com.lokhvitsky.D2RMM",
+    "productName": "D2RMM Custom",
+    "appId": "com.yinyin333333.D2RMMCustom",
     "artifactName": "${productName} ${version}.${ext}",
     "asar": true,
     "asarUnpack": [
@@ -101,27 +97,28 @@
     "afterSign": "./afterSign.js",
     "publish": {
       "provider": "github",
-      "owner": "olegbl",
-      "repo": "olegbl"
+      "owner": "yinyin333333",
+      "repo": "d2rmm"
     }
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/olegbl/d2rmm.git"
+    "url": "git+https://github.com/yinyin333333/d2rmm.git"
   },
   "author": {
-    "name": "Oleg Lokhvitsky",
-    "email": "olegbl@gmail.com",
-    "url": "https://github.com/olegbl/d2rmm"
+    "name": "yinyin333333"
   },
   "contributors": [],
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/olegbl/d2rmm/issues"
+    "url": "https://github.com/yinyin333333/d2rmm/issues"
   },
   "keywords": [],
-  "homepage": "https://github.com/olegbl/d2rmm#readme",
+  "homepage": "https://github.com/yinyin333333/d2rmm#readme",
   "devDependencies": {
+    "@babel/preset-env": "^7",
+    "@babel/preset-react": "^7",
+    "@babel/preset-typescript": "^7",
     "@electron/rebuild": "^4.0.3",
     "@eslint/js": "^9",
     "@pmmmwh/react-refresh-webpack-plugin": "0.5.15",
@@ -143,7 +140,6 @@
     "@types/webpack-env": "^1.16.3",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
-    "@yao-pkg/pkg": "^6.14.1",
     "CascLib": "https://github.com/ladislav-zezula/CascLib.git",
     "browserslist-config-erb": "^0.0.3",
     "chalk": "^4.1.2",
@@ -208,7 +204,6 @@
     "decompress": "^4.2.1",
     "electron-debug": "^3.2.0",
     "electron-log": "^5.1.5",
-    "electron-updater": "^6.1.0",
     "fflate": "^0.8.2",
     "history": "^5.2.0",
     "i18next": "^23.11.5",

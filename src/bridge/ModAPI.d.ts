@@ -253,6 +253,13 @@ export interface ModAPI {
   copyFile: (src: string, dst: string, overwrite?: boolean) => void;
 
   /**
+   * Copies every MPQ-root file or directory from a data mod into the generated
+   * MPQ root. D2RMM metadata files are ignored.
+   * @internal
+   */
+  copyDataModFiles: (overwrite?: boolean) => void;
+
+  /**
    * Produces the next valid string ID to use as an identifier in D2R's data files.
    * The ID is read from `next_string_id.txt`, and then incremented within that file.
    * @returns The next valid string ID.

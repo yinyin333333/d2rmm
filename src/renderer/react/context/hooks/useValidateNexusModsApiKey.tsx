@@ -3,6 +3,8 @@ import {
   INexusAuthState,
   ISetNexusAuthState,
 } from 'renderer/react/context/NexusModsContext';
+import deferUntilAfterFirstPaint from 'renderer/utils/deferUntilAfterFirstPaint';
+import { startupMark, startupMeasure } from 'shared/startupProfiler';
 import { useCallback, useEffect } from 'react';
 
 export default function useValidateNexusModsApiKey(
@@ -13,10 +15,17 @@ export default function useValidateNexusModsApiKey(
 
   const validateKey = useCallback(() => {
     if (apiKey == null) {
+      startupMark('renderer', 'Nexus API key validation skipped');
       return;
     }
-    ModUpdaterAPI.validateNexusApiKey(apiKey)
+    startupMeasure('renderer', 'Nexus API key validation', () =>
+      ModUpdaterAPI.validateNexusApiKey(apiKey),
+    )
       .then(({ name, email, isValid, isPremium }) => {
+        startupMark(
+          'renderer',
+          `Nexus API key validation completed: ${String(isValid)}`,
+        );
         if (!isValid) {
           console.warn(
             `Nexus Mods auth session is invalid. Please log in again.`,
@@ -35,7 +44,15 @@ export default function useValidateNexusModsApiKey(
   }, [apiKey, setAuthState]);
 
   useEffect(() => {
-    validateKey();
+    startupMark(
+      'renderer',
+      'Nexus API key validation scheduled after first paint',
+    );
+    const cancel = deferUntilAfterFirstPaint(() => {
+      startupMark('renderer', 'Nexus API key validation deferred start');
+      validateKey();
+    });
+    return cancel;
   }, [validateKey]);
 
   return validateKey;

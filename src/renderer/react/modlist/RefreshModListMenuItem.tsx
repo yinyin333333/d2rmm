@@ -1,4 +1,4 @@
-import { useMods } from 'renderer/react/context/ModsContext';
+import { useIsLoadingMods, useMods } from 'renderer/react/context/ModsContext';
 import useAsyncCallback from 'renderer/react/hooks/useAsyncCallback';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,17 +11,29 @@ export default function RefreshModListMenuItem({
   onHideMenu: () => void;
 }): JSX.Element {
   const { t } = useTranslation();
+  const isLoadingMods = useIsLoadingMods();
   const [, onRefreshMods] = useMods();
   const [, setIsRefreshing] = useState(false);
   const onRefreshModList = useAsyncCallback(async () => {
+    if (isLoadingMods) {
+      return;
+    }
+
     onHideMenu();
     setIsRefreshing(true);
-    await onRefreshMods();
-    setIsRefreshing(false);
-  }, [onHideMenu, onRefreshMods]);
+    try {
+      await onRefreshMods();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [isLoadingMods, onHideMenu, onRefreshMods]);
 
   return (
-    <MenuItem disableRipple={true} onClick={onRefreshModList}>
+    <MenuItem
+      disabled={isLoadingMods}
+      disableRipple={true}
+      onClick={onRefreshModList}
+    >
       <Refresh sx={{ marginRight: 1 }} />
       {t('modlist.menu.refresh')}
     </MenuItem>

@@ -42,6 +42,11 @@ import {
   makeCascOpenStorageArgs,
   readCString,
 } from './CascLib';
+import {
+  D2R_LOADER_CONFIG_FILES,
+  createD2RLoaderConfig,
+  updateD2RLoaderConfig,
+} from './D2RLoader';
 import { EventAPI } from './EventAPI';
 import { provideAPI } from './IPC';
 import { InstallationRuntime } from './InstallationRuntime';
@@ -49,7 +54,6 @@ import { encodeJson, parseJson } from './JSONParser';
 import { getModAPI, resetNextStringIDState } from './ModAPI';
 import { parseSprite } from './SpriteParser';
 import { encodeTsv, parseTsv } from './TSVParser';
-import { updateD2RLoaderIni } from './D2RLoader';
 import './asar';
 import { datamod } from './datamod';
 import { getQuickJSProxyAPI, getQuickJS } from './quickjs';
@@ -77,6 +81,24 @@ function getOutputRootPath(): string {
     return path.resolve(runtime!.options.dataPath);
   }
   return path.resolve(runtime!.options.mergedPath, '../');
+}
+
+function getD2RLoaderConfigFile(gameRoot: string): {
+  fileName: string;
+  format: (typeof D2R_LOADER_CONFIG_FILES)[number]['format'];
+  path: string;
+} | null {
+  return (
+    D2R_LOADER_CONFIG_FILES.map((candidate) => ({
+      ...candidate,
+      path: validatePathIsSafe(
+        gameRoot,
+        path.resolve(gameRoot, candidate.fileName),
+      ),
+    })).find(({ path: configPath }) => {
+      return existsSync(configPath) && statSync(configPath).isFile();
+    }) ?? null
+  );
 }
 
 function getPreExtractedDataPath(): string {
@@ -390,6 +412,27 @@ export const BridgeAPI: IBridgeAPI = {
     return cascStorageIsOpen;
   },
 
+  readD2RLoaderConfig: async (gamePath: string) => {
+    console.debug('BridgeAPI.readD2RLoaderConfig', { gamePath });
+    const gameRoot = path.resolve(gamePath);
+    const configFile = getD2RLoaderConfigFile(gameRoot);
+
+    if (configFile == null) {
+      return null;
+    }
+
+    try {
+      const configText = readFileSync(configFile.path, 'utf-8');
+      return createD2RLoaderConfig(
+        configFile.fileName,
+        configFile.format,
+        configText,
+      );
+    } catch (e) {
+      throw te('worker.bridgeapi.prepareD2RLoaderLaunch.failed', null, e);
+    }
+  },
+
   prepareD2RLoaderLaunch: async (
     gamePath: string,
     settings: D2RLoaderSettings,
@@ -401,23 +444,25 @@ export const BridgeAPI: IBridgeAPI = {
       gameRoot,
       path.resolve(gameRoot, 'D2RLoader.exe'),
     );
-    const iniPath = validatePathIsSafe(
-      gameRoot,
-      path.resolve(gameRoot, 'D2RLoader.ini'),
-    );
 
     if (!existsSync(exePath) || !statSync(exePath).isFile()) {
       throw te('settings.d2rLoader.missingExe');
     }
 
-    if (!existsSync(iniPath) || !statSync(iniPath).isFile()) {
+    const configFile = getD2RLoaderConfigFile(gameRoot);
+
+    if (configFile == null) {
       throw te('settings.d2rLoader.missingIni');
     }
 
     try {
-      const iniText = readFileSync(iniPath, 'utf-8');
-      const updatedIniText = updateD2RLoaderIni(iniText, settings);
-      writeFileSync(iniPath, Buffer.from(updatedIniText, 'utf-8'));
+      const configText = readFileSync(configFile.path, 'utf-8');
+      const updatedConfigText = updateD2RLoaderConfig(
+        configText,
+        settings,
+        configFile.format,
+      );
+      writeFileSync(configFile.path, Buffer.from(updatedConfigText, 'utf-8'));
     } catch (e) {
       throw te('worker.bridgeapi.prepareD2RLoaderLaunch.failed', null, e);
     }
@@ -1136,7 +1181,7 @@ const config = JSON.parse(D2RMM.getConfigJSON());
     throw te('worker.bridgeapi.readModCode.noSourceFound');
   },
 
-  // TODO: improve API signatures for ED2R APIs
+  // TODO: improve API signatures for save file APIs
 
   writeSaveFile: async (
     options: IInstallModsOptions,
@@ -1310,7 +1355,7 @@ const config = JSON.parse(D2RMM.getConfigJSON());
           characterFilesData.push([file.name, parsedData]);
         } catch (e) {
           console.error(
-            tl('worker.ed2r.readCharacterFailed', { name: file.name }),
+            tl('worker.saveFiles.readCharacterFailed', { name: file.name }),
             e,
           );
           continue;
@@ -1338,7 +1383,7 @@ const config = JSON.parse(D2RMM.getConfigJSON());
           stashFilesData.push([file.name, parsedData]);
         } catch (e) {
           console.error(
-            tl('worker.ed2r.readStashFailed', { name: file.name }),
+            tl('worker.saveFiles.readStashFailed', { name: file.name }),
             e,
           );
           continue;
@@ -1449,7 +1494,7 @@ const config = JSON.parse(D2RMM.getConfigJSON());
           const category = itemCodeToCategory[itemCode];
           if (category == null) {
             console.warn(
-              tl('worker.ed2r.categoryNotFound', { code: itemCode }),
+              tl('worker.saveFiles.categoryNotFound', { code: itemCode }),
             );
             return;
           }
@@ -1461,7 +1506,7 @@ const config = JSON.parse(D2RMM.getConfigJSON());
           const dataURI = parseSprite(await getGameFile(filePath));
           if (dataURI == null) {
             console.warn(
-              tl('worker.ed2r.spriteConvertFailed', { code: itemCode }),
+              tl('worker.saveFiles.spriteConvertFailed', { code: itemCode }),
             );
             return;
           }
@@ -1761,9 +1806,8 @@ const config = JSON.parse(D2RMM.getConfigJSON());
           !runtime.options.isDirectMode
         ) {
           try {
-            const { checked, converted, errors } = normalizeOutputCRLF(
-              getOutputRootPath(),
-            );
+            const { checked, converted, errors } =
+              normalizeOutputCRLF(getOutputRootPath());
             console.log(
               `[CRLF normalize] Checked files: ${checked}. Converted files: ${converted}.`,
             );
@@ -1781,7 +1825,10 @@ const config = JSON.parse(D2RMM.getConfigJSON());
               }
             }
           } catch (e) {
-            console.warn('[CRLF normalize] Failed to normalize output files.', e);
+            console.warn(
+              '[CRLF normalize] Failed to normalize output files.',
+              e,
+            );
           }
         }
       } else if (runtime.options.isDirectMode) {

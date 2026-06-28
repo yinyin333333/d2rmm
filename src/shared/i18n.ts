@@ -35,7 +35,7 @@ export function isI18nError(arg: unknown): arg is I18nError {
  *
  * @example
  *   console.error(tl('worker.mod.compileError'), error.stack);
- *   console.log(tl('updater.log.newVersion', { version }));
+ *   console.log(tl('main.worker.error', { message }));
  */
 export function tl(
   key: string,
