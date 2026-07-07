@@ -43,7 +43,7 @@ import {
   readCString,
 } from './CascLib';
 import {
-  D2R_LOADER_CONFIG_FILES,
+  D2R_LOADER_CONFIG_FILE,
   createD2RLoaderConfig,
   updateD2RLoaderConfig,
 } from './D2RLoader';
@@ -51,7 +51,7 @@ import { EventAPI } from './EventAPI';
 import { provideAPI } from './IPC';
 import { InstallationRuntime } from './InstallationRuntime';
 import { encodeJson, parseJson } from './JSONParser';
-import { getModAPI, resetNextStringIDState } from './ModAPI';
+import { getDataModRootPath, getModAPI, resetNextStringIDState } from './ModAPI';
 import { parseSprite } from './SpriteParser';
 import { encodeTsv, parseTsv } from './TSVParser';
 import './asar';
@@ -85,20 +85,21 @@ function getOutputRootPath(): string {
 
 function getD2RLoaderConfigFile(gameRoot: string): {
   fileName: string;
-  format: (typeof D2R_LOADER_CONFIG_FILES)[number]['format'];
   path: string;
 } | null {
-  return (
-    D2R_LOADER_CONFIG_FILES.map((candidate) => ({
-      ...candidate,
-      path: validatePathIsSafe(
-        gameRoot,
-        path.resolve(gameRoot, candidate.fileName),
-      ),
-    })).find(({ path: configPath }) => {
-      return existsSync(configPath) && statSync(configPath).isFile();
-    }) ?? null
+  const configPath = validatePathIsSafe(
+    gameRoot,
+    path.resolve(gameRoot, ...D2R_LOADER_CONFIG_FILE.relativePath),
   );
+
+  if (!existsSync(configPath) || !statSync(configPath).isFile()) {
+    return null;
+  }
+
+  return {
+    fileName: D2R_LOADER_CONFIG_FILE.fileName,
+    path: configPath,
+  };
 }
 
 function getPreExtractedDataPath(): string {
@@ -423,11 +424,7 @@ export const BridgeAPI: IBridgeAPI = {
 
     try {
       const configText = readFileSync(configFile.path, 'utf-8');
-      return createD2RLoaderConfig(
-        configFile.fileName,
-        configFile.format,
-        configText,
-      );
+      return createD2RLoaderConfig(configFile.fileName, configText);
     } catch (e) {
       throw te('worker.bridgeapi.prepareD2RLoaderLaunch.failed', null, e);
     }
@@ -452,16 +449,12 @@ export const BridgeAPI: IBridgeAPI = {
     const configFile = getD2RLoaderConfigFile(gameRoot);
 
     if (configFile == null) {
-      throw te('settings.d2rLoader.missingIni');
+      throw te('settings.d2rLoader.missingTomlConfig');
     }
 
     try {
       const configText = readFileSync(configFile.path, 'utf-8');
-      const updatedConfigText = updateD2RLoaderConfig(
-        configText,
-        settings,
-        configFile.format,
-      );
+      const updatedConfigText = updateD2RLoaderConfig(configText, settings);
       writeFileSync(configFile.path, Buffer.from(updatedConfigText, 'utf-8'));
     } catch (e) {
       throw te('worker.bridgeapi.prepareD2RLoaderLaunch.failed', null, e);
@@ -884,19 +877,12 @@ export const BridgeAPI: IBridgeAPI = {
 
     if (result == null) {
       // check if this is a data mod
-      try {
-        if (
-          statSync(
-            resolvePath(path.join('mods', id, 'data'), 'App'),
-          ).isDirectory()
-        ) {
-          return {
-            type: 'data',
-            name: id,
-          };
-        }
-      } catch {
-        // it's okay if this operation fails
+      const modPath = resolvePath(path.join('mods', id), 'App');
+      if (getDataModRootPath(modPath) != null) {
+        return {
+          type: 'data',
+          name: id,
+        };
       }
     }
 

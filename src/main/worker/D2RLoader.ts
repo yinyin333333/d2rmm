@@ -1,20 +1,10 @@
 import type {
   D2RLoaderConfig,
-  D2RLoaderConfigFormat,
   D2RLoaderConfigValue,
   D2RLoaderSettings,
   D2RLoaderTomlSetting,
   D2RLoaderTomlValueType,
 } from 'bridge/BridgeAPI';
-
-type D2RLoaderValueType = 'boolean' | 'integer' | 'quoted-string';
-
-type D2RLoaderSetting = {
-  value: boolean | number | string;
-  type: D2RLoaderValueType;
-};
-
-type D2RLoaderSectionMap = Record<string, Record<string, D2RLoaderSetting>>;
 
 type ParsedTomlValue = {
   value: D2RLoaderConfigValue;
@@ -29,76 +19,10 @@ type ParsedTomlKeyLine = {
   commentText: string;
 };
 
-export const D2R_LOADER_CONFIG_FILES: Array<{
-  fileName: string;
-  format: D2RLoaderConfigFormat;
-}> = [
-  { fileName: 'D2RLoader.toml', format: 'toml' },
-  { fileName: 'D2RLoader.ini', format: 'ini' },
-];
-
-export function normalizeD2RLoaderSettings(
-  settings: D2RLoaderSettings,
-): D2RLoaderSettings {
-  const extraSharedTabs = Math.max(0, Math.floor(settings.extraSharedTabs));
-  const damageIndicator = [0, 1, 2].includes(settings.damageIndicator)
-    ? settings.damageIndicator
-    : 0;
-
-  return {
-    ...settings,
-    extraSharedTabs,
-    damageIndicator,
-  };
-}
-
-function getD2RLoaderConfigMap(
-  settings: D2RLoaderSettings,
-): D2RLoaderSectionMap {
-  const normalized = normalizeD2RLoaderSettings(settings);
-  return {
-    Game: {
-      default_mod: { value: normalized.defaultMod, type: 'quoted-string' },
-      skip_title_screen: {
-        value: normalized.skipTitleScreen,
-        type: 'boolean',
-      },
-    },
-    Items: {
-      show_ground_sockets: {
-        value: normalized.showGroundSockets,
-        type: 'boolean',
-      },
-    },
-    Stash: {
-      extra_shared_tabs: {
-        value: normalized.extraSharedTabs,
-        type: 'integer',
-      },
-    },
-    UI: {
-      force_tcpip: { value: normalized.forceTcpip, type: 'boolean' },
-    },
-    Advanced: {
-      global_plugins: { value: normalized.globalPlugins, type: 'boolean' },
-      dev_console: { value: normalized.devConsole, type: 'boolean' },
-    },
-    'Advanced.Logging': {
-      detect_early_crashes: {
-        value: normalized.detectEarlyCrashes,
-        type: 'boolean',
-      },
-      damage_indicator: {
-        value: normalized.damageIndicator,
-        type: 'integer',
-      },
-      json_resource_loads: {
-        value: normalized.jsonResourceLoads,
-        type: 'boolean',
-      },
-    },
-  };
-}
+export const D2R_LOADER_CONFIG_FILE = {
+  fileName: 'd2rloader.toml',
+  relativePath: ['d2rloader', 'config', 'd2rloader.toml'],
+} as const;
 
 function detectNewline(text: string): string {
   return text.includes('\r\n') ? '\r\n' : '\n';
@@ -113,89 +37,6 @@ function trimTrailingEmptyLine(lines: string[]): string[] {
     return lines.slice(0, -1);
   }
   return lines;
-}
-
-function formatD2RLoaderValue(setting: D2RLoaderSetting): string {
-  switch (setting.type) {
-    case 'boolean':
-      return setting.value ? 'true' : 'false';
-    case 'integer':
-      return String(Math.floor(Number(setting.value)));
-    case 'quoted-string':
-      return formatTomlString(setting.value);
-    default:
-      return String(setting.value);
-  }
-}
-
-function findSectionEnd(lines: string[], sectionStart: number): number {
-  for (let i = sectionStart + 1; i < lines.length; i += 1) {
-    if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) {
-      return i;
-    }
-  }
-  return lines.length;
-}
-
-function findSectionInsertionIndex(
-  lines: string[],
-  sectionEnd: number,
-): number {
-  let insertionIndex = sectionEnd;
-  while (insertionIndex > 0 && lines[insertionIndex - 1].trim() === '') {
-    insertionIndex -= 1;
-  }
-  return insertionIndex;
-}
-
-function updateD2RLoaderIniConfig(
-  configText: string,
-  settings: D2RLoaderSettings,
-): string {
-  const newline = detectNewline(configText);
-  const hadTrailingNewline = /\r?\n$/.test(configText);
-  const lines = trimTrailingEmptyLine(splitLines(configText));
-  const sectionMap = getD2RLoaderConfigMap(settings);
-  const keyLinePattern = /^(\s*)([^=;\s][^=]*?)(\s*=\s*)(.*)$/;
-
-  for (const [sectionName, sectionSettings] of Object.entries(sectionMap)) {
-    let sectionStart = lines.findIndex((line) => {
-      const match = line.match(/^\s*\[([^\]]+)\]\s*$/);
-      return match?.[1] === sectionName;
-    });
-
-    if (sectionStart === -1) {
-      if (lines.length > 0 && lines[lines.length - 1] !== '') {
-        lines.push('');
-      }
-      sectionStart = lines.length;
-      lines.push(`[${sectionName}]`);
-    }
-
-    let sectionEnd = findSectionEnd(lines, sectionStart);
-
-    for (const [key, setting] of Object.entries(sectionSettings)) {
-      const value = formatD2RLoaderValue(setting);
-      let found = false;
-
-      for (let i = sectionStart + 1; i < sectionEnd; i += 1) {
-        const match = lines[i].match(keyLinePattern);
-        if (match?.[2].trim() === key) {
-          lines[i] = `${match[1]}${key}${match[3]}${value}`;
-          found = true;
-          break;
-        }
-      }
-
-      if (!found) {
-        const insertionIndex = findSectionInsertionIndex(lines, sectionEnd);
-        lines.splice(insertionIndex, 0, `${key} = ${value}`);
-        sectionEnd += 1;
-      }
-    }
-  }
-
-  return `${lines.join(newline)}${hadTrailingNewline ? newline : ''}`;
 }
 
 function getTomlSettingID(section: string, key: string): string {
@@ -320,8 +161,8 @@ function getTomlNumberBounds(
   section: string,
   key: string,
 ): { min?: number; max?: number } {
-  if (section === 'd2rcore.stash' && key === 'set_shared_tabs') {
-    return { min: 5 };
+  if (section === 'd2rcore.stash' && key === 'add_shared_tabs') {
+    return { min: 0 };
   }
 
   if (section === 'd2rcore.stash' && key === 'set_materials_limit') {
@@ -425,7 +266,7 @@ export function parseD2RLoaderTomlSettings(
   return settings;
 }
 
-function updateD2RLoaderTomlConfig(
+export function updateD2RLoaderConfig(
   tomlText: string,
   settings: D2RLoaderSettings,
 ): string {
@@ -475,38 +316,20 @@ function updateD2RLoaderTomlConfig(
   return `${updatedLines.join(newline)}${hadTrailingNewline ? newline : ''}`;
 }
 
-export function updateD2RLoaderConfig(
-  configText: string,
-  settings: D2RLoaderSettings,
-  format: D2RLoaderConfigFormat,
-): string {
-  return format === 'toml'
-    ? updateD2RLoaderTomlConfig(configText, settings)
-    : updateD2RLoaderIniConfig(configText, settings);
-}
-
-export function updateD2RLoaderIni(
-  iniText: string,
-  settings: D2RLoaderSettings,
-): string {
-  return updateD2RLoaderConfig(iniText, settings, 'ini');
-}
-
 export function updateD2RLoaderToml(
   tomlText: string,
   settings: D2RLoaderSettings,
 ): string {
-  return updateD2RLoaderConfig(tomlText, settings, 'toml');
+  return updateD2RLoaderConfig(tomlText, settings);
 }
 
 export function createD2RLoaderConfig(
   fileName: string,
-  format: D2RLoaderConfigFormat,
   configText: string,
 ): D2RLoaderConfig {
   return {
     fileName,
-    format,
-    settings: format === 'toml' ? parseD2RLoaderTomlSettings(configText) : [],
+    format: 'toml',
+    settings: parseD2RLoaderTomlSettings(configText),
   };
 }

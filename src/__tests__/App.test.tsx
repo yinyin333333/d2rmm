@@ -77,7 +77,7 @@ describe('App', () => {
       JSON.stringify({ useD2RLoader: true }),
     );
     mockState.readD2RLoaderConfig.mockResolvedValue({
-      fileName: 'D2RLoader.toml',
+      fileName: 'd2rloader.toml',
       format: 'toml',
       settings: [
         {
@@ -109,6 +109,33 @@ describe('App', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText('Default mod')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Show ground sockets'));
+    await waitFor(() =>
+      expect(
+        JSON.parse(localStorage.getItem('d2r-loader-settings') ?? '{}')
+          .tomlSettings,
+      ).toMatchObject({
+        'd2rcore.items.show_ground_sockets': true,
+      }),
+    );
+  });
+
+  it('should show a missing TOML warning instead of old D2RLoader controls', async () => {
+    localStorage.setItem(
+      'd2r-loader-settings',
+      JSON.stringify({ useD2RLoader: true }),
+    );
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    expect(
+      await screen.findByText(
+        'd2rloader\\config\\d2rloader.toml was not found in the selected game directory.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Skip title screen')).not.toBeInTheDocument();
   });
 
   it('should disable install and run while the initial mod list is loading', async () => {

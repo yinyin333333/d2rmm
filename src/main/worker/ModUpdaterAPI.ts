@@ -458,10 +458,40 @@ const NexusModsAPI = {
   },
 };
 
-function findModInfo(dirPath: string): string | null {
+function hasD2RLoaderDataModWrapper(
+  dirPath: string,
+  fileNames: string[],
+): boolean {
+  const hasD2RLoaderSibling = fileNames.some((fileName) => {
+    return (
+      fileName.toLowerCase() === 'd2rloader' &&
+      statSync(path.join(dirPath, fileName)).isDirectory()
+    );
+  });
+
+  if (!hasD2RLoaderSibling) {
+    return false;
+  }
+
+  return fileNames.some((fileName) => {
+    const mpqPath = path.join(dirPath, fileName);
+    const dataPath = path.join(mpqPath, 'data');
+    return (
+      fileName.toLowerCase().endsWith('.mpq') &&
+      statSync(mpqPath).isDirectory() &&
+      existsSync(path.join(mpqPath, 'modinfo.json')) &&
+      existsSync(dataPath) &&
+      statSync(dataPath).isDirectory()
+    );
+  });
+}
+
+export function findModInfo(dirPath: string): string | null {
   if (existsSync(path.join(dirPath, 'mod.json'))) return dirPath;
   if (existsSync(path.join(dirPath, 'modinfo.json'))) return dirPath;
-  for (const fileName of readdirSync(dirPath, { encoding: null })) {
+  const fileNames = readdirSync(dirPath);
+  if (hasD2RLoaderDataModWrapper(dirPath, fileNames)) return dirPath;
+  for (const fileName of fileNames) {
     const fp = path.join(dirPath, fileName);
     if (statSync(fp).isDirectory()) {
       const result = findModInfo(fp);
