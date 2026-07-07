@@ -57,15 +57,6 @@ export default function RunGameButton(_props: Props): JSX.Element {
       const pathD2RLoaderExe = resolvePath(gamePath, 'D2RLoader.exe');
       await BridgeAPI.prepareD2RLoaderLaunch(gamePath, {
         defaultMod: outputModName,
-        skipTitleScreen: d2rLoaderSettings.skipTitleScreen,
-        showGroundSockets: d2rLoaderSettings.showGroundSockets,
-        extraSharedTabs: d2rLoaderSettings.extraSharedTabs,
-        forceTcpip: d2rLoaderSettings.forceTcpip,
-        globalPlugins: d2rLoaderSettings.globalPlugins,
-        devConsole: d2rLoaderSettings.devConsole,
-        detectEarlyCrashes: d2rLoaderSettings.detectEarlyCrashes,
-        damageIndicator: d2rLoaderSettings.damageIndicator,
-        jsonResourceLoads: d2rLoaderSettings.jsonResourceLoads,
         tomlSettings: d2rLoaderSettings.tomlSettings,
       });
       await BridgeAPI.execute(pathD2RLoaderExe, args);

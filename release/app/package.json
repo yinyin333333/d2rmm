@@ -1,23 +1,23 @@
 {
-  "name": "d2rmm",
-  "version": "1.9.0",
-  "description": "A mod manager for Diablo II: Resurrected.",
-  "main": "./dist/main/main.js",
-  "author": {
-    "name": "yinyin333333"
-  },
-  "scripts": {
-    "electron-rebuild": "node -r ts-node/register ../../.erb/scripts/electron-rebuild.js",
-    "link-modules": "node -r ts-node/register ../../.erb/scripts/link-modules.ts",
-    "postinstall": "npm run electron-rebuild && npm run link-modules"
-  },
-  "dependencies": {
-    "@jitl/quickjs-wasmfile-release-asyncify": "^0.29.2",
-    "json5": "^2.2.3",
-    "koffi": "^2.9.0",
-    "quickjs-emscripten-core": "^0.29.2",
-    "regedit": "^5.1.4",
-    "typescript": "^5.2.2"
-  },
-  "license": "MIT"
+    "name":  "d2rmm",
+    "version":  "1.9.0.1",
+    "description":  "A mod manager for Diablo II: Resurrected.",
+    "main":  "./dist/main/main.js",
+    "author":  {
+                   "name":  "yinyin333333"
+               },
+    "scripts":  {
+                    "electron-rebuild":  "node -r ts-node/register ../../.erb/scripts/electron-rebuild.js",
+                    "link-modules":  "node -r ts-node/register ../../.erb/scripts/link-modules.ts",
+                    "postinstall":  "npm run electron-rebuild \u0026\u0026 npm run link-modules"
+                },
+    "dependencies":  {
+                         "@jitl/quickjs-wasmfile-release-asyncify":  "^0.29.2",
+                         "json5":  "^2.2.3",
+                         "koffi":  "^2.9.0",
+                         "quickjs-emscripten-core":  "^0.29.2",
+                         "regedit":  "^5.1.4",
+                         "typescript":  "^5.2.2"
+                     },
+    "license":  "MIT"
 }

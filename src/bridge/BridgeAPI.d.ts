@@ -20,19 +20,10 @@ export type IInstallModsOptions = {
 
 export type D2RLoaderSettings = {
   defaultMod: string;
-  skipTitleScreen: boolean;
-  showGroundSockets: boolean;
-  extraSharedTabs: number;
-  forceTcpip: boolean;
-  globalPlugins: boolean;
-  devConsole: boolean;
-  detectEarlyCrashes: boolean;
-  damageIndicator: number;
-  jsonResourceLoads: boolean;
   tomlSettings?: D2RLoaderTomlSettings;
 };
 
-export type D2RLoaderConfigFormat = 'ini' | 'toml';
+export type D2RLoaderConfigFormat = 'toml';
 
 export type D2RLoaderConfigValue = boolean | number | string;
 

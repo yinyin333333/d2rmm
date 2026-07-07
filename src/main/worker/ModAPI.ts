@@ -24,6 +24,55 @@ export function resetNextStringIDState(): void {
   nextStringID = 0;
 }
 
+export function getDataModEntryDestinationRelative(
+  entryName: string,
+  isDirectMode: boolean,
+): string {
+  const normalizedEntryName = entryName.toLowerCase();
+
+  if (normalizedEntryName === 'data') {
+    return '';
+  }
+
+  if (normalizedEntryName === 'd2rloader') {
+    return isDirectMode
+      ? path.join('..', entryName)
+      : path.join('..', '..', entryName);
+  }
+
+  // The installer writes relative to <mpq>/data, so MPQ-root siblings need ../.
+  return path.join('..', entryName);
+}
+
+function isDirectoryPath(filePath: string): boolean {
+  return existsSync(filePath) && statSync(filePath).isDirectory();
+}
+
+export function getDataModRootPath(modPath: string): string | null {
+  if (isDirectoryPath(path.join(modPath, 'data'))) {
+    return modPath;
+  }
+
+  if (!isDirectoryPath(modPath)) {
+    return null;
+  }
+
+  const entries = readdirSync(modPath, { withFileTypes: true });
+  const mpqEntry = entries.find((entry) => {
+    if (!entry.isDirectory() || !entry.name.toLowerCase().endsWith('.mpq')) {
+      return false;
+    }
+
+    const mpqPath = path.join(modPath, entry.name);
+    return (
+      existsSync(path.join(mpqPath, 'modinfo.json')) &&
+      isDirectoryPath(path.join(mpqPath, 'data'))
+    );
+  });
+
+  return mpqEntry == null ? null : path.join(modPath, mpqEntry.name);
+}
+
 export function getModAPI(runtime: InstallationRuntime): AsyncModAPI {
   async function tryExtractFile(filePath: string): Promise<void> {
     // if file already exists in memory (was extracted or created during this installation),
@@ -234,23 +283,31 @@ async function copyDataModFilesToMemory(
   const appPath = await runtime.BridgeAPI.getAppPath();
   const modPath = path.resolve(appPath, 'mods', runtime.mod.id);
 
-  const entries = readdirSync(modPath, { withFileTypes: true });
+  const dataModRootPath = getDataModRootPath(modPath);
+  if (dataModRootPath == null) {
+    throw new Error(
+      `Data mod "${runtime.mod.id}" does not contain a data folder or an .mpq folder with data.`,
+    );
+  }
+
+  const entries = readdirSync(dataModRootPath, { withFileTypes: true });
   for (const entry of entries) {
     if (DATA_MOD_METADATA_FILES.has(entry.name.toLowerCase())) {
       continue;
     }
 
-    const srcPath = path.resolve(modPath, entry.name);
-    const relativeToMod = path.relative(modPath, srcPath);
+    const srcPath = path.resolve(dataModRootPath, entry.name);
+    const relativeToMod = path.relative(dataModRootPath, srcPath);
     if (relativeToMod.startsWith('..') || path.isAbsolute(relativeToMod)) {
       throw new Error(
-        `Path "${srcPath}" points outside of allowed directory "${modPath}".`,
+        `Path "${srcPath}" points outside of allowed directory "${dataModRootPath}".`,
       );
     }
 
-    // The installer writes relative to <mpq>/data, so MPQ-root siblings need ../.
-    const dstRelative =
-      entry.name.toLowerCase() === 'data' ? '' : path.join('..', entry.name);
+    const dstRelative = getDataModEntryDestinationRelative(
+      entry.name,
+      runtime.options.isDirectMode,
+    );
     const copiedRelativePaths = await copySourceFilesToMemory(
       runtime,
       srcPath,
@@ -258,6 +315,22 @@ async function copyDataModFilesToMemory(
       overwrite,
     );
     result.push(...copiedRelativePaths);
+  }
+
+  if (dataModRootPath !== modPath) {
+    const d2rLoaderPath = path.join(modPath, 'd2rloader');
+    if (isDirectoryPath(d2rLoaderPath)) {
+      const copiedRelativePaths = await copySourceFilesToMemory(
+        runtime,
+        d2rLoaderPath,
+        getDataModEntryDestinationRelative(
+          'd2rloader',
+          runtime.options.isDirectMode,
+        ),
+        overwrite,
+      );
+      result.push(...copiedRelativePaths);
+    }
   }
 
   return result;

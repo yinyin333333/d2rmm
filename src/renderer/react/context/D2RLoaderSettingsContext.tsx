@@ -17,15 +17,6 @@ type ID2RLoaderSettingsContext = {
 
 const DEFAULT_D2R_LOADER_SETTINGS: D2RLoaderSettingsState = {
   useD2RLoader: false,
-  skipTitleScreen: false,
-  showGroundSockets: false,
-  extraSharedTabs: 0,
-  forceTcpip: false,
-  globalPlugins: true,
-  devConsole: false,
-  detectEarlyCrashes: false,
-  damageIndicator: 0,
-  jsonResourceLoads: false,
   tomlSettings: {},
 };
 
