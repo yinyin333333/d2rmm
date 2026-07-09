@@ -123,4 +123,19 @@ describe('ModUpdaterAPI installation', () => {
     );
     expect(fs.existsSync(path.join(installedPath, 'old.txt'))).toBe(false);
   });
+
+  it('removes a zip extension case-insensitively when deriving the mod ID', async () => {
+    const zipPath = path.join(tempDir, 'Example.ZIP');
+    mockDecompress.mockImplementation(
+      async (_zipFilePath: string, extractDirPath: string) => {
+        writeFileSync(path.join(extractDirPath, 'mod.json'), '{}');
+      },
+    );
+
+    await expect(updaterAPI.installModFromZip(zipPath)).resolves.toBe('Example');
+
+    expect(fs.existsSync(path.join(tempDir, 'mods', 'Example', 'mod.json'))).toBe(
+      true,
+    );
+  });
 });

@@ -19,7 +19,10 @@ export type FileStatus = {
 };
 
 export class FileManager {
-  private files: Record<string, FileStatus> = {};
+  private files: Record<string, FileStatus> = Object.create(null) as Record<
+    string,
+    FileStatus
+  >;
   constructor(private runtime: InstallationRuntime) {}
 
   private get(filePath: string): FileStatus {

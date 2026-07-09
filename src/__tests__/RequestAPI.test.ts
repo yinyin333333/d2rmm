@@ -1,5 +1,6 @@
 import type { IRequestAPI } from 'bridge/RequestAPI';
 import { EventEmitter } from 'events';
+import path from 'path';
 
 const mockCreateWriteStream = jest.fn();
 const mockMkdirSync = jest.fn();
@@ -124,5 +125,66 @@ describe('RequestAPI', () => {
       expect.stringContaining('RequestAPI'),
       { force: true },
     );
+  });
+
+  it('rejects HTTP error responses instead of saving them as downloads', async () => {
+    const file = createMockFile();
+    const request = createMockRequest();
+    const response = Object.assign(new EventEmitter(), {
+      headers: {},
+      statusCode: 404,
+    });
+    mockCreateWriteStream.mockReturnValue(file);
+    mockNetRequest.mockReturnValue(request);
+
+    const { initRequestAPI } = await import('../main/RequestAPI');
+    await initRequestAPI();
+    const api = mockProvideAPI.mock.calls[0][1] as IRequestAPI;
+    const download = api.download('https://example.test/missing');
+
+    request.emit('response', response);
+
+    await expect(download).rejects.toThrow('HTTP status 404');
+    response.emit('data', Buffer.from('error page'));
+    expect(file.destroy).toHaveBeenCalledTimes(1);
+    expect(file.write).not.toHaveBeenCalled();
+  });
+
+  it('cleans up when request creation fails synchronously', async () => {
+    const file = createMockFile();
+    const error = new Error('invalid URL');
+    mockCreateWriteStream.mockReturnValue(file);
+    mockNetRequest.mockImplementation(() => {
+      throw error;
+    });
+
+    const { initRequestAPI } = await import('../main/RequestAPI');
+    await initRequestAPI();
+    const api = mockProvideAPI.mock.calls[0][1] as IRequestAPI;
+
+    await expect(api.download('not a URL')).rejects.toThrow(error);
+    expect(file.destroy).toHaveBeenCalledTimes(1);
+
+    file.emit('close');
+    expect(mockRmSync).toHaveBeenLastCalledWith(
+      expect.stringContaining('RequestAPI'),
+      { force: true },
+    );
+  });
+
+  it('rejects file names that escape the download directory', async () => {
+    const { initRequestAPI } = await import('../main/RequestAPI');
+    await initRequestAPI();
+    const api = mockProvideAPI.mock.calls[0][1] as IRequestAPI;
+
+    await expect(
+      api.download('https://example.test/file', {
+        fileName: path.join('..', 'outside.dat'),
+      }),
+    ).rejects.toThrow('Invalid download file name');
+
+    expect(mockMkdirSync).not.toHaveBeenCalled();
+    expect(mockRmSync).not.toHaveBeenCalled();
+    expect(mockCreateWriteStream).not.toHaveBeenCalled();
   });
 });

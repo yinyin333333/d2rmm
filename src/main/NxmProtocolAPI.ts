@@ -37,21 +37,30 @@ export async function initNxmProtocolAPI(): Promise<void> {
   } as INxmProtocolAPI);
 
   function onOpenNxmUrl(url: string): boolean {
-    if (url.startsWith('nxm://')) {
-      const { host, pathname, searchParams } = new URL(url);
+    try {
+      const { host, pathname, protocol, searchParams } = new URL(url);
+      if (protocol !== 'nxm:') {
+        return false;
+      }
       const paths = pathname.split('/');
       const game = host;
       if (game !== 'diablo2resurrected') {
         return false;
       }
-      if (paths[1] === 'mods') {
+      if (paths[1] === 'mods' && paths[3] === 'files') {
         const nexusModID = paths[2];
-        const nexusFileID = parseInt(paths[4], 10);
+        const nexusFileIDRaw = paths[4];
+        const nexusFileID = Number(nexusFileIDRaw);
         const key = searchParams.get('key');
-        const expires = searchParams.has('expires')
-          ? parseInt(searchParams.get('expires') ?? '0', 10)
-          : null;
-        if (nexusModID != null && !Number.isNaN(nexusFileID)) {
+        const expiresRaw = searchParams.get('expires');
+        const expires = expiresRaw == null ? null : Number(expiresRaw);
+        if (
+          nexusModID != null &&
+          /^\d+$/.test(nexusModID) &&
+          nexusFileIDRaw != null &&
+          /^\d+$/.test(nexusFileIDRaw) &&
+          (expiresRaw == null || /^\d+$/.test(expiresRaw))
+        ) {
           EventAPI.send('nexus-mods-open-url', {
             nexusModID,
             nexusFileID,
@@ -62,10 +71,16 @@ export async function initNxmProtocolAPI(): Promise<void> {
             .catch(console.error);
           return true;
         }
-      } else if (paths[1] === 'collections') {
+      } else if (paths[1] === 'collections' && paths[3] === 'revisions') {
         const collectionSlug = paths[2];
-        const revisionNumber = parseInt(paths[4], 10);
-        if (collectionSlug != null && !isNaN(revisionNumber)) {
+        const revisionNumberRaw = paths[4];
+        const revisionNumber = Number(revisionNumberRaw);
+        if (
+          collectionSlug != null &&
+          collectionSlug !== '' &&
+          revisionNumberRaw != null &&
+          /^\d+$/.test(revisionNumberRaw)
+        ) {
           EventAPI.send('nexus-mods-open-collection-url', {
             collectionSlug,
             revisionNumber,
@@ -75,6 +90,8 @@ export async function initNxmProtocolAPI(): Promise<void> {
           return true;
         }
       }
+    } catch {
+      return false;
     }
     return false;
   }

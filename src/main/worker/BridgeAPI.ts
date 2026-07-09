@@ -133,6 +133,48 @@ function validatePathIsSafe(allowedRoot: string, absolutePath: string): string {
   return absolutePath;
 }
 
+function resolveModPath(id: string, ...relativePaths: string[]): string {
+  const modsRootPath = path.resolve(getAppPath(), 'mods');
+  const modRootPath = path.resolve(modsRootPath, id);
+  if (
+    id === '' ||
+    id === '.' ||
+    path.basename(id) !== id ||
+    !isPathInside(modsRootPath, modRootPath)
+  ) {
+    throw te('worker.bridgeapi.validatePath.outsideAllowed', {
+      path: modRootPath,
+      allowedRoot: modsRootPath,
+    });
+  }
+  return validatePathIsSafe(
+    modRootPath,
+    path.resolve(modRootPath, ...relativePaths),
+  );
+}
+
+function validateInstallPaths(options: IInstallModsOptions): void {
+  if (!options.isPreExtractedData) {
+    return;
+  }
+
+  const preExtractedDataPath = path.resolve(options.preExtractedDataPath);
+  const outputRootPath = path.resolve(
+    options.isDirectMode ? options.dataPath : options.mergedPath,
+    ...(options.isDirectMode ? [] : ['..']),
+  );
+  const overlapsOutput = options.isDirectMode
+    ? path.relative(preExtractedDataPath, outputRootPath) === ''
+    : isPathInside(outputRootPath, preExtractedDataPath);
+
+  if (overlapsOutput) {
+    throw te('worker.bridgeapi.installMods.inputOutputOverlap', {
+      inputPath: preExtractedDataPath,
+      outputPath: outputRootPath,
+    });
+  }
+}
+
 function resolvePath(inputPath: string, relative: Relative): string {
   switch (relative) {
     case 'App':
@@ -887,6 +929,7 @@ export const BridgeAPI: IBridgeAPI = {
       id,
     });
 
+    const modPath = resolveModPath(id);
     const result = await BridgeAPI.readTextFile(
       path.join('mods', id, 'mod.json'),
       'App',
@@ -894,7 +937,6 @@ export const BridgeAPI: IBridgeAPI = {
 
     if (result == null) {
       // check if this is a data mod
-      const modPath = resolvePath(path.join('mods', id), 'App');
       if (getDataModRootPath(modPath) != null) {
         return {
           type: 'data',
@@ -923,6 +965,7 @@ export const BridgeAPI: IBridgeAPI = {
       id,
     });
 
+    resolveModPath(id);
     const filePath = path.join('mods', id, 'config.json');
     const result = await BridgeAPI.readTextFile(filePath, 'App');
 
@@ -943,6 +986,7 @@ export const BridgeAPI: IBridgeAPI = {
       value,
     });
 
+    resolveModPath(id);
     const filePath = path.join('mods', id, 'config.json');
     return await BridgeAPI.writeTextFile(
       filePath,
@@ -956,10 +1000,12 @@ export const BridgeAPI: IBridgeAPI = {
       id,
     });
 
+    const modPath = resolveModPath(id);
+
     // javascript support
     {
       const relativeFilePath = path.join('mods', id, 'mod.js');
-      const absoluteFilePath = path.resolve(getAppPath(), relativeFilePath);
+      const absoluteFilePath = resolveModPath(id, 'mod.js');
       if (existsSync(absoluteFilePath)) {
         const result = await BridgeAPI.readTextFile(relativeFilePath, 'App');
         if (typeof result !== 'string') {
@@ -986,7 +1032,7 @@ export const BridgeAPI: IBridgeAPI = {
     }
 
     // typescript support
-    if (existsSync(path.join(getAppPath(), 'mods', id, 'mod.ts'))) {
+    if (existsSync(resolveModPath(id, 'mod.ts'))) {
       try {
         type Module = {
           id: string;
@@ -1047,7 +1093,11 @@ export const BridgeAPI: IBridgeAPI = {
           }
           modulesProcessed.push(module.id);
 
-          const relativeFilePath = path.join('mods', id, `${module.id}.ts`);
+          const absoluteFilePath = validatePathIsSafe(
+            modPath,
+            path.resolve(modPath, `${module.id}.ts`),
+          );
+          const relativeFilePath = path.relative(getAppPath(), absoluteFilePath);
           const sourceCode = await BridgeAPI.readTextFile(
             relativeFilePath,
             'App',
@@ -1061,7 +1111,7 @@ export const BridgeAPI: IBridgeAPI = {
           const moduleWithSourceCode = { ...module, sourceCode };
           const dependencies = processDependencies(
             moduleWithSourceCode,
-            path.join(getAppPath(), relativeFilePath),
+            absoluteFilePath,
           );
           for (const dependency of dependencies) {
             await processModule(dependency);
@@ -1602,6 +1652,7 @@ const config = JSON.parse(D2RMM.getConfigJSON());
       options,
     });
 
+    validateInstallPaths(options);
     resetNextStringIDState();
 
     runtime = new InstallationRuntime(
@@ -1772,7 +1823,7 @@ const config = JSON.parse(D2RMM.getConfigJSON());
           const savesPath = getSavesPath();
 
           // use a relative path if possible - but allow an absolute path
-          const isRelative = savesPath.startsWith(baseSavesPath);
+          const isRelative = isPathInside(baseSavesPath, savesPath);
           const finalSavesPath = isRelative
             ? process.platform === 'win32'
               ? path.relative(modsSavesPath, savesPath)

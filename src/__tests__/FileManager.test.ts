@@ -15,4 +15,22 @@ describe('FileManager', () => {
     expect(isGameFile).toHaveBeenCalledTimes(1);
     expect(isGameFile).toHaveBeenCalledWith('global/excel/armor.txt');
   });
+
+  it('tracks file names that match object prototype properties', async () => {
+    const manager = new FileManager({} as never);
+    const data = Buffer.from('content');
+
+    try {
+      manager.setData('__proto__', data);
+      await manager.write('__proto__', 'example');
+
+      expect(manager.getData('__proto__')).toBe(data);
+      expect(manager.getModifiedFiles()).toEqual([
+        { filePath: '__proto__', data },
+      ]);
+    } finally {
+      Reflect.deleteProperty(Object.prototype, 'data');
+      Reflect.deleteProperty(Object.prototype, 'exists');
+    }
+  });
 });

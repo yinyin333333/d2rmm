@@ -248,6 +248,7 @@
   "worker.bridgeapi.extractFileToMemory.extractFailed": "Failed to extract file from CASC storage",
   "worker.bridgeapi.extractFileToMemory.openFailed": "Failed to open file in CASC storage ({{filePath}}, error: {{cascError}})",
   "worker.bridgeapi.extractFileToMemory.readFailed": "Failed to read file in CASC storage ({{filePath}}, error: {{cascError}})",
+  "worker.bridgeapi.installMods.inputOutputOverlap": "Pre-extracted input directory \"{{inputPath}}\" overlaps the output directory \"{{outputPath}}\"",
   "worker.bridgeapi.installMods.readCodeFailed": "Could not read code from mod.js or mod.ts",
   "worker.bridgeapi.isGameFile.cascNotOpen": "CASC storage is not open",
   "worker.bridgeapi.isGameFile.checkFailed": "Failed to check if file exists in CASC storage",
