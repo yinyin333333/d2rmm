@@ -162,67 +162,71 @@ export function registerWorker(worker: ChildProcess): void {
 }
 
 let renderer: BrowserWindow['webContents'] | null = null;
+let isRendererListenerRegistered = false;
+
+function onRendererMessage(
+  _event: Electron.IpcMainEvent,
+  message: IPCMessage,
+): void {
+  if (message.args != null) {
+    const handler = getAPIHandler(message);
+    if (handler != null) {
+      const broadcast = getIsProvidedAPIBroadcast(message);
+      handler(...message.args)
+        .then((result) => {
+          if (!broadcast) {
+            if (!renderer?.isDestroyed()) {
+              renderer?.send('ipc', {
+                id: message.id,
+                result,
+              } as IPCMessageSuccessResponse);
+            }
+          }
+        })
+        .catch((error: Error) => {
+          if (!broadcast) {
+            if (!renderer?.isDestroyed()) {
+              renderer?.send('ipc', {
+                id: message.id,
+                error: {
+                  name: error.name,
+                  message: error.message,
+                  stack: error.stack,
+                  ...(isI18nError(error) && {
+                    __d2rmm_i18n_list: error.__d2rmm_i18n_list,
+                  }),
+                },
+              } as IPCMessageErrorResponse);
+            }
+          } else {
+            console.error(error);
+          }
+        });
+    }
+  } else {
+    const request = PENDING_REQUESTS[message.id];
+    if (request != null) {
+      delete PENDING_REQUESTS[message.id];
+      if (message.error != null) {
+        const error = new Error();
+        error.name = message.error.name;
+        error.message = message.error.message;
+        error.stack = message.error.stack;
+        request.reject(error);
+      } else {
+        request.resolve(message.result);
+      }
+    }
+  }
+
+  // forward message to the other threads
+  workers.forEach((w) => w.send(message));
+}
 
 export async function initIPC(mainWindow: BrowserWindow): Promise<void> {
   renderer = mainWindow.webContents;
-
-  // handle messages received from the renderer thread
-  ipcMain.on(
-    'ipc',
-    (_event: Electron.IpcMainEvent, message: IPCMessage): void => {
-      if (message.args != null) {
-        const handler = getAPIHandler(message);
-        if (handler != null) {
-          const broadcast = getIsProvidedAPIBroadcast(message);
-          handler(...message.args)
-            .then((result) => {
-              if (!broadcast) {
-                if (!renderer?.isDestroyed()) {
-                  renderer?.send('ipc', {
-                    id: message.id,
-                    result,
-                  } as IPCMessageSuccessResponse);
-                }
-              }
-            })
-            .catch((error: Error) => {
-              if (!broadcast) {
-                if (!renderer?.isDestroyed()) {
-                  renderer?.send('ipc', {
-                    id: message.id,
-                    error: {
-                      name: error.name,
-                      message: error.message,
-                      stack: error.stack,
-                      ...(isI18nError(error) && {
-                        __d2rmm_i18n_list: error.__d2rmm_i18n_list,
-                      }),
-                    },
-                  } as IPCMessageErrorResponse);
-                }
-              } else {
-                console.error(error);
-              }
-            });
-        }
-      } else {
-        const request = PENDING_REQUESTS[message.id];
-        if (request != null) {
-          delete PENDING_REQUESTS[message.id];
-          if (message.error != null) {
-            const error = new Error();
-            error.name = message.error.name;
-            error.message = message.error.message;
-            error.stack = message.error.stack;
-            request.reject(error);
-          } else {
-            request.resolve(message.result);
-          }
-        }
-      }
-
-      // forward message to the other threads
-      workers.forEach((w) => w.send(message));
-    },
-  );
+  if (!isRendererListenerRegistered) {
+    ipcMain.on('ipc', onRendererMessage);
+    isRendererListenerRegistered = true;
+  }
 }

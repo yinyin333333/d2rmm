@@ -12,6 +12,7 @@ import type {
   ValidateResult,
 } from 'bridge/NexusModsAPI';
 import type { ResponseHeaders } from 'bridge/RequestAPI';
+import { randomUUID } from 'crypto';
 import decompress from 'decompress';
 import { zipSync } from 'fflate';
 import {
@@ -20,6 +21,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -501,10 +503,95 @@ export function findModInfo(dirPath: string): string | null {
   return null;
 }
 
+export function normalizeZipDirectoryEntry(
+  file: decompress.File,
+): decompress.File {
+  if (file.path.endsWith('/')) {
+    return {
+      ...file,
+      type: 'directory',
+    };
+  }
+
+  return file;
+}
+
+function validateModID(modID: string): string {
+  if (
+    modID === '' ||
+    modID === '.' ||
+    modID === '..' ||
+    path.basename(modID) !== modID
+  ) {
+    throw new Error(`Invalid mod ID "${modID}".`);
+  }
+  return modID;
+}
+
+function replaceModDirectory(sourceDirPath: string, modID: string): void {
+  const appPath = getAppPath();
+  const modsDirPath = path.join(appPath, 'mods');
+  const modDirPath = path.join(modsDirPath, modID);
+  const configFilePath = path.join(modDirPath, 'config.json');
+  const existingConfig = existsSync(configFilePath)
+    ? readFileSync(configFilePath)
+    : null;
+  const operationDirPath = path.join(
+    appPath,
+    '.d2rmm-mod-install',
+    randomUUID(),
+  );
+  const stagedDirPath = path.join(operationDirPath, 'new');
+  const backupDirPath = path.join(operationDirPath, 'old');
+  let hasBackup = false;
+
+  mkdirSync(stagedDirPath, { recursive: true });
+  try {
+    cpSync(sourceDirPath, stagedDirPath, { recursive: true });
+    if (existingConfig != null) {
+      writeFileSync(path.join(stagedDirPath, 'config.json'), existingConfig);
+    }
+
+    mkdirSync(modsDirPath, { recursive: true });
+    if (existsSync(modDirPath)) {
+      renameSync(modDirPath, backupDirPath);
+      hasBackup = true;
+    }
+
+    try {
+      renameSync(stagedDirPath, modDirPath);
+    } catch (installError) {
+      if (hasBackup) {
+        try {
+          renameSync(backupDirPath, modDirPath);
+          hasBackup = false;
+        } catch (rollbackError) {
+          throw new Error(
+            `Failed to install mod "${modID}" and restore the previous version. The previous version remains at "${backupDirPath}". Install error: ${String(
+              installError,
+            )}. Restore error: ${String(rollbackError)}.`,
+          );
+        }
+      }
+      throw installError;
+    }
+
+    if (hasBackup) {
+      rmSync(backupDirPath, { force: true, recursive: true });
+      hasBackup = false;
+    }
+  } finally {
+    if (!hasBackup && existsSync(operationDirPath)) {
+      rmSync(operationDirPath, { force: true, recursive: true });
+    }
+  }
+}
+
 async function installFromZipPath(
   zipFilePath: string,
   modID: string,
 ): Promise<string> {
+  modID = validateModID(modID);
   console.debug('ModUpdaterAPI', 'installFromZipPath', { zipFilePath, modID });
 
   const extractDirPath = path.join(os.tmpdir(), 'D2RMM', 'ModInstall', modID);
@@ -513,56 +600,52 @@ async function installFromZipPath(
   }
   mkdirSync(extractDirPath, { recursive: true });
 
-  process.noAsar = true;
-  await decompress(zipFilePath, extractDirPath);
-  process.noAsar = false;
+  try {
+    const previousNoAsar = process.noAsar;
+    process.noAsar = true;
+    try {
+      await decompress(zipFilePath, extractDirPath, {
+        map: normalizeZipDirectoryEntry,
+      });
+    } finally {
+      process.noAsar = previousNoAsar;
+    }
 
-  console.debug('ModUpdaterAPI', 'extracted zip file', {
-    modID,
-    zipFilePath,
-    extractDirPath,
-  });
+    console.debug('ModUpdaterAPI', 'extracted zip file', {
+      modID,
+      zipFilePath,
+      extractDirPath,
+    });
 
-  const extractedModDirPath = findModInfo(extractDirPath);
-  if (extractedModDirPath == null) {
-    rmSync(extractDirPath, { force: true, recursive: true });
-    throw new Error(
-      `Mod has an unexpected file structure. Expected to find a "mod.json" (for D2RMM mods) or a "modinfo.json" (for data mods) file somewhere in the .zip file.`,
-    );
+    const extractedModDirPath = findModInfo(extractDirPath);
+    if (extractedModDirPath == null) {
+      throw new Error(
+        `Mod has an unexpected file structure. Expected to find a "mod.json" (for D2RMM mods) or a "modinfo.json" (for data mods) file somewhere in the .zip file.`,
+      );
+    }
+
+    console.debug('ModUpdaterAPI', 'validated extracted files', {
+      modID,
+      extractedModDirPath,
+    });
+
+    replaceModDirectory(extractedModDirPath, modID);
+
+    console.debug('ModUpdaterAPI', 'installed mod', { modID });
+
+    return modID;
+  } finally {
+    if (existsSync(extractDirPath)) {
+      rmSync(extractDirPath, { force: true, recursive: true });
+    }
   }
-
-  console.debug('ModUpdaterAPI', 'validated extracted files', {
-    modID,
-    extractedModDirPath,
-  });
-
-  const modDirPath = path.join(getAppPath(), 'mods', modID);
-  const configFilePath = path.join(modDirPath, 'config.json');
-  if (existsSync(configFilePath)) {
-    cpSync(configFilePath, path.join(extractedModDirPath, 'config.json'));
-  }
-  if (existsSync(modDirPath)) {
-    rmSync(modDirPath, { force: true, recursive: true });
-  }
-
-  console.debug('ModUpdaterAPI', 'cleaned up old mod directory', {
-    modID,
-    modDirPath,
-  });
-
-  mkdirSync(modDirPath, { recursive: true });
-  cpSync(extractedModDirPath, modDirPath, { recursive: true });
-  rmSync(extractDirPath, { force: true, recursive: true });
-
-  console.debug('ModUpdaterAPI', 'installed mod', { modID });
-
-  return modID;
 }
 
 async function installFromFolderPath(
   folderPath: string,
   modID: string,
 ): Promise<string> {
+  modID = validateModID(modID);
   console.debug('ModUpdaterAPI', 'installFromFolderPath', {
     folderPath,
     modID,
@@ -580,25 +663,7 @@ async function installFromFolderPath(
     extractedModDirPath,
   });
 
-  // Read existing config before overwriting the mod directory, so we do not
-  // write into the user's source folder (unlike the zip path which uses a
-  // temporary extraction directory).
-  const modDirPath = path.join(getAppPath(), 'mods', modID);
-  const configFilePath = path.join(modDirPath, 'config.json');
-  const existingConfig = existsSync(configFilePath)
-    ? readFileSync(configFilePath)
-    : null;
-
-  if (existsSync(modDirPath)) {
-    rmSync(modDirPath, { force: true, recursive: true });
-  }
-
-  mkdirSync(modDirPath, { recursive: true });
-  cpSync(extractedModDirPath, modDirPath, { recursive: true });
-
-  if (existingConfig != null) {
-    writeFileSync(path.join(modDirPath, 'config.json'), existingConfig);
-  }
+  replaceModDirectory(extractedModDirPath, modID);
 
   console.debug('ModUpdaterAPI', 'installed mod from folder', { modID });
 
@@ -669,6 +734,7 @@ export async function initModUpdaterAPI(): Promise<void> {
         );
         modID = file.name;
       }
+      modID = validateModID(modID);
 
       // download the zip file
       const fileName = `${modID}.zip`;

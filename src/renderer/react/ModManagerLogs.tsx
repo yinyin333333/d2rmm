@@ -152,6 +152,14 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
     [logs, levels, t, filter],
   );
 
+  const selectedLog =
+    selectedRowIndex === -1 ? null : filteredLogs[selectedRowIndex] ?? null;
+  useEffect(() => {
+    if (selectedRowIndex !== -1 && selectedLog == null) {
+      setSelectedRowIndex(-1);
+    }
+  }, [selectedLog, selectedRowIndex]);
+
   const renderRow = useCallback(
     ({ style, index }: ListChildComponentProps) => {
       const log = filteredLogs[index];
@@ -205,15 +213,15 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
   }, [isInstalling, filteredLogs]);
 
   const drawerTitle =
-    selectedRowIndex === -1
+    selectedLog == null
       ? ''
-      : filteredLogs[selectedRowIndex].level === 'error'
+      : selectedLog.level === 'error'
         ? t('logs.drawer.error')
-        : filteredLogs[selectedRowIndex].level === 'warn'
+        : selectedLog.level === 'warn'
           ? t('logs.drawer.warn')
-          : filteredLogs[selectedRowIndex].level === 'log'
+          : selectedLog.level === 'log'
             ? t('logs.drawer.info')
-            : filteredLogs[selectedRowIndex].level === 'debug'
+            : selectedLog.level === 'debug'
               ? t('logs.drawer.debug')
               : '';
 
@@ -329,9 +337,9 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
       <Drawer
         anchor="bottom"
         onClose={() => setSelectedRowIndex(-1)}
-        open={selectedRowIndex !== -1}
+        open={selectedLog != null}
       >
-        {selectedRowIndex === -1 ? null : (
+        {selectedLog == null ? null : (
           <>
             <AppBar position="static">
               <Toolbar>
@@ -343,9 +351,9 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
                   color="inherit"
                   edge="start"
                   onClick={() =>
-                    navigator.clipboard.writeText(
-                      filteredLogs[selectedRowIndex].text,
-                    )
+                    navigator.clipboard
+                      .writeText(selectedLog.text)
+                      .catch(console.error)
                   }
                   size="large"
                   sx={{ marginRight: 2 }}
@@ -371,7 +379,7 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
                 whiteSpace: 'pre-wrap',
               }}
             >
-              {filteredLogs[selectedRowIndex].text}
+              {selectedLog.text}
             </Box>
           </>
         )}

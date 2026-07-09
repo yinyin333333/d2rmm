@@ -48,8 +48,11 @@ export default function ModList(): JSX.Element {
   const [, onRefreshMods] = useMods();
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await onRefreshMods();
-    setIsRefreshing(false);
+    try {
+      await onRefreshMods();
+    } finally {
+      setIsRefreshing(false);
+    }
   }, [onRefreshMods, setIsRefreshing]);
 
   const [orderedItems, reorderItems] = useOrdereredItems();
@@ -64,7 +67,7 @@ export default function ModList(): JSX.Element {
     (event: ChangeEvent<HTMLInputElement>) => {
       setSearchQuery(event.target.value);
       startTransition(() => {
-        setSearchFilter(event.target.value);
+        setSearchFilter(event.target.value.toLowerCase());
       });
     },
     [],

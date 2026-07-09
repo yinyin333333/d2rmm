@@ -23,7 +23,9 @@ export default function useModUpdater(mod: Mod): {
   const checkModForUpdates = useCheckModForUpdates(nexusAuthState);
   const nexusModID = getNexusModID(mod);
   const isUpdatePossible =
-    nexusAuthState != null && mod.info.website != null && nexusModID != null;
+    nexusAuthState.apiKey != null &&
+    mod.info.website != null &&
+    nexusModID != null;
   const isDownloadPossible =
     isUpdatePossible && (nexusAuthState.isPremium ?? false);
   const [updateState] = useModUpdate(mod.id);

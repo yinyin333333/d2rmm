@@ -10,7 +10,11 @@ import { te } from '../../shared/i18n';
  */
 export function parseSprite(data: Buffer): string | null {
   try {
-    const spriteDataView = new DataView(data.buffer);
+    const spriteDataView = new DataView(
+      data.buffer,
+      data.byteOffset,
+      data.byteLength,
+    );
     const version = spriteDataView.getUint16(0x4, true);
     const width = spriteDataView.getInt32(0x8, true);
     const height = spriteDataView.getInt32(0xc, true);
@@ -75,7 +79,7 @@ function rgbaToPngBase64(width: number, height: number, rgba: Buffer) {
 }
 
 function makeChunk(typeStr: string, data: Uint8Array): Uint8Array {
-  const type = new TextEncoder().encode(typeStr);
+  const type = Buffer.from(typeStr, 'ascii');
   const len = data.length;
   const out = new Uint8Array(8 + len + 4);
   const dv = new DataView(out.buffer);

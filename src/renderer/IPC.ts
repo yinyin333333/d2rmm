@@ -132,7 +132,7 @@ export function consumeAPI<T, TLocalAPI extends object = Record<string, never>>(
       }
       return (...args: SerializableType[]) => {
         return new Promise((resolve, reject) => {
-          const id = `worker:${REQUEST_COUNT++}`;
+          const id = `renderer:${REQUEST_COUNT++}`;
           const request = {
             id,
             namespace,

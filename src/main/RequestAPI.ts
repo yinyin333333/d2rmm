@@ -26,20 +26,50 @@ export async function initRequestAPI(): Promise<void> {
         let bytesTotal = 0;
         let bytesDownloaded = 0;
         let lastEventTime = 0;
+        let isSettled = false;
+        let responseHeaders: Record<string, string | string[]> = {};
+
+        const removePartialFile = (): void => {
+          try {
+            rmSync(filePath, { force: true });
+          } catch (cleanupError) {
+            console.error(cleanupError);
+          }
+        };
+
+        const rejectDownload = (error: Error): void => {
+          if (isSettled) {
+            return;
+          }
+          isSettled = true;
+          file.once('close', removePartialFile);
+          file.destroy();
+          reject(error);
+        };
+
+        file.on('error', rejectDownload);
+        file.on('finish', () => {
+          if (isSettled) {
+            return;
+          }
+          isSettled = true;
+          resolve({ filePath, headers: responseHeaders });
+        });
 
         const request = net.request(url);
         for (const [key, value] of Object.entries(options?.headers ?? {})) {
           request.setHeader(key, value);
         }
         request.on('response', (response) => {
-          bytesTotal = parseInt(
+          responseHeaders = response.headers;
+          const parsedBytesTotal = parseInt(
             response.headers['content-length'] as string,
             10,
           );
-          response.on('error', reject);
+          bytesTotal = Number.isNaN(parsedBytesTotal) ? 0 : parsedBytesTotal;
+          response.on('error', rejectDownload);
           response.on('end', () => {
             file.end();
-            resolve({ filePath, headers: response.headers });
           });
           response.on('data', (buffer: Buffer) => {
             bytesDownloaded += buffer.length;
@@ -58,7 +88,7 @@ export async function initRequestAPI(): Promise<void> {
             }
           });
         });
-        request.on('error', reject);
+        request.on('error', rejectDownload);
         request.end();
       });
     },

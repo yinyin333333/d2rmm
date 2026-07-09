@@ -51,11 +51,16 @@ import { EventAPI } from './EventAPI';
 import { provideAPI } from './IPC';
 import { InstallationRuntime } from './InstallationRuntime';
 import { encodeJson, parseJson } from './JSONParser';
-import { getDataModRootPath, getModAPI, resetNextStringIDState } from './ModAPI';
+import {
+  getDataModRootPath,
+  getModAPI,
+  resetNextStringIDState,
+} from './ModAPI';
 import { parseSprite } from './SpriteParser';
 import { encodeTsv, parseTsv } from './TSVParser';
 import './asar';
 import { datamod } from './datamod';
+import { isPathInside } from './pathSafety';
 import { getQuickJSProxyAPI, getQuickJS } from './quickjs';
 import * as d2s from './third-party/d2s/index';
 
@@ -80,7 +85,14 @@ function getOutputRootPath(): string {
   if (runtime!.options.isDirectMode) {
     return path.resolve(runtime!.options.dataPath);
   }
-  return path.resolve(runtime!.options.mergedPath, '../');
+  return path.resolve(runtime!.options.mergedPath, '..');
+}
+
+function getOutputAllowedRootPath(): string {
+  if (runtime!.options.isDirectMode) {
+    return path.resolve(runtime!.options.dataPath, '..');
+  }
+  return path.resolve(runtime!.options.mergedPath, '..', '..');
 }
 
 function getD2RLoaderConfigFile(gameRoot: string): {
@@ -111,7 +123,7 @@ function validatePathIsSafe(allowedRoot: string, absolutePath: string): string {
   allowedRoot = path.resolve(allowedRoot);
   absolutePath = path.resolve(absolutePath);
 
-  if (!absolutePath.startsWith(allowedRoot)) {
+  if (!isPathInside(allowedRoot, absolutePath)) {
     throw te('worker.bridgeapi.validatePath.outsideAllowed', {
       path: absolutePath,
       allowedRoot,
@@ -135,7 +147,7 @@ function resolvePath(inputPath: string, relative: Relative): string {
       );
     case 'Output':
       return validatePathIsSafe(
-        getOutputRootPath(),
+        getOutputAllowedRootPath(),
         path.resolve(getOutputPath(), inputPath),
       );
     case 'PreExtractedData':
@@ -145,7 +157,7 @@ function resolvePath(inputPath: string, relative: Relative): string {
       );
     case 'None':
       return validatePathIsSafe(
-        getOutputRootPath(),
+        getOutputAllowedRootPath(),
         path.resolve(getOutputPath(), inputPath),
       );
     default:
@@ -351,21 +363,26 @@ export const BridgeAPI: IBridgeAPI = {
 
   execute: async (executablePath: string, args: string[] = []) => {
     console.debug('BridgeAPI.execute', { executablePath, args });
-    try {
-      const child = spawn(executablePath, args ?? [], {
-        cwd: path.dirname(executablePath),
-        detached: true,
-        stdio: 'ignore',
-      });
-
+    return new Promise<number>((resolve, reject) => {
       try {
-        child.unref();
-      } catch {}
-
-      return 0;
-    } catch (error) {
-      throw te('worker.bridgeapi.execute.failed', null, error);
-    }
+        const child = spawn(executablePath, args ?? [], {
+          cwd: path.dirname(executablePath),
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.once('error', (error) => {
+          reject(te('worker.bridgeapi.execute.failed', null, error));
+        });
+        child.once('spawn', () => {
+          try {
+            child.unref();
+          } catch {}
+          resolve(0);
+        });
+      } catch (error) {
+        reject(te('worker.bridgeapi.execute.failed', null, error));
+      }
+    });
   },
 
   openStorage: async (gamePath: string, forceOnline = false) => {
@@ -1568,6 +1585,13 @@ const config = JSON.parse(D2RMM.getConfigJSON());
 
       return { characters, stashes, gameFiles };
     } finally {
+      if (cascStorageIsOpen) {
+        try {
+          await BridgeAPI.closeStorage();
+        } catch (error) {
+          console.error(error);
+        }
+      }
       runtime = null;
     }
   },
@@ -1782,7 +1806,10 @@ const config = JSON.parse(D2RMM.getConfigJSON());
           filePath,
           data,
         } of runtime.fileManager.getModifiedFiles()) {
-          const destPath = path.resolve(getOutputPath(), filePath);
+          const destPath = validatePathIsSafe(
+            getOutputAllowedRootPath(),
+            path.resolve(getOutputPath(), filePath),
+          );
           mkdirSync(path.dirname(destPath), { recursive: true });
           writeFileSync(destPath, data);
         }
@@ -1848,6 +1875,13 @@ const config = JSON.parse(D2RMM.getConfigJSON());
       const modsInstalled = runtime.modsInstalled;
       return modsInstalled;
     } finally {
+      if (cascStorageIsOpen) {
+        try {
+          await BridgeAPI.closeStorage();
+        } catch (error) {
+          console.error(error);
+        }
+      }
       runtime = null;
     }
   },

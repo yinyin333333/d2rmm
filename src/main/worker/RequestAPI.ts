@@ -45,21 +45,26 @@ export const RequestAPI = {
     if (eventID != null && options?.onProgress != null) {
       EventAPI.addListener(eventID, options?.onProgress);
     }
-    const { filePath, headers } = await NetworkedRequestAPI.download(url, {
-      eventID,
-      fileName: options?.fileName,
-      headers: options?.headers,
-    });
-    if (eventID != null && options?.onProgress != null) {
-      EventAPI.removeListener(eventID, options?.onProgress);
+    try {
+      return await NetworkedRequestAPI.download(url, {
+        eventID,
+        fileName: options?.fileName,
+        headers: options?.headers,
+      });
+    } finally {
+      if (eventID != null && options?.onProgress != null) {
+        EventAPI.removeListener(eventID, options?.onProgress);
+      }
     }
-    return { filePath, headers };
   },
 
   async downloadToBuffer(url, options) {
     const { filePath, headers } = await RequestAPI.downloadToFile(url, options);
-    const response = readFileSync(filePath, { encoding: null });
-    rmSync(filePath);
-    return { response, headers };
+    try {
+      const response = readFileSync(filePath, { encoding: null });
+      return { response, headers };
+    } finally {
+      rmSync(filePath, { force: true });
+    }
   },
 } as ILocalRequestAPI;

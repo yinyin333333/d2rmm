@@ -168,4 +168,53 @@ describe('App', () => {
     await waitFor(() => expect(runButton).not.toBeDisabled());
     expect(installButton).not.toBeDisabled();
   });
+
+  it('should clear the refresh loading state when refreshing the mod list fails', async () => {
+    const error = new Error('Could not refresh mod list');
+    const consoleError = jest.spyOn(console, 'error').mockImplementation();
+
+    render(<App />);
+
+    const refreshButton = await screen.findByRole('button', {
+      name: 'Refresh Mod List',
+    });
+    mockState.readModDirectory.mockRejectedValueOnce(error);
+
+    fireEvent.click(refreshButton);
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith(error));
+    await waitFor(() => expect(refreshButton).not.toBeDisabled());
+
+    consoleError.mockRestore();
+  });
+
+  it('should disable game launch while mod installation is running', async () => {
+    let resolveInstall: () => void = () => {};
+    mockState.installMods.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveInstall = resolve;
+        }),
+    );
+    render(<App />);
+    await screen.findByText('No Mods Found');
+    const runButton = screen.getByRole('button', { name: 'Run D2R' });
+    const installButton = screen.getByRole('button', { name: 'Install Mods' });
+
+    fireEvent.click(installButton);
+    await waitFor(() => expect(mockState.installMods).toHaveBeenCalled());
+    expect(runButton).toBeDisabled();
+
+    await act(async () => resolveInstall());
+    await waitFor(() => expect(runButton).not.toBeDisabled());
+  });
+
+  it('should not mark an empty fresh installation as changed', async () => {
+    render(<App />);
+    await screen.findByText('No Mods Found');
+
+    expect(screen.getByRole('button', { name: 'Run D2R' })).toHaveClass(
+      'MuiButton-contained',
+    );
+  });
 });

@@ -2,7 +2,14 @@ import type { ConsoleAPI, ConsoleArg } from 'bridge/ConsoleAPI';
 import { localizeConsoleArgs } from '../shared/i18n';
 import { consumeAPI, provideAPI } from './IPC';
 
+let isInitialized = false;
+
 export async function initConsoleAPI(): Promise<void> {
+  if (isInitialized) {
+    return;
+  }
+  isInitialized = true;
+
   const ConsoleAPI = consumeAPI<ConsoleAPI>('ConsoleAPI', {}, true);
   const localConsole = { ...console };
 

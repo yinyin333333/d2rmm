@@ -11,7 +11,21 @@ export function getWorkers(): Set<ChildProcess> {
 }
 
 export async function spawnNewWorker(): Promise<void> {
+  if (workers.size > 0) {
+    return;
+  }
+
   return new Promise((resolve, reject) => {
+    let hasSpawned = false;
+    let hasSettled = false;
+    const rejectSpawn = (error: Error): void => {
+      if (hasSettled) {
+        return;
+      }
+      hasSettled = true;
+      reject(error);
+    };
+
     try {
       const worker = !app.isPackaged
         ? fork('./src/main/worker/worker.ts', [], {
@@ -21,11 +35,19 @@ export async function spawnNewWorker(): Promise<void> {
 
       worker.on('error', (error) => {
         console.error(tl('main.worker.error'), error);
+        if (!hasSpawned) {
+          rejectSpawn(error);
+        }
       });
 
       worker.on('spawn', () => {
-        workers.delete(worker);
+        if (hasSettled) {
+          return;
+        }
+        hasSpawned = true;
+        workers.add(worker);
         registerWorker(worker);
+        hasSettled = true;
         resolve();
       });
 
@@ -38,6 +60,13 @@ export async function spawnNewWorker(): Promise<void> {
         );
         unregisterWorker(worker);
         workers.delete(worker);
+        if (!hasSpawned) {
+          rejectSpawn(
+            new Error(
+              `Worker exited before spawning (code: ${code ?? 'null'}, signal: ${sign ?? 'null'}).`,
+            ),
+          );
+        }
       });
     } catch (error) {
       reject(error);

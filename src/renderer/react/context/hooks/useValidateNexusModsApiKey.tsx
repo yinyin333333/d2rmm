@@ -30,14 +30,20 @@ export default function useValidateNexusModsApiKey(
           console.warn(
             `Nexus Mods auth session is invalid. Please log in again.`,
           );
-          setAuthState({ apiKey: null });
+          setAuthState((oldAuthState) =>
+            oldAuthState.apiKey === apiKey ? { apiKey: null } : oldAuthState,
+          );
         } else {
-          setAuthState((oldAuthState) => ({
-            ...oldAuthState,
-            name,
-            email,
-            isPremium,
-          }));
+          setAuthState((oldAuthState) =>
+            oldAuthState.apiKey === apiKey
+              ? {
+                  ...oldAuthState,
+                  name,
+                  email,
+                  isPremium,
+                }
+              : oldAuthState,
+          );
         }
       })
       .catch(console.error);

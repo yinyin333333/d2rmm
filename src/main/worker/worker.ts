@@ -37,4 +37,8 @@ async function start(): Promise<void> {
   startupMark('worker', 'worker initialized');
 }
 
-start().then().catch(console.error);
+start().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+  process.disconnect?.();
+});

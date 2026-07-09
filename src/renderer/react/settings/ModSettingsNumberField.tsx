@@ -6,7 +6,7 @@ import { useModSettingsContext } from 'renderer/react/settings/ModSettingsContex
 import { ChangeEvent, useCallback, useEffect, useState } from 'react';
 import { TextField } from '@mui/material';
 
-const PATTERN = '^[0-9]*(.[0-9]*)?$';
+const PATTERN = '^[0-9]*(\\.[0-9]*)?$';
 
 type Props = {
   field: ModConfigFieldNumber;

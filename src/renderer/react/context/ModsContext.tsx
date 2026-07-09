@@ -298,7 +298,7 @@ export function ModsContextProvider({
 
   const [installedMods, setInstalledMods] = useSavedState(
     'installed-mods',
-    {} as IInstalledMods,
+    [] as IInstalledMods,
     (map) => JSON.stringify(map),
     (str) => JSON.parse(str),
   );

@@ -5,6 +5,7 @@ import { readCString } from './CascLib';
 import { InstallationRuntime } from './InstallationRuntime';
 import { encodeJson, parseJson } from './JSONParser';
 import { encodeTsv, parseTsv } from './TSVParser';
+import { isPathInside } from './pathSafety';
 
 let nextStringIDRaw: string | null = null;
 let nextStringID: number = 0;
@@ -182,7 +183,7 @@ export function getModAPI(runtime: InstallationRuntime): AsyncModAPI {
       const appPath = await runtime.BridgeAPI.getAppPath();
       const modPath = path.resolve(appPath, 'mods', runtime.mod.id);
       const srcPath = path.resolve(modPath, src);
-      if (!path.resolve(srcPath).startsWith(path.resolve(modPath))) {
+      if (!isPathInside(modPath, srcPath)) {
         throw new Error(
           `Path "${srcPath}" points outside of allowed directory "${modPath}".`,
         );

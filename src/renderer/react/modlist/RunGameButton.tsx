@@ -2,6 +2,7 @@ import BridgeAPI from 'renderer/BridgeAPI';
 import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useSanitizedGamePath } from 'renderer/react/context/GamePathContext';
 import { useInstallBeforeRun } from 'renderer/react/context/InstallBeforeRunContext';
+import { useIsInstalling } from 'renderer/react/context/InstallContext';
 import {
   useIsInstallConfigChanged,
   useIsLoadingMods,
@@ -25,6 +26,7 @@ export default function RunGameButton(_props: Props): JSX.Element {
   const { t } = useTranslation();
   const isInstallConfigChanged = useIsInstallConfigChanged();
   const isLoadingMods = useIsLoadingMods();
+  const [isInstalling] = useIsInstalling();
 
   const gamePath = useSanitizedGamePath();
   const args = useGameLaunchArgs();
@@ -44,7 +46,7 @@ export default function RunGameButton(_props: Props): JSX.Element {
   const onInstallMods = useInstallMods();
 
   const onPress = useAsyncCallback(async () => {
-    if (isLoadingMods) {
+    if (isLoadingMods || isInstalling) {
       return;
     }
 
@@ -73,6 +75,7 @@ export default function RunGameButton(_props: Props): JSX.Element {
     outputModName,
     args,
     isLoadingMods,
+    isInstalling,
   ]);
 
   const tooltipText = isInstallConfigChanged
@@ -81,7 +84,7 @@ export default function RunGameButton(_props: Props): JSX.Element {
 
   const button = (
     <Button
-      disabled={isLoadingMods}
+      disabled={isLoadingMods || isInstalling}
       onClick={onPress}
       startIcon={
         !isInstallConfigChanged ? (

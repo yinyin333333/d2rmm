@@ -30,7 +30,11 @@ export function InstallContextProvider({
     const listener = EventAPI.addListener(
       'installationProgress',
       async (installedModsCount: number, totalModsCount: number) =>
-        setProgress((installedModsCount / totalModsCount) * 100),
+        setProgress(
+          totalModsCount === 0
+            ? 100
+            : (installedModsCount / totalModsCount) * 100,
+        ),
     );
     return () => EventAPI.removeListener('installationProgress', listener);
   }, [setProgress]);

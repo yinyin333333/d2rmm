@@ -20,7 +20,13 @@ export const EventAPI: IEventUnifiedAPI = consumeAPI<IEventAPI, IEventLocalAPI>(
     },
     removeListener: (eventID, listener) => {
       const eventListeners = LISTENERS.get(eventID);
-      eventListeners?.delete(listener);
+      if (eventListeners == null) {
+        return;
+      }
+      eventListeners.delete(listener);
+      if (eventListeners.size === 0) {
+        LISTENERS.delete(eventID);
+      }
     },
   },
   true,

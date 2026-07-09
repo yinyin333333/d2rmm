@@ -72,9 +72,12 @@ export function te(
       ? contextMessage
       : `${contextMessage}:\n${error instanceof Error ? error.message : String(error)}`,
   ) as I18nError;
-  const innerChain: ConsoleArg[] = isI18nError(error)
-    ? error.__d2rmm_i18n_list
-    : [error instanceof Error ? error.message : String(error)];
+  const innerChain: ConsoleArg[] =
+    error == null
+      ? []
+      : isI18nError(error)
+        ? error.__d2rmm_i18n_list
+        : [error instanceof Error ? error.message : String(error)];
   newError.__d2rmm_i18n_list = [tl(key, args), ...innerChain];
   if (error instanceof Error) {
     newError.stack = error.stack;

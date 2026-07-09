@@ -56,7 +56,10 @@ export class FileManager {
       return fileStatus.gameFile;
     }
     try {
-      return await this.runtime.BridgeAPI.isGameFile(fileStatus.filePath);
+      fileStatus.gameFile = await this.runtime.BridgeAPI.isGameFile(
+        fileStatus.filePath,
+      );
+      return fileStatus.gameFile;
     } catch {
       return false;
     }

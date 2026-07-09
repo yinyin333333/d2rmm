@@ -81,7 +81,7 @@ export default function useCreateCollection() {
 
         manifestMods.push({
           name: mod.info.name ?? mod.id,
-          version: modVersion,
+          version: matchedFile.version,
           optional: role === 'optional',
           domainName: 'diablo2resurrected',
           source: {

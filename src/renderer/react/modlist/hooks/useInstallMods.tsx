@@ -2,7 +2,10 @@ import type { IInstallModsOptions } from 'bridge/BridgeAPI';
 import BridgeAPI from 'renderer/BridgeAPI';
 import { useDataPath } from 'renderer/react/context/DataPathContext';
 import { useSanitizedGamePath } from 'renderer/react/context/GamePathContext';
-import { useIsInstalling } from 'renderer/react/context/InstallContext';
+import {
+  useInstallationProgress,
+  useIsInstalling,
+} from 'renderer/react/context/InstallContext';
 import { useIsDirectMode } from 'renderer/react/context/IsDirectModeContext';
 import { useIsPreExtractedData } from 'renderer/react/context/IsPreExtractedDataContext';
 import { useLogger } from 'renderer/react/context/LogContext';
@@ -38,6 +41,7 @@ export default function useInstallMods(
   const modsToInstall = useModsToInstall();
   const [, setInstalledMods] = useInstalledMods();
   const [, setIsInstalling] = useIsInstalling();
+  const [, setInstallationProgress] = useInstallationProgress();
   const savesPath = useFinalSavesPath();
 
   const [, setTab] = useTabState();
@@ -45,6 +49,7 @@ export default function useInstallMods(
   return useCallback(async (): Promise<boolean> => {
     try {
       logger.clear();
+      setInstallationProgress(0);
       setIsInstalling(true);
 
       const options: IInstallModsOptions = {
@@ -123,6 +128,7 @@ export default function useInstallMods(
     preExtractedDataPath,
     savesPath,
     setInstalledMods,
+    setInstallationProgress,
     setIsInstalling,
     setTab,
     showToast,

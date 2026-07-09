@@ -99,16 +99,14 @@ export function parseBinding<T extends ModConfigSingleValue>(
       if (
         typeof arg1 === 'string' &&
         Array.isArray(arg2) &&
-        arg2.length > 0 &&
-        typeof arg2[0] === 'string'
+        arg2.every((value) => typeof value === 'string')
       ) {
         return (arg2 as string[]).includes(arg1) as T;
       }
       if (
         typeof arg1 === 'number' &&
         Array.isArray(arg2) &&
-        arg2.length > 0 &&
-        typeof arg2[0] === 'number'
+        arg2.every((value) => typeof value === 'number')
       ) {
         return (arg2 as number[]).includes(arg1) as T;
       }

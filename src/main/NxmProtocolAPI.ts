@@ -5,7 +5,14 @@ import { URL } from 'url';
 import { EventAPI } from './EventAPI';
 import { provideAPI } from './IPC';
 
+let isInitialized = false;
+
 export async function initNxmProtocolAPI(): Promise<void> {
+  if (isInitialized) {
+    return;
+  }
+  isInitialized = true;
+
   let args: [string, string | undefined, string[] | undefined] = [
     'nxm',
     undefined,
@@ -44,7 +51,7 @@ export async function initNxmProtocolAPI(): Promise<void> {
         const expires = searchParams.has('expires')
           ? parseInt(searchParams.get('expires') ?? '0', 10)
           : null;
-        if (nexusModID != null && nexusFileID != null) {
+        if (nexusModID != null && !Number.isNaN(nexusFileID)) {
           EventAPI.send('nexus-mods-open-url', {
             nexusModID,
             nexusFileID,

@@ -314,8 +314,8 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
       const checked = value === true;
       return (
         <ListItemButton
-          disabled={!d2rLoaderSettings.useD2RLoader}
           key={setting.id}
+          disabled={!d2rLoaderSettings.useD2RLoader}
           onClick={() => setD2RLoaderTomlSetting(setting.id, !checked)}
         >
           <ListItemIcon>
@@ -343,11 +343,11 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
       const inputValue = d2rLoaderTomlInputValues[setting.id] ?? String(value);
       return (
         <TextField
+          key={setting.id}
           disabled={!d2rLoaderSettings.useD2RLoader}
           fullWidth={true}
           helperText={description}
           inputProps={getD2RLoaderTomlNumberBounds(setting)}
-          key={setting.id}
           label={label}
           onBlur={() => {
             setD2RLoaderTomlInputValues((inputValues) => {
@@ -382,10 +382,10 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
 
     return (
       <TextField
+        key={setting.id}
         disabled={!d2rLoaderSettings.useD2RLoader}
         fullWidth={true}
         helperText={description}
-        key={setting.id}
         label={label}
         onChange={(event) =>
           setD2RLoaderTomlSetting(setting.id, event.target.value)
@@ -818,31 +818,26 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
                   {t('settings.d2rLoader.missingTomlConfig')}
                 </Typography>
               </Alert>
+            ) : d2rLoaderTomlSections.length === 0 ? (
+              <Typography color="text.secondary" sx={{ marginTop: 1 }}>
+                {t('settings.d2rLoader.noTomlSettings')}
+              </Typography>
             ) : (
-              d2rLoaderTomlSections.length === 0 ? (
-                <Typography color="text.secondary" sx={{ marginTop: 1 }}>
-                  {t('settings.d2rLoader.noTomlSettings')}
-                </Typography>
-              ) : (
-                <>
-                  {d2rLoaderTomlSections.map(
-                    ({ section, settings }, sectionIndex) => (
-                      <Box
-                        key={section}
-                        sx={{ marginTop: sectionIndex ? 2 : 1 }}
-                      >
-                        {sectionIndex === 0 ? null : (
-                          <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
-                        )}
-                        <Typography color="text.secondary" variant="subtitle2">
-                          {section}
-                        </Typography>
-                        {settings.map(renderD2RLoaderTomlSetting)}
-                      </Box>
-                    ),
-                  )}
-                </>
-              )
+              <>
+                {d2rLoaderTomlSections.map(
+                  ({ section, settings }, sectionIndex) => (
+                    <Box key={section} sx={{ marginTop: sectionIndex ? 2 : 1 }}>
+                      {sectionIndex === 0 ? null : (
+                        <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
+                      )}
+                      <Typography color="text.secondary" variant="subtitle2">
+                        {section}
+                      </Typography>
+                      {settings.map(renderD2RLoaderTomlSetting)}
+                    </Box>
+                  ),
+                )}
+              </>
             )
           ) : null}
         </StyledAccordionDetails>

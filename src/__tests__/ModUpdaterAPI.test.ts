@@ -1,7 +1,10 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
-import { findModInfo } from '../main/worker/ModUpdaterAPI';
+import {
+  findModInfo,
+  normalizeZipDirectoryEntry,
+} from '../main/worker/ModUpdaterAPI';
 
 describe('ModUpdaterAPI.findModInfo', () => {
   let tempDir: string;
@@ -40,5 +43,18 @@ describe('ModUpdaterAPI.findModInfo', () => {
     writeFileSync(path.join(modRoot, 'Reimagined.mpq', 'modinfo.json'), '{}');
 
     expect(findModInfo(outerRoot)).toBe(modRoot);
+  });
+
+  it('treats trailing-slash zip entries as directories', () => {
+    const directoryEntryPath = `${path.posix.join('mod-root', 'mpq-root')}/`;
+    const file = {
+      data: Buffer.alloc(0),
+      mode: 420,
+      mtime: '',
+      path: directoryEntryPath,
+      type: 'file',
+    };
+
+    expect(normalizeZipDirectoryEntry(file).type).toBe('directory');
   });
 });

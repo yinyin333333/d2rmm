@@ -1,9 +1,10 @@
 import { useSanitizedGamePath } from 'renderer/react/context/GamePathContext';
 import useSavedState from 'renderer/react/hooks/useSavedState';
 import resolvePath from 'renderer/utils/resolvePath';
-import React, { useContext, useMemo } from 'react';
+import React, { useCallback, useContext, useMemo } from 'react';
 
 type IPath = string;
+type ISavedPath = IPath | null;
 type ISetPath = React.Dispatch<React.SetStateAction<IPath>>;
 
 type IPreExtractedDataPathContext = {
@@ -33,10 +34,20 @@ export function PreExtractedDataPathContextProvider({
   children,
 }: Props): JSX.Element {
   const gamePath = useSanitizedGamePath();
-
-  const [path, setPath] = useSavedState<IPath>(
+  const defaultPath = resolvePath(gamePath, 'data');
+  const [savedPath, setSavedPath] = useSavedState<ISavedPath>(
     'pre-extracted-data-path',
-    resolvePath(gamePath, 'data'),
+    null,
+  );
+  const path = savedPath ?? defaultPath;
+  const setPath = useCallback<ISetPath>(
+    (action) => {
+      setSavedPath((oldSavedPath) => {
+        const oldPath = oldSavedPath ?? defaultPath;
+        return typeof action === 'function' ? action(oldPath) : action;
+      });
+    },
+    [defaultPath, setSavedPath],
   );
 
   const context = useMemo(
