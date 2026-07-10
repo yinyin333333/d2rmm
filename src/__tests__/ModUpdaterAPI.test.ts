@@ -1,7 +1,16 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import type decompress from 'decompress';
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import os from 'os';
 import path from 'path';
-import { findModInfo } from '../main/worker/ModUpdaterAPI';
+import {
+  findModInfo,
+  normalizeZipDirectoryEntry,
+} from '../main/worker/ModUpdaterAPI';
 
 describe('ModUpdaterAPI.findModInfo', () => {
   let tempDir: string;
@@ -40,5 +49,20 @@ describe('ModUpdaterAPI.findModInfo', () => {
     writeFileSync(path.join(modRoot, 'Reimagined.mpq', 'modinfo.json'), '{}');
 
     expect(findModInfo(outerRoot)).toBe(modRoot);
+  });
+
+  it('normalizes slash-terminated zip entries as directories', () => {
+    const entry: decompress.File = {
+      data: Buffer.alloc(0),
+      mode: 0o644,
+      mtime: new Date().toISOString(),
+      path: 'Visuals/Visuals.mpq/',
+      type: 'file',
+    };
+
+    expect(normalizeZipDirectoryEntry(entry)).toEqual({
+      ...entry,
+      type: 'directory',
+    });
   });
 });

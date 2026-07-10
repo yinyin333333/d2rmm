@@ -501,6 +501,12 @@ export function findModInfo(dirPath: string): string | null {
   return null;
 }
 
+export function normalizeZipDirectoryEntry(
+  file: decompress.File,
+): decompress.File {
+  return file.path.endsWith('/') ? { ...file, type: 'directory' } : file;
+}
+
 async function installFromZipPath(
   zipFilePath: string,
   modID: string,
@@ -513,9 +519,15 @@ async function installFromZipPath(
   }
   mkdirSync(extractDirPath, { recursive: true });
 
+  const previousNoAsar = process.noAsar;
   process.noAsar = true;
-  await decompress(zipFilePath, extractDirPath);
-  process.noAsar = false;
+  try {
+    await decompress(zipFilePath, extractDirPath, {
+      map: normalizeZipDirectoryEntry,
+    });
+  } finally {
+    process.noAsar = previousNoAsar;
+  }
 
   console.debug('ModUpdaterAPI', 'extracted zip file', {
     modID,
