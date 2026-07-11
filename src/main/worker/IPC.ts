@@ -1,20 +1,39 @@
 import type {
-  AnyAsyncSerializableAPIMethod,
   AsAsyncSerializableAPI,
   AsyncSerializableAPI,
 } from 'bridge/API';
 import type {
   IPCMessage,
-  IPCMessageErrorResponse,
   IPCMessageRequest,
+  IPCMessageResponse,
   IPCMessageSuccessResponse,
 } from 'bridge/IPC';
-import { isI18nError } from '../../shared/i18n';
+import type { SerializableType } from 'bridge/Serializable';
+import {
+  createIPCErrorResponse,
+  createTransportClosedError,
+  createUnknownMethodError,
+  deserializeIPCError,
+  getOwnCallableAPIHandler,
+  invokeIPCHandler,
+} from '../../shared/IPC';
+import { PendingRequestRegistry } from '../../shared/PendingRequestRegistry';
 
-const REGISTERED_APIS: Map<
-  string,
-  { api: AsyncSerializableAPI<unknown>; broadcast: boolean }
-> = new Map();
+type ProvidedAPI = {
+  api: AsyncSerializableAPI<unknown>;
+  broadcast: boolean;
+};
+
+type IPCResult = IPCMessageSuccessResponse['result'];
+
+export type WorkerConsumeAPIOptions = {
+  timeoutMs?: number;
+};
+
+const REGISTERED_APIS = new Map<string, ProvidedAPI>();
+const PENDING_REQUESTS = new PendingRequestRegistry<'main', IPCResult>();
+
+let REQUEST_COUNT = 0;
 
 export function provideAPI<T extends AsyncSerializableAPI<T>>(
   namespace: string,
@@ -24,113 +43,133 @@ export function provideAPI<T extends AsyncSerializableAPI<T>>(
   REGISTERED_APIS.set(namespace, { api, broadcast });
 }
 
-function getAPIHandler(
-  message: IPCMessage,
-): AnyAsyncSerializableAPIMethod | null {
-  if (message.namespace == null) {
-    return null;
-  }
-  const api = REGISTERED_APIS.get(message.namespace)?.api;
-  // @ts-ignore TypeScript can't guarantee that message.api exists on this API
-  return api?.[message.api] ?? null;
+function getProvidedAPI(message: IPCMessageRequest):
+  | {
+      broadcast: boolean;
+      handler: NonNullable<
+        ReturnType<typeof getOwnCallableAPIHandler>
+      >;
+    }
+  | undefined {
+  const provided = REGISTERED_APIS.get(message.namespace);
+  const handler = getOwnCallableAPIHandler(provided?.api, message.api);
+  return handler == null
+    ? undefined
+    : { broadcast: provided?.broadcast ?? false, handler };
 }
 
-function getIsProvidedAPIBroadcast(message: IPCMessage): boolean {
-  return REGISTERED_APIS.get(message.namespace ?? '')?.broadcast ?? false;
-}
-
-let REQUEST_COUNT = 0;
-const PENDING_REQUESTS: {
-  [id: string]: {
-    resolve: (result: IPCMessageSuccessResponse['result']) => void;
-    reject: (error: Error) => void;
-  };
-} = {};
-
-export async function initIPC(): Promise<void> {
-  process.on('message', (message: IPCMessage) => {
-    if (message.args != null) {
-      const handler = getAPIHandler(message);
-      if (handler != null) {
-        const broadcast = getIsProvidedAPIBroadcast(message);
-        handler(...message.args)
-          .then((result) => {
-            if (!broadcast) {
-              process.send?.({
-                id: message.id,
-                result,
-              } as IPCMessageSuccessResponse);
-            }
-          })
-          .catch((error: Error) => {
-            if (!broadcast) {
-              process.send?.({
-                id: message.id,
-                error: {
-                  name: error.name,
-                  message: error.message,
-                  stack: error.stack,
-                  ...(isI18nError(error) && {
-                    __d2rmm_i18n_list: error.__d2rmm_i18n_list,
-                  }),
-                },
-              } as IPCMessageErrorResponse);
-            } else {
-              console.error(error);
-            }
-          });
-      }
-    } else {
-      const request = PENDING_REQUESTS[message.id];
-      if (request != null) {
-        delete PENDING_REQUESTS[message.id];
-        if (message.error != null) {
-          const error = new Error();
-          error.name = message.error.name;
-          error.message = message.error.message;
-          error.stack = message.error.stack;
-          if (message.error.__d2rmm_i18n_list != null) {
-            (
-              error as Error & {
-                __d2rmm_i18n_list: typeof message.error.__d2rmm_i18n_list;
-              }
-            ).__d2rmm_i18n_list = message.error.__d2rmm_i18n_list;
-          }
-          request.reject(error);
+function sendToMain(message: IPCMessage): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (process.send == null || process.connected === false) {
+      reject(createTransportClosedError('Main IPC transport is closed.'));
+      return;
+    }
+    try {
+      process.send(message, (error) => {
+        if (error != null) {
+          reject(error);
         } else {
-          request.resolve(message.result);
+          resolve();
         }
-      }
+      });
+    } catch (error) {
+      reject(error);
     }
   });
+}
+
+function settlePendingResponse(message: IPCMessageResponse): boolean {
+  return message.error != null
+    ? PENDING_REQUESTS.reject(message.id, deserializeIPCError(message.error))
+    : PENDING_REQUESTS.resolve(message.id, message.result);
+}
+
+function handleRequest(message: IPCMessageRequest): void {
+  const provided = getProvidedAPI(message);
+  if (provided == null) {
+    void sendToMain(
+      createIPCErrorResponse(
+        message.id,
+        createUnknownMethodError(message.namespace, message.api),
+      ),
+    ).catch(console.error);
+    return;
+  }
+
+  void invokeIPCHandler(provided.handler, message.args)
+    .then((result) => {
+      if (!provided.broadcast) {
+        return sendToMain({ id: message.id, result });
+      }
+      return undefined;
+    })
+    .catch((error) => {
+      if (provided.broadcast) {
+        console.error(error);
+      } else {
+        void sendToMain(createIPCErrorResponse(message.id, error)).catch(
+          console.error,
+        );
+      }
+    });
+}
+
+const messageListener = (message: IPCMessage): void => {
+  if (message.args != null) {
+    handleRequest(message);
+  } else {
+    settlePendingResponse(message);
+  }
+};
+
+const disconnectListener = (): void => {
+  PENDING_REQUESTS.rejectAll(
+    createTransportClosedError('Main IPC transport is closed.'),
+  );
+};
+
+export async function initIPC(): Promise<void> {
+  process.on('message', messageListener);
+  process.on('disconnect', disconnectListener);
 }
 
 export function consumeAPI<T, TLocalAPI extends object = Record<string, never>>(
   namespace: string,
   localAPI: TLocalAPI = {} as TLocalAPI,
   broadcast: boolean = false,
+  options: WorkerConsumeAPIOptions = {},
 ): TLocalAPI & T {
   return new Proxy(localAPI, {
     get: (target, api) => {
-      if (api in target) {
+      if (Object.prototype.hasOwnProperty.call(target, api)) {
         return target[api as keyof typeof target];
       }
-      return (...args: unknown[]) => {
-        return new Promise((resolve, reject) => {
-          const id = `worker:${REQUEST_COUNT++}`;
-          const request = {
+      return (...args: SerializableType[]) => {
+        const id = `worker:${REQUEST_COUNT++}`;
+        const request: IPCMessageRequest = {
+          id,
+          namespace,
+          api: String(api),
+          args,
+        };
+        if (broadcast) {
+          return sendToMain(request);
+        }
+
+        return new Promise<IPCResult>((resolve, reject) => {
+          PENDING_REQUESTS.add({
+            destination: 'main',
             id,
-            namespace,
-            api,
-            args,
-          } as IPCMessageRequest;
-          if (!broadcast) {
-            PENDING_REQUESTS[id] = { resolve, reject };
-          }
-          process.send?.(request);
-          if (broadcast) {
-            (resolve as () => void)();
-          }
+            reject,
+            resolve,
+            timeoutMs: options.timeoutMs,
+          });
+          void sendToMain(request).catch((error) => {
+            PENDING_REQUESTS.reject(
+              id,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          });
         });
       };
     },

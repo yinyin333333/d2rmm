@@ -1,11 +1,40 @@
 import type { INxmProtocolAPI } from 'bridge/NxmProtocolAPI';
 import { app } from 'electron';
 import path from 'path';
-import { URL } from 'url';
 import { EventAPI } from './EventAPI';
 import { provideAPI } from './IPC';
+import { NxmProtocolQueue } from './NxmProtocolQueue';
+
+const deliveryQueue = new NxmProtocolQueue((eventID, payload) =>
+  EventAPI.send(eventID, payload),
+);
+let isCapturingNxmProtocolEvents = false;
+let hasCapturedInitialArgv = false;
+
+function captureArgv(argv: readonly string[]): void {
+  for (const arg of argv) deliveryQueue.enqueue(arg);
+}
+
+export function captureNxmProtocolEvents(
+  argv: readonly string[] = process.argv,
+): void {
+  if (!isCapturingNxmProtocolEvents) {
+    isCapturingNxmProtocolEvents = true;
+    app.on('open-url', (event, url) => {
+      if (deliveryQueue.enqueue(url)) event.preventDefault();
+    });
+    app.on('second-instance', (_event, commandLine, _workingDirectory) => {
+      captureArgv(commandLine);
+    });
+  }
+  if (!hasCapturedInitialArgv) {
+    hasCapturedInitialArgv = true;
+    captureArgv(argv);
+  }
+}
 
 export async function initNxmProtocolAPI(): Promise<void> {
+  captureNxmProtocolEvents();
   let args: [string, string | undefined, string[] | undefined] = [
     'nxm',
     undefined,
@@ -26,59 +55,7 @@ export async function initNxmProtocolAPI(): Promise<void> {
   provideAPI('NxmProtocolAPI', {
     getIsRegistered: async () => app.isDefaultProtocolClient(...args),
     register: async () => app.setAsDefaultProtocolClient(...args),
+    rendererReady: async () => deliveryQueue.markRendererReady(),
     unregister: async () => app.removeAsDefaultProtocolClient(...args),
   } as INxmProtocolAPI);
-
-  function onOpenNxmUrl(url: string): boolean {
-    if (url.startsWith('nxm://')) {
-      const { host, pathname, searchParams } = new URL(url);
-      const paths = pathname.split('/');
-      const game = host;
-      if (game !== 'diablo2resurrected') {
-        return false;
-      }
-      if (paths[1] === 'mods') {
-        const nexusModID = paths[2];
-        const nexusFileID = parseInt(paths[4], 10);
-        const key = searchParams.get('key');
-        const expires = searchParams.has('expires')
-          ? parseInt(searchParams.get('expires') ?? '0', 10)
-          : null;
-        if (nexusModID != null && nexusFileID != null) {
-          EventAPI.send('nexus-mods-open-url', {
-            nexusModID,
-            nexusFileID,
-            key,
-            expires,
-          })
-            .then()
-            .catch(console.error);
-          return true;
-        }
-      } else if (paths[1] === 'collections') {
-        const collectionSlug = paths[2];
-        const revisionNumber = parseInt(paths[4], 10);
-        if (collectionSlug != null && !isNaN(revisionNumber)) {
-          EventAPI.send('nexus-mods-open-collection-url', {
-            collectionSlug,
-            revisionNumber,
-          })
-            .then()
-            .catch(console.error);
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  app.on('open-url', (event, url) => {
-    if (onOpenNxmUrl(url)) {
-      event.preventDefault();
-    }
-  });
-
-  app.on('second-instance', (_event, commandLine, _workingDirectory) => {
-    onOpenNxmUrl(commandLine[commandLine.length - 1] ?? '');
-  });
 }

@@ -1,22 +1,58 @@
-import type {
-  AnyAsyncSerializableAPIMethod,
-  AsAsyncSerializableAPI,
-  AsyncSerializableAPI,
-} from 'bridge/API';
+import type { AsAsyncSerializableAPI, AsyncSerializableAPI } from 'bridge/API';
 import type {
   IPCMessage,
-  IPCMessageErrorResponse,
   IPCMessageRequest,
+  IPCMessageResponse,
   IPCMessageSuccessResponse,
+  IPCTransportClosedMessage,
+  RendererIPCMessage,
+  WorkerIPCMessage,
 } from 'bridge/IPC';
+import type { SerializableType } from 'bridge/Serializable';
 import { ChildProcess } from 'child_process';
 import { BrowserWindow, ipcMain } from 'electron';
-import { isI18nError } from '../shared/i18n';
+import {
+  createIPCErrorResponse,
+  createNamedIPCError,
+  createTransportClosedError,
+  createUnknownMethodError,
+  deserializeIPCError,
+  getOwnCallableAPIHandler,
+  invokeIPCHandler,
+  serializeIPCError,
+} from '../shared/IPC';
+import { PendingRequestRegistry } from '../shared/PendingRequestRegistry';
 
-const REGISTERED_APIS: Map<
-  string,
-  { api: AsyncSerializableAPI<unknown>; broadcast: boolean }
-> = new Map();
+type ProvidedAPI = {
+  api: AsyncSerializableAPI<unknown>;
+  broadcast: boolean;
+};
+
+type Renderer = BrowserWindow['webContents'];
+type MainRequestDestination = Renderer | ChildProcess;
+type IPCResult = IPCMessageSuccessResponse['result'];
+
+export type MainConsumeAPIOptions = {
+  destination?: 'renderer' | 'worker';
+  timeoutMs?: number;
+};
+
+type RegisteredWorker = {
+  messageListener: (message: WorkerIPCMessage) => void;
+  ready: boolean;
+  rendererRequestIds: Set<string>;
+};
+
+const REGISTERED_APIS = new Map<string, ProvidedAPI>();
+const PENDING_REQUESTS = new PendingRequestRegistry<
+  MainRequestDestination,
+  IPCResult
+>();
+const workers = new Map<ChildProcess, RegisteredWorker>();
+
+let REQUEST_COUNT = 0;
+let renderer: Renderer | null = null;
+let isRendererIPCListenerRegistered = false;
 
 export function provideAPI<T extends AsyncSerializableAPI<T>>(
   namespace: string,
@@ -26,203 +62,476 @@ export function provideAPI<T extends AsyncSerializableAPI<T>>(
   REGISTERED_APIS.set(namespace, { api, broadcast });
 }
 
-function getAPIHandler(
-  message: IPCMessage,
-): AnyAsyncSerializableAPIMethod | null {
-  if (message.namespace == null) {
-    return null;
+function getProvidedAPI(message: IPCMessageRequest):
+  | {
+      broadcast: boolean;
+      handler: NonNullable<ReturnType<typeof getOwnCallableAPIHandler>>;
+    }
+  | undefined {
+  const provided = REGISTERED_APIS.get(message.namespace);
+  const handler = getOwnCallableAPIHandler(provided?.api, message.api);
+  return handler == null
+    ? undefined
+    : { broadcast: provided?.broadcast ?? false, handler };
+}
+
+function forEachReadyWorker(callback: (worker: ChildProcess) => void): void {
+  workers.forEach(({ ready }, worker) => {
+    if (ready) {
+      callback(worker);
+    }
+  });
+}
+
+function getReadyWorker():
+  | { registration: RegisteredWorker; worker: ChildProcess }
+  | undefined {
+  for (const [worker, registration] of workers) {
+    if (registration.ready) {
+      return { registration, worker };
+    }
   }
-  const api = REGISTERED_APIS.get(message.namespace)?.api;
-  // @ts-ignore TypeScript can't guarantee that message.api exists on this API
-  return api?.[message.api] ?? null;
+  return undefined;
 }
 
-function getIsProvidedAPIBroadcast(message: IPCMessage): boolean {
-  return REGISTERED_APIS.get(message.namespace ?? '')?.broadcast ?? false;
+function sendToRenderer(
+  target: Renderer | null,
+  message: RendererIPCMessage,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (target == null || target.isDestroyed()) {
+      reject(createTransportClosedError('Renderer IPC transport is closed.'));
+      return;
+    }
+    try {
+      target.send('ipc', message);
+      resolve();
+    } catch (error) {
+      reject(error);
+    }
+  });
 }
 
-let REQUEST_COUNT = 0;
-const PENDING_REQUESTS: {
-  [id: string]: {
-    resolve: (result: IPCMessageSuccessResponse['result']) => void;
-    reject: (error: Error) => void;
-  };
-} = {};
+function sendToWorker(
+  worker: ChildProcess,
+  message: IPCMessage,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (worker.connected === false) {
+      reject(createTransportClosedError('Worker IPC transport is closed.'));
+      return;
+    }
+    try {
+      worker.send(message, (error) => {
+        if (error != null) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+function sendBroadcast(request: IPCMessageRequest): void {
+  if (renderer != null && !renderer.isDestroyed()) {
+    void sendToRenderer(renderer, request).catch(console.error);
+  }
+  forEachReadyWorker((worker) => {
+    void sendToWorker(worker, request).catch(console.error);
+  });
+}
+
+function settlePendingResponse(message: IPCMessageResponse): boolean {
+  return message.error != null
+    ? PENDING_REQUESTS.reject(message.id, deserializeIPCError(message.error))
+    : PENDING_REQUESTS.resolve(message.id, message.result);
+}
 
 export function consumeAPI<T, TLocalAPI extends object = Record<string, never>>(
   namespace: string,
   localAPI: TLocalAPI = {} as TLocalAPI,
   broadcast: boolean = false,
+  options: MainConsumeAPIOptions = {},
 ): TLocalAPI & T {
   return new Proxy(localAPI, {
     get: (target, api) => {
-      if (api in target) {
+      if (Object.prototype.hasOwnProperty.call(target, api)) {
         return target[api as keyof typeof target];
       }
-      return (...args: unknown[]) => {
-        return new Promise((resolve, reject) => {
-          const id = `main:${REQUEST_COUNT++}`;
-          const request = {
+      return (...args: SerializableType[]) => {
+        const id = `main:${REQUEST_COUNT++}`;
+        const request: IPCMessageRequest = {
+          id,
+          namespace,
+          api: String(api),
+          args,
+        };
+        if (broadcast) {
+          sendBroadcast(request);
+          return Promise.resolve();
+        }
+
+        return new Promise<IPCResult>((resolve, reject) => {
+          const destination = options.destination ?? 'renderer';
+          if (destination === 'renderer') {
+            const targetRenderer = renderer;
+            if (targetRenderer == null || targetRenderer.isDestroyed()) {
+              reject(
+                createTransportClosedError('Renderer IPC transport is closed.'),
+              );
+              return;
+            }
+            PENDING_REQUESTS.add({
+              destination: targetRenderer,
+              id,
+              reject,
+              resolve,
+              timeoutMs: options.timeoutMs,
+            });
+            void sendToRenderer(targetRenderer, request).catch((error) => {
+              PENDING_REQUESTS.reject(
+                id,
+                error instanceof Error ? error : new Error(String(error)),
+              );
+            });
+            return;
+          }
+
+          const readyWorker = getReadyWorker();
+          if (readyWorker == null) {
+            reject(
+              createNamedIPCError(
+                'WorkerNotReadyError',
+                'No ready worker is available.',
+              ),
+            );
+            return;
+          }
+          PENDING_REQUESTS.add({
+            destination: readyWorker.worker,
             id,
-            namespace,
-            api,
-            args,
-          } as IPCMessageRequest;
-          if (!broadcast) {
-            PENDING_REQUESTS[id] = { resolve, reject };
-          }
-          if (!renderer?.isDestroyed()) {
-            renderer?.send('ipc', request);
-          }
-          workers.forEach((w) => w.send(request));
-          if (broadcast) {
-            (resolve as () => void)();
-          }
+            reject,
+            resolve,
+            timeoutMs: options.timeoutMs,
+          });
+          void sendToWorker(readyWorker.worker, request).catch((error) => {
+            PENDING_REQUESTS.reject(
+              id,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          });
         });
       };
     },
   }) as TLocalAPI & T;
 }
 
-const workers: Set<ChildProcess> = new Set();
-
-export function unregisterWorker(worker: ChildProcess): void {
+export function unregisterWorker(
+  worker: ChildProcess,
+  reason: Error = createTransportClosedError('Worker IPC transport is closed.'),
+): void {
+  const registration = workers.get(worker);
+  if (registration == null) {
+    return;
+  }
+  worker.off('message', registration.messageListener);
   workers.delete(worker);
+  PENDING_REQUESTS.rejectDestination(worker, reason);
+
+  const requestIds = Array.from(registration.rendererRequestIds);
+  registration.rendererRequestIds.clear();
+  if (requestIds.length > 0 && renderer != null && !renderer.isDestroyed()) {
+    const message: IPCTransportClosedMessage = {
+      control: 'transport-closed',
+      destination: 'worker',
+      error: serializeIPCError(reason),
+      requestIds,
+    };
+    void sendToRenderer(renderer, message).catch(console.error);
+  }
+}
+
+export function markWorkerReady(worker: ChildProcess): void {
+  const registration = workers.get(worker);
+  if (registration == null) {
+    throw new Error('Cannot mark an unregistered worker as ready.');
+  }
+  registration.ready = true;
+}
+
+function respondToWorker(worker: ChildProcess, message: IPCMessage): void {
+  void sendToWorker(worker, message).catch(console.error);
+}
+
+function respondToRenderer(
+  message: RendererIPCMessage,
+  targetRenderer: Renderer | null = renderer,
+): void {
+  if (targetRenderer !== renderer) return;
+  void sendToRenderer(targetRenderer, message).catch(console.error);
+}
+
+function handleWorkerRequest(
+  worker: ChildProcess,
+  message: IPCMessageRequest,
+): void {
+  const provided = getProvidedAPI(message);
+  if (provided == null) {
+    respondToWorker(
+      worker,
+      createIPCErrorResponse(
+        message.id,
+        createUnknownMethodError(message.namespace, message.api),
+      ),
+    );
+    return;
+  }
+
+  void invokeIPCHandler(provided.handler, message.args)
+    .then((result) => {
+      if (!provided.broadcast) {
+        respondToWorker(worker, { id: message.id, result });
+      }
+    })
+    .catch((error) => {
+      if (provided.broadcast) {
+        console.error(error);
+      } else {
+        respondToWorker(worker, createIPCErrorResponse(message.id, error));
+      }
+    });
+
+  if (provided.broadcast) {
+    if (renderer != null && !renderer.isDestroyed()) {
+      void sendToRenderer(renderer, message).catch(console.error);
+    }
+    forEachReadyWorker((otherWorker) => {
+      if (otherWorker !== worker) {
+        void sendToWorker(otherWorker, message).catch(console.error);
+      }
+    });
+  }
+}
+
+function handleWorkerResponse(
+  registration: RegisteredWorker,
+  message: IPCMessageResponse,
+): void {
+  if (settlePendingResponse(message)) {
+    return;
+  }
+  if (!registration.rendererRequestIds.delete(message.id)) {
+    return;
+  }
+  respondToRenderer(message);
 }
 
 export function registerWorker(worker: ChildProcess): void {
-  workers.add(worker);
-
-  // handle messages received from the worker thread
-  worker.on('message', (message: IPCMessage): void => {
+  const registration: RegisteredWorker = {
+    messageListener: () => {},
+    ready: false,
+    rendererRequestIds: new Set(),
+  };
+  const messageListener = (message: WorkerIPCMessage): void => {
+    if ('control' in message) {
+      return;
+    }
     if (message.args != null) {
-      const handler = getAPIHandler(message);
-      if (handler != null) {
-        const broadcast = getIsProvidedAPIBroadcast(message);
-        handler(...message.args)
-          .then((result) => {
-            if (!broadcast) {
-              worker.send({
-                id: message.id,
-                result,
-              } as IPCMessageSuccessResponse);
-            }
-          })
-          .catch((error: Error) => {
-            if (!broadcast) {
-              worker.send({
-                id: message.id,
-                error: {
-                  name: error.name,
-                  message: error.message,
-                  stack: error.stack,
-                  ...(isI18nError(error) && {
-                    __d2rmm_i18n_list: error.__d2rmm_i18n_list,
-                  }),
-                },
-              } as IPCMessageErrorResponse);
-            } else {
-              console.error(error);
-            }
-          });
-      }
+      handleWorkerRequest(worker, message);
     } else {
-      const request = PENDING_REQUESTS[message.id];
-      if (request != null) {
-        delete PENDING_REQUESTS[message.id];
-        if (message.error != null) {
-          const error = new Error();
-          error.name = message.error.name;
-          error.message = message.error.message;
-          error.stack = message.error.stack;
-          if (message.error.__d2rmm_i18n_list != null) {
-            (
-              error as Error & {
-                __d2rmm_i18n_list: typeof message.error.__d2rmm_i18n_list;
-              }
-            ).__d2rmm_i18n_list = message.error.__d2rmm_i18n_list;
-          }
-          request.reject(error);
-        } else {
-          request.resolve(message.result);
-        }
-      }
+      handleWorkerResponse(registration, message);
     }
+  };
+  registration.messageListener = messageListener;
+  workers.set(worker, registration);
+  worker.on('message', messageListener);
+}
 
-    // forward message to the other threads
-    if (!renderer?.isDestroyed()) {
-      renderer?.send('ipc', message);
+function handleRendererRequest(
+  message: IPCMessageRequest,
+  targetRenderer: Renderer | null,
+): void {
+  const provided = getProvidedAPI(message);
+  if (provided != null) {
+    void invokeIPCHandler(provided.handler, message.args)
+      .then((result) => {
+        if (!provided.broadcast) {
+          respondToRenderer({ id: message.id, result }, targetRenderer);
+        }
+      })
+      .catch((error) => {
+        if (provided.broadcast) {
+          console.error(error);
+        } else {
+          respondToRenderer(
+            createIPCErrorResponse(message.id, error),
+            targetRenderer,
+          );
+        }
+      });
+    if (provided.broadcast) {
+      forEachReadyWorker((worker) => {
+        void sendToWorker(worker, message).catch(console.error);
+      });
     }
-    workers.forEach((w) => {
-      if (w !== worker) {
-        w.send(message);
-      }
-    });
+    return;
+  }
+
+  const readyWorker = getReadyWorker();
+  if (readyWorker == null) {
+    respondToRenderer(
+      createIPCErrorResponse(
+        message.id,
+        createNamedIPCError(
+          'WorkerNotReadyError',
+          'No ready worker is available.',
+        ),
+      ),
+      targetRenderer,
+    );
+    return;
+  }
+
+  readyWorker.registration.rendererRequestIds.add(message.id);
+  void sendToWorker(readyWorker.worker, message).catch((error) => {
+    if (!readyWorker.registration.rendererRequestIds.delete(message.id)) {
+      return;
+    }
+    respondToRenderer(
+      createIPCErrorResponse(message.id, error),
+      targetRenderer,
+    );
   });
 }
 
-let renderer: BrowserWindow['webContents'] | null = null;
+function handleRendererDestroyed(target: Renderer): void {
+  const error = createTransportClosedError('Renderer IPC transport is closed.');
+  PENDING_REQUESTS.rejectDestination(target, error);
+  if (renderer !== target) return;
+  workers.forEach((registration) => registration.rendererRequestIds.clear());
+  renderer = null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value != null && !Array.isArray(value);
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function hasMessageID(
+  message: unknown,
+): message is Record<string, unknown> & { id: string } {
+  return (
+    isRecord(message) &&
+    typeof message.id === 'string' &&
+    message.id.length > 0
+  );
+}
+
+function isSerializedIPCError(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.name === 'string' &&
+    typeof value.message === 'string' &&
+    (value.stack == null || typeof value.stack === 'string') &&
+    (value.__d2rmm_i18n_list == null ||
+      Array.isArray(value.__d2rmm_i18n_list))
+  );
+}
+
+function isRendererIPCRequest(
+  message: Record<string, unknown> & { id: string },
+): boolean {
+  return (
+    typeof message.namespace === 'string' &&
+    message.namespace.length > 0 &&
+    typeof message.api === 'string' &&
+    message.api.length > 0 &&
+    Array.isArray(message.args) &&
+    !hasOwn(message, 'result') &&
+    !hasOwn(message, 'error') &&
+    !hasOwn(message, 'control')
+  );
+}
+
+function isRendererIPCResponse(
+  message: Record<string, unknown> & { id: string },
+): boolean {
+  if (
+    hasOwn(message, 'namespace') ||
+    hasOwn(message, 'api') ||
+    hasOwn(message, 'args') ||
+    hasOwn(message, 'control')
+  ) {
+    return false;
+  }
+  const hasResult = hasOwn(message, 'result');
+  const hasError = hasOwn(message, 'error');
+  return (
+    hasResult !== hasError &&
+    (!hasError || isSerializedIPCError(message.error))
+  );
+}
+
+function isRendererIPCMessage(message: unknown): message is IPCMessage {
+  if (!hasMessageID(message)) return false;
+  return isRendererIPCRequest(message) || isRendererIPCResponse(message);
+}
+
+function handleRendererIPCMessage(
+  event: Electron.IpcMainEvent,
+  message: unknown,
+): void {
+  const targetRenderer = renderer;
+  if (
+    targetRenderer == null ||
+    event.sender !== targetRenderer ||
+    event.senderFrame !== targetRenderer.mainFrame
+  ) {
+    return;
+  }
+  if (!isRendererIPCMessage(message)) {
+    if (hasMessageID(message)) {
+      respondToRenderer(
+        createIPCErrorResponse(
+          message.id,
+          createNamedIPCError(
+            'IPCMalformedMessageError',
+            'Malformed renderer IPC message.',
+          ),
+        ),
+        targetRenderer,
+      );
+    }
+    return;
+  }
+  if (message.args != null) {
+    handleRendererRequest(message, targetRenderer);
+  } else {
+    settlePendingResponse(message);
+  }
+}
 
 export async function initIPC(mainWindow: BrowserWindow): Promise<void> {
-  renderer = mainWindow.webContents;
+  const targetRenderer = mainWindow.webContents;
+  if (renderer !== targetRenderer) {
+    if (renderer != null) handleRendererDestroyed(renderer);
+    renderer = targetRenderer;
+    const rendererWithOnce = targetRenderer as Renderer & {
+      once?: (event: 'destroyed', listener: () => void) => void;
+    };
+    rendererWithOnce.once?.('destroyed', () =>
+      handleRendererDestroyed(targetRenderer),
+    );
+  }
 
-  // handle messages received from the renderer thread
-  ipcMain.on(
-    'ipc',
-    (_event: Electron.IpcMainEvent, message: IPCMessage): void => {
-      if (message.args != null) {
-        const handler = getAPIHandler(message);
-        if (handler != null) {
-          const broadcast = getIsProvidedAPIBroadcast(message);
-          handler(...message.args)
-            .then((result) => {
-              if (!broadcast) {
-                if (!renderer?.isDestroyed()) {
-                  renderer?.send('ipc', {
-                    id: message.id,
-                    result,
-                  } as IPCMessageSuccessResponse);
-                }
-              }
-            })
-            .catch((error: Error) => {
-              if (!broadcast) {
-                if (!renderer?.isDestroyed()) {
-                  renderer?.send('ipc', {
-                    id: message.id,
-                    error: {
-                      name: error.name,
-                      message: error.message,
-                      stack: error.stack,
-                      ...(isI18nError(error) && {
-                        __d2rmm_i18n_list: error.__d2rmm_i18n_list,
-                      }),
-                    },
-                  } as IPCMessageErrorResponse);
-                }
-              } else {
-                console.error(error);
-              }
-            });
-        }
-      } else {
-        const request = PENDING_REQUESTS[message.id];
-        if (request != null) {
-          delete PENDING_REQUESTS[message.id];
-          if (message.error != null) {
-            const error = new Error();
-            error.name = message.error.name;
-            error.message = message.error.message;
-            error.stack = message.error.stack;
-            request.reject(error);
-          } else {
-            request.resolve(message.result);
-          }
-        }
-      }
-
-      // forward message to the other threads
-      workers.forEach((w) => w.send(message));
-    },
-  );
+  if (!isRendererIPCListenerRegistered) {
+    ipcMain.on('ipc', handleRendererIPCMessage);
+    isRendererIPCListenerRegistered = true;
+  }
 }

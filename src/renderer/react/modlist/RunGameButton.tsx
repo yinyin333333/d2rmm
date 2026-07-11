@@ -2,6 +2,7 @@ import BridgeAPI from 'renderer/BridgeAPI';
 import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useSanitizedGamePath } from 'renderer/react/context/GamePathContext';
 import { useInstallBeforeRun } from 'renderer/react/context/InstallBeforeRunContext';
+import { useIsInstalling } from 'renderer/react/context/InstallContext';
 import {
   useIsInstallConfigChanged,
   useIsLoadingMods,
@@ -9,6 +10,7 @@ import {
 import { useOutputModName } from 'renderer/react/context/OutputModNameContext';
 import useAsyncCallback from 'renderer/react/hooks/useAsyncCallback';
 import useGameLaunchArgs from 'renderer/react/hooks/useGameLaunchArgs';
+import useToast from 'renderer/react/hooks/useToast';
 import useInstallMods from 'renderer/react/modlist/hooks/useInstallMods';
 import resolvePath from 'renderer/utils/resolvePath';
 import { useMemo } from 'react';
@@ -23,7 +25,9 @@ type Props = Record<string, never>;
 
 export default function RunGameButton(_props: Props): JSX.Element {
   const { t } = useTranslation();
+  const showToast = useToast();
   const isInstallConfigChanged = useIsInstallConfigChanged();
+  const [isInstalling] = useIsInstalling();
   const isLoadingMods = useIsLoadingMods();
 
   const gamePath = useSanitizedGamePath();
@@ -44,7 +48,7 @@ export default function RunGameButton(_props: Props): JSX.Element {
   const onInstallMods = useInstallMods();
 
   const onPress = useAsyncCallback(async () => {
-    if (isLoadingMods) {
+    if (isLoadingMods || isInstalling) {
       return;
     }
 
@@ -53,18 +57,26 @@ export default function RunGameButton(_props: Props): JSX.Element {
         return;
       }
     }
-    if (d2rLoaderSettings.useD2RLoader) {
-      const pathD2RLoaderExe = resolvePath(gamePath, 'D2RLoader.exe');
-      await BridgeAPI.prepareD2RLoaderLaunch(gamePath, {
-        defaultMod: outputModName,
-        tomlSettings: d2rLoaderSettings.tomlSettings,
-      });
-      await BridgeAPI.execute(pathD2RLoaderExe, args);
-      return;
-    }
+    try {
+      if (d2rLoaderSettings.useD2RLoader) {
+        const pathD2RLoaderExe = resolvePath(gamePath, 'D2RLoader.exe');
+        await BridgeAPI.prepareD2RLoaderLaunch(gamePath, {
+          defaultMod: outputModName,
+          tomlSettings: d2rLoaderSettings.tomlSettings,
+        });
+        await BridgeAPI.execute(pathD2RLoaderExe, args);
+        return;
+      }
 
-    const pathD2rExe = resolvePath(gamePath, 'D2R.exe');
-    await BridgeAPI.execute(pathD2rExe, args);
+      const pathD2rExe = resolvePath(gamePath, 'D2R.exe');
+      await BridgeAPI.execute(pathD2rExe, args);
+    } catch (error) {
+      showToast({
+        severity: 'error',
+        title: t('run.toast.error'),
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
   }, [
     isInstallBeforeRunEnabled,
     onInstallMods,
@@ -73,6 +85,9 @@ export default function RunGameButton(_props: Props): JSX.Element {
     outputModName,
     args,
     isLoadingMods,
+    isInstalling,
+    showToast,
+    t,
   ]);
 
   const tooltipText = isInstallConfigChanged
@@ -81,7 +96,7 @@ export default function RunGameButton(_props: Props): JSX.Element {
 
   const button = (
     <Button
-      disabled={isLoadingMods}
+      disabled={isLoadingMods || isInstalling}
       onClick={onPress}
       startIcon={
         !isInstallConfigChanged ? (

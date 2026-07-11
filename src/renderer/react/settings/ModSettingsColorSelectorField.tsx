@@ -5,7 +5,7 @@ import { parseBinding } from 'renderer/react/BindingsParser';
 import { useModSettingsContext } from 'renderer/react/settings/ModSettingsContext';
 import debounce from 'renderer/utils/debounce';
 import { MuiColorInput, MuiColorInputColors } from 'mui-color-input';
-import { useCallback, useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 
 type ColorArray = [number, number, number, number];
 type ColorObject = {
@@ -59,15 +59,21 @@ export default function ModSettingsColorSelectorField({
           expandedSections,
         ) ?? null;
 
-  const [value, setValue] = useState(() =>
-    colorArrayToObject(
-      mod.config[field.id] as [number, number, number, number],
-    ),
-  );
+  const configValue = mod.config[field.id] as ColorArray;
+  const [value, setValue] = useState(() => colorArrayToObject(configValue));
+
+  useEffect(() => {
+    setValue(colorArrayToObject(configValue));
+  }, [configValue, mod.id]);
 
   const onChangeFromPropsDebounced = useMemo(
     () => debounce(onChangeFromProps, 1000),
     [onChangeFromProps],
+  );
+
+  useEffect(
+    () => () => onChangeFromPropsDebounced.cancel(),
+    [onChangeFromPropsDebounced],
   );
 
   const onChange = useCallback(

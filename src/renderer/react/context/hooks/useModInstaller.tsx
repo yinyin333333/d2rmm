@@ -69,17 +69,28 @@ export default function useModInstaller(authState: INexusAuthState) {
         });
 
         if (installedVersion != null) {
-          const isUpdated = await updateModVersion(modID, installedVersion);
-          // if we didn't find a mod with cached version update information
-          // that means we need to check for updates for this mod
-          if (!isUpdated) {
-            await checkModForUpdates({
-              ...mod,
-              info: {
-                ...mod.info,
-                version: installedVersion,
-              },
+          try {
+            const isUpdated = await updateModVersion(modID, installedVersion);
+            // if we didn't find a mod with cached version update information
+            // that means we need to check for updates for this mod
+            if (!isUpdated) {
+              await checkModForUpdates({
+                ...mod,
+                info: {
+                  ...mod.info,
+                  version: installedVersion,
+                },
+              });
+            }
+          } catch (error) {
+            const warning = `${mod.info.name} installed, but Nexus update metadata could not be refreshed. Check the logs.`;
+            console.warn(warning, error);
+            showToast({
+              duration: 5000,
+              title: warning,
+              severity: 'warning',
             });
+            return modID;
           }
         }
 

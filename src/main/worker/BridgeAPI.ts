@@ -10,13 +10,13 @@ import type { JSONData } from 'bridge/JSON';
 import type { ModConfigValue } from 'bridge/ModConfigValue';
 import { Relative } from 'bridge/Relative';
 import type { ID2S, IStash } from 'bridge/third-party/d2s/d2/types';
-import { spawn } from 'child_process';
 import {
   copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -43,23 +43,71 @@ import {
   readCString,
 } from './CascLib';
 import {
+  CascFileReadError,
+  readCascFileToBuffer,
+} from './CascFileReader';
+import {
   D2R_LOADER_CONFIG_FILE,
   createD2RLoaderConfig,
   updateD2RLoaderConfig,
 } from './D2RLoader';
+import {
+  applyD2RLoaderPrerequisites,
+  clearD2RLoaderOutputDirectory,
+} from './D2RLoaderPrerequisites';
 import { EventAPI } from './EventAPI';
 import { provideAPI } from './IPC';
 import { InstallationRuntime } from './InstallationRuntime';
 import { encodeJson, parseJson } from './JSONParser';
-import { getDataModRootPath, getModAPI, resetNextStringIDState } from './ModAPI';
+import { getDataModRootPath, getModAPI } from './ModAPI';
+import { runModTransaction } from './ModTransaction';
+import {
+  getModOutputEnvelopePath,
+  resolveModOutputPath,
+  resolvePathInsideRoot,
+} from './PathSafety';
+import { launchDetachedProcess } from './ProcessLauncher';
+import { removeLegacyOutputOwnershipManifest } from './OutputOwnership';
+import {
+  RuntimeOperationBusyError,
+  RuntimeOperationGuard,
+  RuntimeOperationLease,
+  RuntimeOperationName,
+} from './RuntimeOperationGuard';
 import { parseSprite } from './SpriteParser';
 import { encodeTsv, parseTsv } from './TSVParser';
 import './asar';
 import { datamod } from './datamod';
-import { getQuickJSProxyAPI, getQuickJS } from './quickjs';
+import { getQuickJS, getQuickJSProxyAPI } from './quickjs';
 import * as d2s from './third-party/d2s/index';
 
 let runtime: InstallationRuntime | null = null;
+const runtimeOperationGuard = new RuntimeOperationGuard();
+
+function acquireRuntimeOperation(
+  operation: RuntimeOperationName,
+): RuntimeOperationLease {
+  try {
+    return runtimeOperationGuard.acquire(operation);
+  } catch (error) {
+    if (error instanceof RuntimeOperationBusyError) {
+      throw te('worker.bridgeapi.operationBusy', {
+        active: error.activeOperation,
+        requested: error.requestedOperation,
+      });
+    }
+    throw error;
+  }
+}
+
+function releaseRuntimeOperation(
+  lease: RuntimeOperationLease,
+  operationRuntime: InstallationRuntime | null,
+): void {
+  if (lease.release() && runtime === operationRuntime) {
+    runtime = null;
+  }
+}
 
 export function getRuntime(): InstallationRuntime | null {
   return runtime;
@@ -108,17 +156,17 @@ function getPreExtractedDataPath(): string {
 
 // we don't want mods doing any ../../.. shenanigans
 function validatePathIsSafe(allowedRoot: string, absolutePath: string): string {
-  allowedRoot = path.resolve(allowedRoot);
-  absolutePath = path.resolve(absolutePath);
-
-  if (!absolutePath.startsWith(allowedRoot)) {
-    throw te('worker.bridgeapi.validatePath.outsideAllowed', {
-      path: absolutePath,
-      allowedRoot,
+  try {
+    return resolvePathInsideRoot(allowedRoot, allowedRoot, absolutePath, {
+      allowAbsoluteInput: true,
+      allowRoot: true,
     });
+  } catch (error) {
+    throw te('worker.bridgeapi.validatePath.outsideAllowed', {
+      path: path.resolve(absolutePath),
+      allowedRoot: path.resolve(allowedRoot),
+    }, error);
   }
-
-  return absolutePath;
 }
 
 function resolvePath(inputPath: string, relative: Relative): string {
@@ -134,10 +182,7 @@ function resolvePath(inputPath: string, relative: Relative): string {
         path.resolve(getSavesPath(), inputPath),
       );
     case 'Output':
-      return validatePathIsSafe(
-        getOutputRootPath(),
-        path.resolve(getOutputPath(), inputPath),
-      );
+      return resolveModOutputPath(runtime!.options, inputPath);
     case 'PreExtractedData':
       return validatePathIsSafe(
         getPreExtractedDataPath(),
@@ -145,7 +190,7 @@ function resolvePath(inputPath: string, relative: Relative): string {
       );
     case 'None':
       return validatePathIsSafe(
-        getOutputRootPath(),
+        getModOutputEnvelopePath(runtime!.options),
         path.resolve(getOutputPath(), inputPath),
       );
     default:
@@ -283,6 +328,72 @@ let cascStorageIsOpen = false;
 let cascStorageOpenedOnline: boolean | null = null;
 let cascStorageOpenedGamePath: string | null = null;
 
+function canonicalizeGamePath(gamePath: string): string {
+  try {
+    return realpathSync.native(path.resolve(gamePath));
+  } catch (error) {
+    throw te('worker.error.openStorage.failed', {
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function closeCascStorage(): boolean {
+  if (!cascStorageIsOpen) {
+    return true;
+  }
+
+  if (!getCascLib().CascCloseStorage(cascStorage)) {
+    const detail = String(getLastCascLibError());
+    throw te('worker.error.closeStorage.failed', { detail });
+  }
+
+  cascStorage = null;
+  cascStorageIsOpen = false;
+  cascStorageOpenedOnline = null;
+  cascStorageOpenedGamePath = null;
+  return true;
+}
+
+function translateCascFileReadError(
+  filePath: string,
+  error: CascFileReadError,
+): Error {
+  switch (error.kind) {
+    case 'closeFailed':
+      return te('worker.bridgeapi.extractFileToMemory.closeFailed', {
+        filePath,
+        cascError: String(getLastCascLibError(error.cascError)),
+      });
+    case 'invalidSize':
+      return te('worker.bridgeapi.extractFileToMemory.invalidSize', {
+        filePath,
+        size: String(error.fileSize),
+      });
+    case 'readFailed':
+      return te('worker.bridgeapi.extractFileToMemory.readFailed', {
+        filePath,
+        cascError: String(getLastCascLibError(error.cascError)),
+      });
+    case 'shortRead':
+      return te('worker.bridgeapi.extractFileToMemory.shortRead', {
+        filePath,
+        expected: error.expectedBytes ?? 0,
+        actual: error.actualBytes ?? 0,
+      });
+    case 'sizeQueryFailed':
+      return te('worker.bridgeapi.extractFileToMemory.sizeFailed', {
+        filePath,
+        cascError: String(getLastCascLibError(error.cascError)),
+      });
+    case 'tooLarge':
+      return te('worker.bridgeapi.extractFileToMemory.tooLarge', {
+        filePath,
+        size: String(error.fileSize),
+      });
+  }
+}
+
 export const BridgeAPI: IBridgeAPI = {
   getVersion: async () => {
     console.debug('BridgeAPI.getVersion');
@@ -352,17 +463,7 @@ export const BridgeAPI: IBridgeAPI = {
   execute: async (executablePath: string, args: string[] = []) => {
     console.debug('BridgeAPI.execute', { executablePath, args });
     try {
-      const child = spawn(executablePath, args ?? [], {
-        cwd: path.dirname(executablePath),
-        detached: true,
-        stdio: 'ignore',
-      });
-
-      try {
-        child.unref();
-      } catch {}
-
-      return 0;
+      return await launchDetachedProcess(executablePath, args ?? []);
     } catch (error) {
       throw te('worker.bridgeapi.execute.failed', null, error);
     }
@@ -371,8 +472,24 @@ export const BridgeAPI: IBridgeAPI = {
   openStorage: async (gamePath: string, forceOnline = false) => {
     console.debug('BridgeAPI.openStorage', { gamePath, forceOnline });
 
+    const canonicalGamePath = canonicalizeGamePath(gamePath);
+
+    if (cascStorageIsOpen) {
+      const canReuseStorage =
+        cascStorageOpenedGamePath === canonicalGamePath &&
+        (!forceOnline || cascStorageOpenedOnline === true);
+      if (canReuseStorage) {
+        return true;
+      }
+      closeCascStorage();
+    }
+
     // what do these mean? who knows!
-    const PATHS = [`${gamePath}:osi`, `${gamePath}:`, `${gamePath}`];
+    const PATHS = [
+      `${canonicalGamePath}:osi`,
+      `${canonicalGamePath}:`,
+      canonicalGamePath,
+    ];
 
     if (!cascStorageIsOpen) {
       const attempts = forceOnline
@@ -396,7 +513,7 @@ export const BridgeAPI: IBridgeAPI = {
           cascStorage = storageOut[0];
           cascStorageIsOpen = true;
           cascStorageOpenedOnline = online;
-          cascStorageOpenedGamePath = gamePath;
+          cascStorageOpenedGamePath = canonicalGamePath;
           console.debug('BridgeAPI.openStorage success', {
             storagePath,
             online,
@@ -463,19 +580,7 @@ export const BridgeAPI: IBridgeAPI = {
 
   closeStorage: async () => {
     console.debug('BridgeAPI.closeStorage');
-
-    if (cascStorageIsOpen) {
-      if (getCascLib().CascCloseStorage(cascStorage)) {
-        cascStorageIsOpen = false;
-        cascStorageOpenedOnline = null;
-        cascStorageOpenedGamePath = null;
-      } else {
-        const detail = String(getLastCascLibError());
-        throw te('worker.error.closeStorage.failed', { detail });
-      }
-    }
-
-    return !cascStorageIsOpen;
+    return closeCascStorage();
   },
 
   isGameFile: async (filePath: string) => {
@@ -511,7 +616,6 @@ export const BridgeAPI: IBridgeAPI = {
 
   extractFileToMemory: async (filePath) => {
     console.debug('BridgeAPI.extractFileToMemory', { filePath });
-    let output: null | Buffer = null;
 
     try {
       if (!cascStorageIsOpen) {
@@ -535,20 +639,19 @@ export const BridgeAPI: IBridgeAPI = {
       }
 
       const file = fileOut[0];
-      const bytesReadOut: number[] = [0];
-
-      // if the file is larger than 10 MB... I got bad news for you.
-      const size = 10 * 1024 * 1024;
-      const buffer = Buffer.alloc(size);
-
-      if (!getCascLib().CascReadFile(file, buffer, size, bytesReadOut)) {
-        const errorCode = getCascLib().GetCascError();
-        getCascLib().CascCloseFile(file);
-
-        // If we failed to read the file because it's not locally cached
-        // try reopening the storage in online mode and retrying the read
+      try {
+        const output = readCascFileToBuffer(getCascLib(), file);
+        console.debug('BridgeAPI.extractFileToMemory', {
+          filePath,
+          bytesRead: output.length,
+        });
+        return output;
+      } catch (error) {
         if (
-          errorCode === CASC_ERROR_FILE_OFFLINE &&
+          error instanceof CascFileReadError &&
+          (error.kind === 'readFailed' ||
+            error.kind === 'sizeQueryFailed') &&
+          error.cascError === CASC_ERROR_FILE_OFFLINE &&
           cascStorageOpenedOnline === false &&
           cascStorageOpenedGamePath != null
         ) {
@@ -557,7 +660,7 @@ export const BridgeAPI: IBridgeAPI = {
             'file not available offline - retrying with online storage',
             {
               filePath,
-              errorCode,
+              errorCode: error.cascError,
             },
           );
           const gamePath = cascStorageOpenedGamePath;
@@ -565,29 +668,14 @@ export const BridgeAPI: IBridgeAPI = {
           await BridgeAPI.openStorage(gamePath, true);
           return BridgeAPI.extractFileToMemory(filePath);
         }
-        throw te('worker.bridgeapi.extractFileToMemory.readFailed', {
-          filePath,
-          cascError: String(getLastCascLibError(errorCode)),
-        });
-      }
-
-      output = Buffer.from(buffer.buffer, 0, bytesReadOut[0]);
-      console.debug('BridgeAPI.extractFileToMemory', {
-        filePath,
-        bytesRead: bytesReadOut[0],
-      });
-
-      if (!getCascLib().CascCloseFile(file)) {
-        throw te('worker.bridgeapi.extractFileToMemory.closeFailed', {
-          filePath,
-          cascError: String(getLastCascLibError()),
-        });
+        if (error instanceof CascFileReadError) {
+          throw translateCascFileReadError(filePath, error);
+        }
+        throw error;
       }
     } catch (e) {
       throw te('worker.bridgeapi.extractFileToMemory.extractFailed', null, e);
     }
-
-    return output;
   },
 
   createDirectory: async (filePath: string) => {
@@ -1174,13 +1262,21 @@ const config = JSON.parse(D2RMM.getConfigJSON());
     fileName: string,
     parsedData: ID2S | IStash,
   ) => {
-    console.debug('BridgeAPI.writeSaveFile', {
-      fileName,
-    });
-
-    runtime = new InstallationRuntime(BridgeAPI, console, options, []);
+    const lease = acquireRuntimeOperation('writeSaveFile');
+    let operationRuntime: InstallationRuntime | null = null;
 
     try {
+      console.debug('BridgeAPI.writeSaveFile', {
+        fileName,
+      });
+
+      runtime = operationRuntime = new InstallationRuntime(
+        BridgeAPI,
+        console,
+        options,
+        [],
+      );
+
       const rawData = fileName.endsWith('.d2s')
         ? await d2s.write(parsedData as ID2S)
         : fileName.endsWith('.d2i')
@@ -1218,18 +1314,26 @@ const config = JSON.parse(D2RMM.getConfigJSON());
         Array.from(rawData),
       );
     } finally {
-      runtime = null;
+      releaseRuntimeOperation(lease, operationRuntime);
     }
   },
 
   readD2SData: async (options: IInstallModsOptions) => {
-    console.debug('BridgeAPI.readD2SData', {
-      options,
-    });
-
-    runtime = new InstallationRuntime(BridgeAPI, console, options, []);
+    const lease = acquireRuntimeOperation('readD2SData');
+    let operationRuntime: InstallationRuntime | null = null;
 
     try {
+      console.debug('BridgeAPI.readD2SData', {
+        options,
+      });
+
+      runtime = operationRuntime = new InstallationRuntime(
+        BridgeAPI,
+        console,
+        options,
+        [],
+      );
+
       if (!runtime.options.isPreExtractedData) {
         await BridgeAPI.openStorage(runtime.options.gamePath);
       }
@@ -1562,52 +1666,66 @@ const config = JSON.parse(D2RMM.getConfigJSON());
         }
       }
 
-      if (!runtime!.options.isPreExtractedData) {
-        await BridgeAPI.closeStorage();
-      }
-
       return { characters, stashes, gameFiles };
     } finally {
-      runtime = null;
+      try {
+        if (
+          operationRuntime != null &&
+          !operationRuntime.options.isPreExtractedData
+        ) {
+          await BridgeAPI.closeStorage();
+        }
+      } finally {
+        releaseRuntimeOperation(lease, operationRuntime);
+      }
     }
   },
 
   installMods: async (modsToInstall: Mod[], options: IInstallModsOptions) => {
-    console.debug('BridgeAPI.installMods', {
-      modsToInstall: modsToInstall.map((mod) => mod.id),
-      options,
-    });
-
-    resetNextStringIDState();
-
-    runtime = new InstallationRuntime(
-      BridgeAPI,
-      console,
-      options,
-      modsToInstall,
-    );
-    const action = runtime.options.isDryRun ? 'Uninstall' : 'Install';
-
-    console.debug('Installation paths', {
-      appPath: getAppPath(),
-      savesPath: getSavesPath(),
-      outputPath: getOutputPath(),
-      outputRootPath: getOutputRootPath(),
-      preExtractedDataPath: getPreExtractedDataPath(),
-    });
+    const lease = acquireRuntimeOperation('installMods');
+    let operationRuntime: InstallationRuntime | null = null;
 
     try {
-      console.debug(
-        'Save files',
-        readdirSync(getSavesPath(), { withFileTypes: true }).map(
-          (entry) => entry.name,
-        ),
+      console.debug('BridgeAPI.installMods', {
+        modsToInstall: modsToInstall.map((mod) => mod.id),
+        options,
+      });
+
+      runtime = operationRuntime = new InstallationRuntime(
+        BridgeAPI,
+        console,
+        options,
+        modsToInstall,
       );
-    } catch {}
+      const action = runtime.options.isDryRun ? 'Uninstall' : 'Install';
 
-    try {
+      console.debug('Installation paths', {
+        appPath: getAppPath(),
+        savesPath: getSavesPath(),
+        outputPath: getOutputPath(),
+        outputRootPath: getOutputRootPath(),
+        preExtractedDataPath: getPreExtractedDataPath(),
+      });
+
+      try {
+        console.debug(
+          'Save files',
+          readdirSync(getSavesPath(), { withFileTypes: true }).map(
+            (entry) => entry.name,
+          ),
+        );
+      } catch {}
+
       if (!runtime.options.isPreExtractedData) {
         await BridgeAPI.openStorage(runtime.options.gamePath);
+      }
+
+      if (
+        runtime.modsToInstall.length > 0 &&
+        runtime.options.useD2RLoader === true &&
+        !runtime.options.isDryRun
+      ) {
+        await applyD2RLoaderPrerequisites(runtime);
       }
 
       for (let i = 0; i < runtime.modsToInstall.length; i = i + 1) {
@@ -1642,36 +1760,37 @@ const config = JSON.parse(D2RMM.getConfigJSON());
         }
         const scope = new Scope();
         try {
-          console.debug(`${action}ing version ${runtime.mod.info.version}`);
-          console.debug(
-            `Mod configuration: ${JSON.stringify(runtime.mod.config)}`,
-          );
-          const vm = scope.manage(getQuickJS().newContext());
-          vm.setProp(
-            vm.global,
-            'console',
-            getQuickJSProxyAPI(vm, scope, {
-              debug: async (...args: ConsoleArg[]) => {
-                console.debug(...args);
-              },
-              log: async (...args: ConsoleArg[]) => {
-                console.log(...args);
-              },
-              warn: async (...args: ConsoleArg[]) => {
-                console.warn(...args);
-              },
-              error: async (...args: ConsoleArg[]) => {
-                console.error(...args);
-              },
-            } as ConsoleAPI),
-          );
-          vm.setProp(
-            vm.global,
-            'D2RMM',
-            getQuickJSProxyAPI(vm, scope, getModAPI(runtime)),
-          );
-          scope.manage(vm.unwrapResult(await vm.evalCodeAsync(code)));
-          runtime!.modsInstalled.push(runtime.mod.id);
+          await runModTransaction(runtime, async () => {
+            console.debug(`${action}ing version ${runtime!.mod.info.version}`);
+            console.debug(
+              `Mod configuration: ${JSON.stringify(runtime!.mod.config)}`,
+            );
+            const vm = scope.manage(getQuickJS().newContext());
+            vm.setProp(
+              vm.global,
+              'console',
+              getQuickJSProxyAPI(vm, scope, {
+                debug: async (...args: ConsoleArg[]) => {
+                  console.debug(...args);
+                },
+                log: async (...args: ConsoleArg[]) => {
+                  console.log(...args);
+                },
+                warn: async (...args: ConsoleArg[]) => {
+                  console.warn(...args);
+                },
+                error: async (...args: ConsoleArg[]) => {
+                  console.error(...args);
+                },
+              } as ConsoleAPI),
+            );
+            vm.setProp(
+              vm.global,
+              'D2RMM',
+              getQuickJSProxyAPI(vm, scope, getModAPI(runtime!)),
+            );
+            scope.manage(vm.unwrapResult(await vm.evalCodeAsync(code)));
+          });
           console.debug(
             `Mod ${action.toLowerCase()} took ${Date.now() - startTime}ms.`,
           );
@@ -1700,8 +1819,9 @@ const config = JSON.parse(D2RMM.getConfigJSON());
             }
             console.error(te('worker.mod.runtimeError', null, error));
           }
+        } finally {
+          scope.dispose();
         }
-        scope.dispose();
       }
       runtime.mod = null;
 
@@ -1714,7 +1834,10 @@ const config = JSON.parse(D2RMM.getConfigJSON());
       // flush in-memory files to disk (or revert for uninstall)
       // NOTE: CASC storage is still open here; close it after flush/revert
       // since the uninstall path may need to re-extract vanilla files
-      if (!runtime.options.isDryRun) {
+      if (
+        runtime.modsInstalled.length > 0 &&
+        !runtime.options.isDryRun
+      ) {
         // install path
         if (!runtime.options.isDirectMode) {
           // delete old output
@@ -1722,6 +1845,10 @@ const config = JSON.parse(D2RMM.getConfigJSON());
             path.join(runtime.options.mergedPath, '..'),
             'None',
           );
+
+          // Treat the D2RLoader sibling as generated output just like the MPQ.
+          // Current installation files are written back during the common flush.
+          await clearD2RLoaderOutputDirectory(runtime);
 
           // write dataversionbuild.txt to output mod folder
           {
@@ -1782,9 +1909,22 @@ const config = JSON.parse(D2RMM.getConfigJSON());
           filePath,
           data,
         } of runtime.fileManager.getModifiedFiles()) {
-          const destPath = path.resolve(getOutputPath(), filePath);
+          const destPath = resolveModOutputPath(runtime.options, filePath);
           mkdirSync(path.dirname(destPath), { recursive: true });
           writeFileSync(destPath, data);
+        }
+
+        if (!runtime.options.isDirectMode) {
+          const ownershipResult = removeLegacyOutputOwnershipManifest(
+            getModOutputEnvelopePath(runtime.options),
+          );
+          if (ownershipResult.removed) {
+            console.debug('Removed legacy output ownership manifest');
+          } else if (ownershipResult.skipped) {
+            console.warn(
+              'Skipped legacy output ownership manifest because it is not a file.',
+            );
+          }
         }
 
         if (
@@ -1817,7 +1957,10 @@ const config = JSON.parse(D2RMM.getConfigJSON());
             );
           }
         }
-      } else if (runtime.options.isDirectMode) {
+      } else if (
+        runtime.modsInstalled.length > 0 &&
+        runtime.options.isDirectMode
+      ) {
         // uninstall path for direct mode
         // revert ALL modified files to vanilla
         for (const { filePath } of runtime.fileManager.getModifiedFiles()) {
@@ -1825,8 +1968,8 @@ const config = JSON.parse(D2RMM.getConfigJSON());
             // file was extracted from game data, revert to vanilla
             if (runtime.options.isPreExtractedData) {
               await BridgeAPI.copyFile(
-                path.resolve(getPreExtractedDataPath(), filePath),
-                path.resolve(getOutputPath(), filePath),
+                resolvePath(filePath, 'PreExtractedData'),
+                resolveModOutputPath(runtime.options, filePath),
                 true, // overwrite
               );
             } else {
@@ -1841,14 +1984,35 @@ const config = JSON.parse(D2RMM.getConfigJSON());
       }
       // else: dry run + non-direct mode = do nothing (memory is discarded)
 
-      if (!runtime.options.isPreExtractedData) {
-        await BridgeAPI.closeStorage();
+      if (
+        runtime.modsInstalled.length > 0 &&
+        !runtime.options.isDryRun
+      ) {
+        await runtime.saveFiles.flush({
+          read: async (filePath) =>
+            BridgeAPI.readBinaryFile(filePath, 'Saves'),
+          remove: async (filePath) => {
+            await BridgeAPI.deleteFile(filePath, 'Saves');
+          },
+          write: async (filePath, data) => {
+            await BridgeAPI.writeBinaryFile(filePath, 'Saves', data);
+          },
+        });
       }
 
       const modsInstalled = runtime.modsInstalled;
       return modsInstalled;
     } finally {
-      runtime = null;
+      try {
+        if (
+          operationRuntime != null &&
+          !operationRuntime.options.isPreExtractedData
+        ) {
+          await BridgeAPI.closeStorage();
+        }
+      } finally {
+        releaseRuntimeOperation(lease, operationRuntime);
+      }
     }
   },
 };

@@ -1,5 +1,5 @@
 import type { ModUpdaterDownload } from 'bridge/ModUpdaterAPI';
-import { compareVersions } from 'renderer/utils/version';
+import { compareVersions } from 'shared/version';
 
 export default function getUpdatesFromDownloads(
   currentVersion: string,

@@ -10,6 +10,7 @@ export type IInstallModsOptions = {
   gamePath: string;
   isDirectMode: boolean;
   isDryRun: boolean;
+  useD2RLoader?: boolean;
   isPreExtractedData: boolean;
   mergedPath: string;
   normalizeOutputCRLF: boolean;

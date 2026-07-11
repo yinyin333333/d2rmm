@@ -19,18 +19,20 @@ export type IPCMessageSuccessResponse = {
   error?: never;
 };
 
+export type IPCSerializedError = {
+  name: string;
+  message: string;
+  stack: string | undefined;
+  __d2rmm_i18n_list?: ConsoleArg[];
+};
+
 export type IPCMessageErrorResponse = {
   id: string;
   namespace?: never;
   api?: never;
   args?: never;
   result?: never;
-  error: {
-    name: string;
-    message: string;
-    stack: string | undefined;
-    __d2rmm_i18n_list?: ConsoleArg[];
-  };
+  error: IPCSerializedError;
 };
 
 export type IPCMessageResponse =
@@ -38,3 +40,18 @@ export type IPCMessageResponse =
   | IPCMessageErrorResponse;
 
 export type IPCMessage = IPCMessageRequest | IPCMessageResponse;
+
+export type WorkerLifecycleIPCMessage =
+  | { control: 'worker-ready' }
+  | { control: 'worker-init-failed'; error: IPCSerializedError };
+
+export type WorkerIPCMessage = IPCMessage | WorkerLifecycleIPCMessage;
+
+export type IPCTransportClosedMessage = {
+  control: 'transport-closed';
+  destination: 'worker';
+  error: IPCSerializedError;
+  requestIds: string[];
+};
+
+export type RendererIPCMessage = IPCMessage | IPCTransportClosedMessage;

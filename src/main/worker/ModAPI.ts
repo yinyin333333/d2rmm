@@ -4,10 +4,8 @@ import path from 'path';
 import { readCString } from './CascLib';
 import { InstallationRuntime } from './InstallationRuntime';
 import { encodeJson, parseJson } from './JSONParser';
+import { resolvePathInsideRoot } from './PathSafety';
 import { encodeTsv, parseTsv } from './TSVParser';
-
-let nextStringIDRaw: string | null = null;
-let nextStringID: number = 0;
 
 const DATA_MOD_METADATA_FILES = new Set([
   'config.json',
@@ -18,11 +16,6 @@ const DATA_MOD_METADATA_FILES = new Set([
   'mod.ts',
   'modinfo.json',
 ]);
-
-export function resetNextStringIDState(): void {
-  nextStringIDRaw = null;
-  nextStringID = 0;
-}
 
 export function getDataModEntryDestinationRelative(
   entryName: string,
@@ -181,12 +174,9 @@ export function getModAPI(runtime: InstallationRuntime): AsyncModAPI {
       console.debug('D2RMM.copyFile', src, dst);
       const appPath = await runtime.BridgeAPI.getAppPath();
       const modPath = path.resolve(appPath, 'mods', runtime.mod.id);
-      const srcPath = path.resolve(modPath, src);
-      if (!path.resolve(srcPath).startsWith(path.resolve(modPath))) {
-        throw new Error(
-          `Path "${srcPath}" points outside of allowed directory "${modPath}".`,
-        );
-      }
+      const srcPath = resolvePathInsideRoot(modPath, modPath, src, {
+        allowRoot: true,
+      });
       const copiedRelativePaths = await copySourceFilesToMemory(
         runtime,
         srcPath,
@@ -227,7 +217,9 @@ export function getModAPI(runtime: InstallationRuntime): AsyncModAPI {
     readSaveFile: async (filePath) => {
       filePath = processPathForPlatform(filePath);
       console.debug('D2RMM.readSaveFile', filePath);
-      const result = await runtime.BridgeAPI.readBinaryFile(filePath, 'Saves');
+      const result = await runtime.saveFiles.read(filePath, async (path) =>
+        runtime.BridgeAPI.readBinaryFile(path, 'Saves'),
+      );
       await runtime.fileManager.read(filePath, runtime.mod.id);
       return result;
     },
@@ -235,7 +227,7 @@ export function getModAPI(runtime: InstallationRuntime): AsyncModAPI {
       filePath = processPathForPlatform(filePath);
       console.debug('D2RMM.writeSaveFile', filePath);
       if (!runtime.options.isDryRun) {
-        await runtime.BridgeAPI.writeBinaryFile(filePath, 'Saves', data);
+        runtime.saveFiles.write(filePath, data);
         await runtime.fileManager.write(filePath, runtime.mod.id);
       }
     },
@@ -244,24 +236,24 @@ export function getModAPI(runtime: InstallationRuntime): AsyncModAPI {
       const filePath = processPathForPlatform(
         path.join('local', 'lng', 'next_string_id.txt'),
       );
-      if (nextStringIDRaw == null) {
+      if (runtime.nextStringIDRaw == null) {
         await tryExtractFile(filePath);
         const buffer = runtime.fileManager.getData(filePath);
-        nextStringIDRaw = buffer != null ? readCString(buffer) : '';
-        nextStringID = parseInt(
-          nextStringIDRaw?.match(/[0-9]+/)?.[0] ?? '0',
+        runtime.nextStringIDRaw = buffer != null ? readCString(buffer) : '';
+        runtime.nextStringID = parseInt(
+          runtime.nextStringIDRaw?.match(/[0-9]+/)?.[0] ?? '0',
           10,
         );
       }
       await runtime.fileManager.read(filePath, runtime.mod.id);
 
-      const stringID = nextStringID;
-      nextStringID = nextStringID + 1;
+      const stringID = runtime.nextStringID;
+      runtime.nextStringID = runtime.nextStringID + 1;
 
-      if (nextStringIDRaw != null) {
-        const updatedText = nextStringIDRaw.replace(
+      if (runtime.nextStringIDRaw != null) {
+        const updatedText = runtime.nextStringIDRaw.replace(
           /[0-9]+/,
-          String(nextStringID),
+          String(runtime.nextStringID),
         );
         runtime.fileManager.setData(
           filePath,

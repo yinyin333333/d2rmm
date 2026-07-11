@@ -136,7 +136,8 @@ function isEditableD2RLoaderTomlSetting(
 ): boolean {
   return (
     setting.section !== 'd2rcore.fonts' &&
-    setting.id !== 'd2rloader.default_mod'
+    setting.id !== 'd2rloader.default_mod' &&
+    setting.valueType !== 'raw'
   );
 }
 
@@ -223,7 +224,11 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
 
         setD2RLoaderConfig(config);
         if (config?.format === 'toml') {
-          const settingIDs = new Set(config.settings.map(({ id }) => id));
+          const settingIDs = new Set(
+            config.settings
+              .filter(isEditableD2RLoaderTomlSetting)
+              .map(({ id }) => id),
+          );
           setD2RLoaderSettings((settings) => {
             const tomlSettings = Object.fromEntries(
               Object.entries(settings.tomlSettings ?? {}).filter(([id]) =>
@@ -314,8 +319,8 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
       const checked = value === true;
       return (
         <ListItemButton
-          disabled={!d2rLoaderSettings.useD2RLoader}
           key={setting.id}
+          disabled={!d2rLoaderSettings.useD2RLoader}
           onClick={() => setD2RLoaderTomlSetting(setting.id, !checked)}
         >
           <ListItemIcon>
@@ -343,11 +348,11 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
       const inputValue = d2rLoaderTomlInputValues[setting.id] ?? String(value);
       return (
         <TextField
+          key={setting.id}
           disabled={!d2rLoaderSettings.useD2RLoader}
           fullWidth={true}
           helperText={description}
           inputProps={getD2RLoaderTomlNumberBounds(setting)}
-          key={setting.id}
           label={label}
           onBlur={() => {
             setD2RLoaderTomlInputValues((inputValues) => {
@@ -382,10 +387,10 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
 
     return (
       <TextField
+        key={setting.id}
         disabled={!d2rLoaderSettings.useD2RLoader}
         fullWidth={true}
         helperText={description}
-        key={setting.id}
         label={label}
         onChange={(event) =>
           setD2RLoaderTomlSetting(setting.id, event.target.value)

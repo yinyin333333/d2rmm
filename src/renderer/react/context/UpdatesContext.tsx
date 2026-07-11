@@ -2,6 +2,8 @@ import type { ModUpdaterDownload } from 'bridge/ModUpdaterAPI';
 import React, { useMemo, useState } from 'react';
 
 export type IUpdateState = {
+  checkedVersion: string | null;
+  sourceNexusModID: string | null;
   isUpdateChecked: boolean;
   isUpdateAvailable: boolean;
   nexusUpdates: ModUpdaterDownload[];

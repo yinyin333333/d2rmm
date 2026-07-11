@@ -1,3 +1,4 @@
+import type { WorkerLifecycleIPCMessage } from 'bridge/IPC';
 import { startupMark, startupMeasure } from '../../shared/startupProfiler';
 import { initAppInfoAPI } from './AppInfoAPI';
 import { initBridgeAPI } from './BridgeAPI';
@@ -9,6 +10,7 @@ import { initModUpdaterAPI } from './ModUpdaterAPI';
 import { initAsar } from './asar';
 import { initI18n } from './i18n';
 import { initQuickJS } from './quickjs';
+import { runWorkerInitialization } from './WorkerLifecycle';
 
 async function start(): Promise<void> {
   startupMark('worker', 'worker process entry');
@@ -37,4 +39,26 @@ async function start(): Promise<void> {
   startupMark('worker', 'worker initialized');
 }
 
-start().then().catch(console.error);
+function sendWorkerLifecycleMessage(
+  message: WorkerLifecycleIPCMessage,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (process.send == null || !process.connected) {
+      reject(new Error('Worker IPC transport is disconnected.'));
+      return;
+    }
+    process.send(message, (error) => {
+      if (error != null) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+runWorkerInitialization(
+  start,
+  sendWorkerLifecycleMessage,
+  process.exit.bind(process),
+).catch(console.error);

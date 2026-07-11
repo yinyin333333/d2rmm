@@ -42,10 +42,17 @@ export default function UpdateAllModsMenuItem({
         continue;
       }
       const updateState = updates.get(mod.id);
+      const currentVersion = mod.info.version ?? '0';
+      if (
+        updateState?.sourceNexusModID !== nexusModID ||
+        updateState.checkedVersion !== currentVersion
+      ) {
+        continue;
+      }
       const download = updateState?.isUpdateAvailable
         ? updateState.nexusUpdates[0]
         : null;
-      if (download != null) {
+      if (download != null && download.modID === nexusModID) {
         result.push({
           modID: mod.id,
           modName: mod.info.name ?? mod.id,

@@ -1,10 +1,10 @@
 import type { Mod } from 'bridge/BridgeAPI';
-import { compareVersions } from 'main/version';
 import ModUpdaterAPI from 'renderer/ModUpdaterAPI';
 import { INexusAuthState } from 'renderer/react/context/NexusModsContext';
 import useModUpdates from 'renderer/react/context/hooks/useModUpdates';
 import getNexusModID from 'renderer/react/context/utils/getNexusModID';
 import getUpdatesFromDownloads from 'renderer/react/context/utils/getUpdatesFromDownloads';
+import { compareVersions } from 'shared/version';
 import { useCallback } from 'react';
 
 export default function useCheckModForUpdates(
@@ -38,6 +38,8 @@ export default function useCheckModForUpdates(
       setUpdates((oldUpdates) => {
         const newUpdates = new Map(oldUpdates);
         newUpdates.set(mod.id, {
+          checkedVersion: currentVersion,
+          sourceNexusModID: nexusModID,
           isUpdateChecked: true,
           isUpdateAvailable: nexusUpdates.length > 0,
           nexusUpdates,

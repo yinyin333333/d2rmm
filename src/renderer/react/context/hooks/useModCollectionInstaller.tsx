@@ -1,4 +1,5 @@
 import ModUpdaterAPI from 'renderer/ModUpdaterAPI';
+import type { ModConfigValue } from 'bridge/ModConfigValue';
 import {
   useSectionHeaders,
   useSetItemsOrder,
@@ -45,7 +46,15 @@ export default function useModCollectionInstaller(authState: INexusAuthState) {
           authState.apiKey,
           collectionSlug,
           revisionNumber,
-        ),
+        ).catch((error): Record<number, ModConfigValue> => {
+          const warning = `Couldn't load saved mod configurations for collection "${collectionSlug}". Mods will be installed with their defaults.`;
+          console.warn(warning, error);
+          showToast({
+            title: warning,
+            severity: 'warning',
+          });
+          return {};
+        }),
       ]);
 
       for (const collectionMod of collection.modFiles) {
@@ -60,8 +69,7 @@ export default function useModCollectionInstaller(authState: INexusAuthState) {
         const modId = await installMod({
           nexusModID: String(nexusModId),
           nexusFileID: collectionMod.file.fileId,
-        }).catch(() => null);
-        if (modId == null) continue;
+        });
 
         // Restore the mod's config if the collection embedded one
         const config = modConfigs[nexusModId];

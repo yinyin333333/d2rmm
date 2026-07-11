@@ -60,6 +60,25 @@ export function getQuickJS(): QuickJSAsyncWASMModule {
   return loadedQuickJSAsyncWASMModule;
 }
 
+// Configuration seam only. BridgeAPI intentionally uses getQuickJS().newContext()
+// until a compatible production memory policy is backed by installation data.
+export function createQuickJSContextWithMemoryLimit(
+  module: Pick<QuickJSAsyncWASMModule, 'newContext'>,
+  memoryLimit: number,
+): QuickJSAsyncContext {
+  if (!Number.isSafeInteger(memoryLimit) || memoryLimit <= 0) {
+    throw new Error('The QuickJS memory limit must be a positive safe integer.');
+  }
+  const context = module.newContext();
+  try {
+    context.runtime.setMemoryLimit(memoryLimit);
+    return context;
+  } catch (error) {
+    context.dispose();
+    throw error;
+  }
+}
+
 export function getQuickJSProxyAPI<T extends AsyncSerializableAPI<T>>(
   vm: QuickJSAsyncContext,
   scope: Scope,

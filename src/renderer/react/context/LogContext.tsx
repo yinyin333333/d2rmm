@@ -3,10 +3,13 @@ import useConsoleListener from 'renderer/react/hooks/useConsoleListener';
 import React, {
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from 'react';
+import { appendBoundedLogs } from 'renderer/react/context/LogBuffer';
 
 export type ILog = {
   id: number;
@@ -71,22 +74,52 @@ export function LogsProvider({ children }: Props): JSX.Element {
   const [, startTransition] = useTransition();
   const [logs, setLogs] = useState<ILogs>([]);
   const [levels, setLevels] = useState<ILogLevel[]>(['error', 'warn', 'log']);
+  const pendingLogs = useRef<ILog[]>([]);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const clear = useCallback((): void => setLogs([]), []);
+  const clear = useCallback((): void => {
+    pendingLogs.current = [];
+    if (flushTimer.current != null) {
+      clearTimeout(flushTimer.current);
+      flushTimer.current = null;
+    }
+    setLogs([]);
+  }, []);
+
+  const flush = useCallback((): void => {
+    flushTimer.current = null;
+    const batch = pendingLogs.current;
+    pendingLogs.current = [];
+    if (batch.length === 0) {
+      return;
+    }
+    startTransition(() => {
+      setLogs((currentLogs) => appendBoundedLogs(currentLogs, batch));
+    });
+  }, [startTransition]);
 
   const add = useCallback((level: ILogLevel, args: ConsoleArg[]): void => {
-    const newLog: ILog = {
+    pendingLogs.current.push({
       id: LOG_ID++,
       level,
       timestamp: Date.now(),
       data: args,
-    };
-    setTimeout(() => {
-      startTransition(() => {
-        setLogs((logs) => [...logs, newLog]);
-      });
     });
-  }, []);
+    if (flushTimer.current == null) {
+      flushTimer.current = setTimeout(flush);
+    }
+  }, [flush]);
+
+  useEffect(
+    () => () => {
+      pendingLogs.current = [];
+      if (flushTimer.current != null) {
+        clearTimeout(flushTimer.current);
+        flushTimer.current = null;
+      }
+    },
+    [],
+  );
 
   const error = useCallback(
     (...args: ConsoleArg[]) => add('error', args),

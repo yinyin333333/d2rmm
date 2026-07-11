@@ -7,14 +7,16 @@ import useModUpdates from 'renderer/react/context/hooks/useModUpdates';
 import getNexusModID from 'renderer/react/context/utils/getNexusModID';
 import getUpdatesFromDownloads from 'renderer/react/context/utils/getUpdatesFromDownloads';
 import useAsyncCallback from 'renderer/react/hooks/useAsyncCallback';
-import { compareVersions } from 'renderer/utils/version';
+import useToast from 'renderer/react/hooks/useToast';
 import { startupMark, startupMeasure } from 'shared/startupProfiler';
+import { compareVersions } from 'shared/version';
 
 export default function useCheckModsForUpdates(
   nexusAuthState: INexusAuthState,
 ): () => Promise<void> {
   const [mods] = useMods();
   const [, setUpdates] = useModUpdates();
+  const showToast = useToast();
 
   return useAsyncCallback(async (): Promise<void> => {
     const modsToCheck = mods.filter((mod) => getNexusModID(mod) != null);
@@ -23,24 +25,30 @@ export default function useCheckModsForUpdates(
       return;
     }
 
-    // TODO: handle errors in a better way
-    const results = await startupMeasure(
+    const settledResults = await startupMeasure(
       'renderer',
       `mod update check for ${modsToCheck.length} mods`,
       () =>
-        Promise.all(
+        Promise.allSettled(
           modsToCheck.map(
             async (
               mod,
             ): Promise<
-              [Mod, ModUpdaterNexusDownload[], ModUpdaterNexusDownload[]]
+              [
+                Mod,
+                string,
+                string,
+                ModUpdaterNexusDownload[],
+                ModUpdaterNexusDownload[],
+              ]
             > => {
               const currentVersion = mod.info.version ?? '0';
+              const nexusModID = getNexusModID(mod) as string;
 
               const nexusDownloads = (
                 await ModUpdaterAPI.getDownloadsViaNexus(
                   nexusAuthState.apiKey as string,
-                  getNexusModID(mod) as string,
+                  nexusModID,
                 )
               ).sort((a, b) => compareVersions(a.version, b.version));
 
@@ -49,23 +57,53 @@ export default function useCheckModsForUpdates(
                 nexusDownloads,
               );
 
-              return [mod, nexusDownloads, nexusUpdates];
+              return [
+                mod,
+                nexusModID,
+                currentVersion,
+                nexusDownloads,
+                nexusUpdates,
+              ];
             },
           ),
         ),
     );
 
-    setUpdates((oldUpdates) => {
-      const newUpdates = new Map(oldUpdates);
-      results.forEach(([mod, nexusDownloads, nexusUpdates]) =>
-        newUpdates.set(mod.id, {
-          isUpdateChecked: true,
-          isUpdateAvailable: nexusUpdates.length > 0,
-          nexusUpdates,
-          nexusDownloads,
-        }),
-      );
-      return newUpdates;
-    });
-  }, [mods, nexusAuthState.apiKey, setUpdates]);
+    const results = settledResults.flatMap((result) =>
+      result.status === 'fulfilled' ? [result.value] : [],
+    );
+    const errors = settledResults.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason as unknown] : [],
+    );
+
+    if (results.length > 0) {
+      setUpdates((oldUpdates) => {
+        const newUpdates = new Map(oldUpdates);
+        results.forEach(
+          ([
+            mod,
+            sourceNexusModID,
+            checkedVersion,
+            nexusDownloads,
+            nexusUpdates,
+          ]) =>
+            newUpdates.set(mod.id, {
+              checkedVersion,
+              sourceNexusModID,
+              isUpdateChecked: true,
+              isUpdateAvailable: nexusUpdates.length > 0,
+              nexusUpdates,
+              nexusDownloads,
+            }),
+        );
+        return newUpdates;
+      });
+    }
+
+    if (errors.length > 0) {
+      const warning = `Failed to check updates for ${errors.length} of ${modsToCheck.length} mods. Check the logs.`;
+      console.warn(warning, ...errors);
+      showToast({ title: warning, severity: 'warning' });
+    }
+  }, [mods, nexusAuthState.apiKey, setUpdates, showToast]);
 }

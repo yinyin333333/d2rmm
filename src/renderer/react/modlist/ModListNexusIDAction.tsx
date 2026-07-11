@@ -181,8 +181,11 @@ export default function ModListNexusIDMenuItem({
         ...oldOverride,
         website: `https://www.nexusmods.com/diablo2resurrected/mods/${id}`,
       }));
+      if (id !== nexusModID) {
+        setModUpdate(null);
+      }
     },
-    [setModConfigOverride],
+    [nexusModID, setModConfigOverride, setModUpdate],
   );
 
   const onClear = useCallback(() => {

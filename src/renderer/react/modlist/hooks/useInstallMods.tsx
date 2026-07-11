@@ -1,6 +1,7 @@
 import type { IInstallModsOptions } from 'bridge/BridgeAPI';
 import BridgeAPI from 'renderer/BridgeAPI';
 import { useDataPath } from 'renderer/react/context/DataPathContext';
+import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useSanitizedGamePath } from 'renderer/react/context/GamePathContext';
 import { useIsInstalling } from 'renderer/react/context/InstallContext';
 import { useIsDirectMode } from 'renderer/react/context/IsDirectModeContext';
@@ -27,6 +28,7 @@ export default function useInstallMods(
   const { t } = useTranslation();
   const showToast = useToast();
   const dataPath = useDataPath();
+  const [d2rLoaderSettings] = useD2RLoaderSettings();
   const gamePath = useSanitizedGamePath();
   const [isDirectMode] = useIsDirectMode();
   const [isPreExtractedData] = useIsPreExtractedData();
@@ -43,15 +45,16 @@ export default function useInstallMods(
   const [, setTab] = useTabState();
 
   return useCallback(async (): Promise<boolean> => {
+    setIsInstalling(true);
     try {
       logger.clear();
-      setIsInstalling(true);
 
       const options: IInstallModsOptions = {
         dataPath,
         gamePath,
         isDirectMode,
         isDryRun: isUninstall,
+        useD2RLoader: d2rLoaderSettings.useD2RLoader,
         isPreExtractedData,
         mergedPath: outputPath,
         normalizeOutputCRLF,
@@ -61,12 +64,10 @@ export default function useInstallMods(
       };
 
       console.debug(`Installing mods...`, options);
-      let modsInstalled = [];
-      modsInstalled = await BridgeAPI.installMods(modsToInstall, options);
-      setInstalledMods(
-        modsToInstall.map((mod) => ({ id: mod.id, config: mod.config })),
+      const installedModIDs = await BridgeAPI.installMods(
+        modsToInstall,
+        options,
       );
-      setIsInstalling(false);
 
       if (modsToInstall.length === 0) {
         showToast({
@@ -77,24 +78,41 @@ export default function useInstallMods(
               : 'install.toast.noMods.install',
           ),
         });
-      } else if (modsInstalled.length > 0) {
-        showToast({
-          severity:
-            modsInstalled.length < modsToInstall.length ? 'warning' : 'success',
-          title: t(
-            isUninstall
-              ? 'install.toast.success.uninstall'
-              : 'install.toast.success.install',
-            {
-              installed: modsInstalled.length,
-              total: modsToInstall.length,
-            },
-          ),
-        });
+        return true;
       }
+
+      const installedModIDSet = new Set(installedModIDs);
+      const installedMods = modsToInstall.filter(({ id }) =>
+        installedModIDSet.has(id),
+      );
+      if (installedMods.length === 0) {
+        throw new Error(
+          t(
+            isUninstall
+              ? 'install.toast.error.uninstall'
+              : 'install.toast.error.install',
+          ),
+        );
+      }
+
+      setInstalledMods(
+        installedMods.map((mod) => ({ id: mod.id, config: mod.config })),
+      );
+      showToast({
+        severity:
+          installedMods.length < modsToInstall.length ? 'warning' : 'success',
+        title: t(
+          isUninstall
+            ? 'install.toast.success.uninstall'
+            : 'install.toast.success.install',
+          {
+            installed: installedMods.length,
+            total: modsToInstall.length,
+          },
+        ),
+      });
       return true;
     } catch (error) {
-      setIsInstalling(false);
       console.error(error);
       showToast({
         severity: 'error',
@@ -108,9 +126,12 @@ export default function useInstallMods(
       // switch to the logs tab so user can see what happened
       setTab('logs');
       return false;
+    } finally {
+      setIsInstalling(false);
     }
   }, [
     dataPath,
+    d2rLoaderSettings.useD2RLoader,
     gamePath,
     isDirectMode,
     isPreExtractedData,

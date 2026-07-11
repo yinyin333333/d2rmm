@@ -1,8 +1,9 @@
 import { useEventAPIListener } from 'renderer/EventAPI';
+import NxmProtocolAPI from 'renderer/NxmProtocolAPI';
 import { INexusAuthState } from 'renderer/react/context/NexusModsContext';
 import useModCollectionInstaller from 'renderer/react/context/hooks/useModCollectionInstaller';
 import useModInstaller from 'renderer/react/context/hooks/useModInstaller';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 
 export default function useNxmProtocolHandler(
   authState: INexusAuthState,
@@ -51,4 +52,7 @@ export default function useNxmProtocolHandler(
 
   useEventAPIListener('nexus-mods-open-url', onOpenNxmUrl);
   useEventAPIListener('nexus-mods-open-collection-url', onOpenCollectionUrl);
+  useEffect(() => {
+    NxmProtocolAPI.rendererReady().catch(console.error);
+  }, []);
 }

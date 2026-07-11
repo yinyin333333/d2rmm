@@ -48,9 +48,12 @@ export default function ModList(): JSX.Element {
   const [, onRefreshMods] = useMods();
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await onRefreshMods();
-    setIsRefreshing(false);
-  }, [onRefreshMods, setIsRefreshing]);
+    try {
+      await onRefreshMods();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [onRefreshMods]);
 
   const [orderedItems, reorderItems] = useOrdereredItems();
   const [enabledMods] = useEnabledMods();
@@ -91,7 +94,9 @@ export default function ModList(): JSX.Element {
           (item) =>
             searchFilter === '' ||
             (item.type === 'mod' &&
-              item.mod.info.name.toLowerCase().includes(searchFilter)),
+              item.mod.info.name
+                .toLowerCase()
+                .includes(searchFilter.toLowerCase())),
         )
         // filter by section header
         .filter((item, index, array) => {

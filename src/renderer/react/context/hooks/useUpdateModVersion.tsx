@@ -25,6 +25,8 @@ export function useUpdateModVersion(): (
 
         const newUpdates = new Map(oldUpdates);
         newUpdates.set(modID, {
+          checkedVersion: newVersion,
+          sourceNexusModID: oldUpdateState.sourceNexusModID,
           isUpdateChecked: true,
           isUpdateAvailable: nexusUpdates.length > 0,
           nexusUpdates,
