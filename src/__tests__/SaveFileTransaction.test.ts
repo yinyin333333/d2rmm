@@ -8,6 +8,7 @@ function createOperations(initial: Record<string, number[]>) {
   const writes: string[] = [];
   const removes: string[] = [];
   let failWrite: string | null = null;
+  let failWriteAfterMutation: string | null = null;
   let failRollback: string | null = null;
 
   return {
@@ -20,6 +21,9 @@ function createOperations(initial: Record<string, number[]>) {
     },
     setFailWrite(filePath: string | null) {
       failWrite = filePath;
+    },
+    setFailWriteAfterMutation(filePath: string | null) {
+      failWriteAfterMutation = filePath;
     },
     operations: {
       read: async (filePath: string): Promise<number[] | null> => {
@@ -43,6 +47,10 @@ function createOperations(initial: Record<string, number[]>) {
           throw new Error(`rollback write failed: ${filePath}`);
         }
         files.set(filePath, [...data]);
+        if (filePath === failWriteAfterMutation) {
+          failWriteAfterMutation = null;
+          throw new Error(`write failed after mutation: ${filePath}`);
+        }
       },
     },
   };
@@ -108,8 +116,24 @@ describe('SaveFileTransaction', () => {
 
     expect(fake.files.get('A.d2s')).toEqual([1]);
     expect(fake.files.has('New.d2i')).toBe(false);
-    expect(fake.removes).toEqual(['New.d2i']);
+    expect(fake.removes).toEqual(['C.d2s', 'New.d2i']);
     expect(saves.getPendingWrites()).toHaveLength(3);
+  });
+
+  it('restores the current file when its write mutates disk before failing', async () => {
+    const saves = new SaveFileTransaction();
+    const fake = createOperations({ 'A.d2s': [1], 'B.d2s': [2] });
+    saves.write('A.d2s', [10]);
+    saves.write('B.d2s', [20]);
+    fake.setFailWriteAfterMutation('B.d2s');
+
+    await expect(saves.flush(fake.operations)).rejects.toThrow(
+      'write failed after mutation: B.d2s',
+    );
+
+    expect(fake.files.get('A.d2s')).toEqual([1]);
+    expect(fake.files.get('B.d2s')).toEqual([2]);
+    expect(saves.getPendingWrites()).toHaveLength(2);
   });
 
   it('reports both commit and rollback failures without clearing staging', async () => {

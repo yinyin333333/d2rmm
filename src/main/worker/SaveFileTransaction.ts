@@ -78,15 +78,15 @@ export class SaveFileTransaction {
       originals.set(filePath, original == null ? null : [...original]);
     }
 
-    const written: string[] = [];
+    const attempted: string[] = [];
     try {
       for (const { data, filePath } of pendingWrites) {
+        attempted.push(filePath);
         await operations.write(filePath, [...data]);
-        written.push(filePath);
       }
     } catch (commitError) {
       const rollbackErrors: Error[] = [];
-      for (const filePath of [...written].reverse()) {
+      for (const filePath of [...attempted].reverse()) {
         try {
           const original = originals.get(filePath);
           if (original == null) {

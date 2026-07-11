@@ -33,6 +33,10 @@ export function captureNxmProtocolEvents(
   }
 }
 
+export function markNxmProtocolRendererUnavailable(): void {
+  deliveryQueue.markRendererUnavailable();
+}
+
 export async function initNxmProtocolAPI(): Promise<void> {
   captureNxmProtocolEvents();
   let args: [string, string | undefined, string[] | undefined] = [

@@ -136,6 +136,10 @@ export class NxmProtocolQueue {
     return true;
   }
 
+  public markRendererUnavailable(): void {
+    this.isRendererReady = false;
+  }
+
   public async markRendererReady(): Promise<void> {
     if (this.isRendererReady) return;
     this.isRendererReady = true;

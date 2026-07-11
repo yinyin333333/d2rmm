@@ -57,8 +57,16 @@ export function configureWebContentsSecurity(
     return { action: 'deny' };
   });
 
+  const isUnexpectedNavigation = (url: string): boolean =>
+    getDocumentIdentity(url) !== allowedDocumentIdentity;
+
   webContents.on('will-navigate', (event, url) => {
-    if (getDocumentIdentity(url) !== allowedDocumentIdentity) {
+    if (isUnexpectedNavigation(url)) {
+      event.preventDefault();
+    }
+  });
+  webContents.on('will-redirect', (event, url) => {
+    if (isUnexpectedNavigation(url)) {
       event.preventDefault();
     }
   });

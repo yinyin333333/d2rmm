@@ -10,7 +10,11 @@ import { initConsoleAPI } from './ConsoleAPI';
 import { initEventAPI } from './EventAPI';
 import { initIPC } from './IPC';
 import { createMainLifecycleCoordinator } from './MainLifecycle';
-import { captureNxmProtocolEvents, initNxmProtocolAPI } from './NxmProtocolAPI';
+import {
+  captureNxmProtocolEvents,
+  initNxmProtocolAPI,
+  markNxmProtocolRendererUnavailable,
+} from './NxmProtocolAPI';
 import { RendererIPCAPI } from './RendererIPCAPI';
 import { initRequestAPI } from './RequestAPI';
 import { configureWebContentsSecurity, initShellAPI } from './ShellAPI';
@@ -176,6 +180,7 @@ import { CURRENT_VERSION } from './version';
     });
 
     mainWindow.on('closed', () => {
+      markNxmProtocolRendererUnavailable();
       mainWindow = null;
     });
 

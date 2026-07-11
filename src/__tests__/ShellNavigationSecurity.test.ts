@@ -104,34 +104,40 @@ describe('external URL and navigation security', () => {
     expect(mockOpenExternal).toHaveBeenCalledWith('https://example.com/mod');
   });
 
-  it('allows only the current application document in same-window navigation', () => {
+  it('allows only the current application document in navigation and redirects', () => {
     const webContents = new FakeWebContents();
     configureWebContentsSecurity(
       webContents as never,
       'file:///app/renderer/index.html',
     );
     const navigate = (
+      eventName: 'will-navigate' | 'will-redirect',
       url: string,
     ): { preventDefault: jest.Mock<void, []> } => {
       const event = { preventDefault: jest.fn<void, []>() };
-      webContents.emit('will-navigate', event, url);
+      webContents.emit(eventName, event, url);
       return event;
     };
 
-    expect(
-      navigate('file:///app/renderer/index.html').preventDefault,
-    ).not.toHaveBeenCalled();
-    expect(
-      navigate('file:///app/renderer/index.html#settings').preventDefault,
-    ).not.toHaveBeenCalled();
+    for (const eventName of ['will-navigate', 'will-redirect'] as const) {
+      expect(
+        navigate(eventName, 'file:///app/renderer/index.html').preventDefault,
+      ).not.toHaveBeenCalled();
+      expect(
+        navigate(eventName, 'file:///app/renderer/index.html#settings')
+          .preventDefault,
+      ).not.toHaveBeenCalled();
 
-    for (const blockedURL of [
-      'file:///app/renderer/other.html',
-      'https://example.com/',
-      'javascript:alert(1)',
-      'not a URL',
-    ]) {
-      expect(navigate(blockedURL).preventDefault).toHaveBeenCalledTimes(1);
+      for (const blockedURL of [
+        'file:///app/renderer/other.html',
+        'https://example.com/',
+        'javascript:alert(1)',
+        'not a URL',
+      ]) {
+        expect(
+          navigate(eventName, blockedURL).preventDefault,
+        ).toHaveBeenCalledTimes(1);
+      }
     }
   });
 });

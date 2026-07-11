@@ -110,6 +110,26 @@ describe('NXM protocol delivery queue', () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
+  it('queues URLs again while the renderer window is unavailable', async () => {
+    const send = jest.fn().mockResolvedValue(undefined);
+    const queue = new NxmProtocolQueue(send);
+
+    await queue.markRendererReady();
+    queue.markRendererUnavailable();
+
+    expect(queue.enqueue('nxm://diablo2resurrected/mods/6/files/7')).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+
+    await queue.markRendererReady();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith('nexus-mods-open-url', {
+      expires: null,
+      key: null,
+      nexusFileID: 7,
+      nexusModID: '6',
+    });
+  });
+
   it('consumes a failed delivery once instead of redraining it', async () => {
     const error = new Error('synthetic send failure');
     const send = jest.fn().mockRejectedValue(error);
