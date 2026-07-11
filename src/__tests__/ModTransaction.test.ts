@@ -1,18 +1,15 @@
 import type { IBridgeAPI, Mod } from 'bridge/BridgeAPI';
 import type { ConsoleAPI } from 'bridge/ConsoleAPI';
+import { InstallationRuntime } from '../main/worker/InstallationRuntime';
+import { getModAPI } from '../main/worker/ModAPI';
+import { runModTransaction } from '../main/worker/ModTransaction';
 
 jest.mock('main/worker/CascLib', () => ({
   readCString: (buffer: Buffer) => buffer.toString('utf8'),
 }));
 
-import { InstallationRuntime } from '../main/worker/InstallationRuntime';
-import { getModAPI } from '../main/worker/ModAPI';
-import { runModTransaction } from '../main/worker/ModTransaction';
-
 const options = {
-  dataPath: 'fake-data',
   gamePath: 'fake-game',
-  isDirectMode: false,
   isDryRun: false,
   isPreExtractedData: true,
   mergedPath: 'fake-output',

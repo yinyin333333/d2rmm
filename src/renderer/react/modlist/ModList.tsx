@@ -1,7 +1,6 @@
 import { getAppPath } from 'renderer/AppInfoAPI';
 import ShellAPI from 'renderer/ShellAPI';
 import { isOrderedSectionHeader } from 'renderer/react/ReorderUtils';
-import { useIsDirectMode } from 'renderer/react/context/IsDirectModeContext';
 import {
   useEnabledMods,
   useIsLoadingMods,
@@ -57,7 +56,6 @@ export default function ModList(): JSX.Element {
 
   const [orderedItems, reorderItems] = useOrdereredItems();
   const [enabledMods] = useEnabledMods();
-  const [isDirectMode] = useIsDirectMode();
   const isLoadingMods = useIsLoadingMods();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -271,12 +269,6 @@ export default function ModList(): JSX.Element {
         <Box sx={{ flex: '1 1 0', ml: 1 }} />
         <ButtonGroup sx={{ flex: '0 0 auto' }} variant="outlined">
           <RunGameButton />
-          {isDirectMode ? (
-            <ModInstallButton
-              isUninstall={true}
-              tooltip={t('install.tooltip.uninstall')}
-            />
-          ) : null}
           <ModInstallButton />
           <OverflowActionsButton />
         </ButtonGroup>

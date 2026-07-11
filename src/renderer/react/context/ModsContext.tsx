@@ -103,6 +103,7 @@ export type IModsContext = {
   isLoadingMods: boolean;
   modConfigOverrides: IModConfigOverrides;
   mods: IMods;
+  modsRevision: number;
   modsToInstall: IOrderedMods;
   orderedItems: IOrderedItems;
   refreshMods: IModsRefresher;
@@ -228,6 +229,7 @@ export function ModsContextProvider({
 
   const [modsWithoutOverrides, setMods] = useState<Mod[]>([]);
   const [isLoadingMods, setIsLoadingMods] = useState(true);
+  const [modsRevision, setModsRevision] = useState(0);
   const initialLoadIsPending = useRef(true);
   const initialLoadPartialIDs = useRef(new Set<string>());
 
@@ -241,9 +243,7 @@ export function ModsContextProvider({
           if (!isMounted) {
             return;
           }
-          const partiallyRefreshedIDs = new Set(
-            initialLoadPartialIDs.current,
-          );
+          const partiallyRefreshedIDs = new Set(initialLoadPartialIDs.current);
           setMods((currentMods) =>
             mergeInitialModsWithPartialRefreshes(
               mods,
@@ -251,6 +251,7 @@ export function ModsContextProvider({
               partiallyRefreshedIDs,
             ),
           );
+          setModsRevision((revision) => revision + 1);
           startupMark(
             'renderer',
             `first ModList load completed with ${mods.length} mods`,
@@ -336,6 +337,7 @@ export function ModsContextProvider({
         } else {
           setMods(mods);
         }
+        setModsRevision((revision) => revision + 1);
         return mods;
       } finally {
         if (ids == null) {
@@ -519,6 +521,7 @@ export function ModsContextProvider({
       isLoadingMods,
       modConfigOverrides,
       mods,
+      modsRevision,
       modsToInstall,
       orderedItems,
       refreshMods,
@@ -540,6 +543,7 @@ export function ModsContextProvider({
       isLoadingMods,
       modConfigOverrides,
       mods,
+      modsRevision,
       modsToInstall,
       orderedItems,
       refreshMods,
@@ -593,6 +597,14 @@ export function useMods(): [IMods, IModsRefresher] {
     throw new Error('No preferences context available.');
   }
   return [context.mods, context.refreshMods];
+}
+
+export function useModsRevision(): number {
+  const context = useContext(Context);
+  if (context == null) {
+    throw new Error('No preferences context available.');
+  }
+  return context.modsRevision;
 }
 
 export function useIsLoadingMods(): boolean {

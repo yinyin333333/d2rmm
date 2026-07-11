@@ -22,9 +22,7 @@ function createRuntime(): {
       bridge,
       consoleAPI,
       {
-        dataPath: 'fake-data',
         gamePath: 'fake-game',
-        isDirectMode: false,
         isDryRun: false,
         isPreExtractedData: true,
         mergedPath: 'fake-output',

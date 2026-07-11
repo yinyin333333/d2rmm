@@ -1,5 +1,4 @@
 import {
-  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -33,18 +32,10 @@ describe('mod output path containment', () => {
     writeFileSync(sentinelPath, 'outside-sentinel');
 
     options = {
-      dataPath: path.join(gameRoot, 'data'),
       gamePath: gameRoot,
-      isDirectMode: false,
       isDryRun: false,
       isPreExtractedData: true,
-      mergedPath: path.join(
-        gameRoot,
-        'mods',
-        'Merged',
-        'Merged.mpq',
-        'data',
-      ),
+      mergedPath: path.join(gameRoot, 'mods', 'Merged', 'Merged.mpq', 'data'),
       normalizeOutputCRLF: false,
       outputModName: 'Merged',
       preExtractedDataPath: path.join(tempRoot, 'pre-extracted'),
@@ -62,11 +53,13 @@ describe('mod output path containment', () => {
     expect(readFileSync(sentinelPath, 'utf8')).toBe('outside-sentinel');
   }
 
-  it('preserves normal and intentional non-direct output locations', () => {
+  it('preserves normal and intentional mod output locations', () => {
     expect(resolveModOutputPath(options, 'global/excel/foo.txt')).toBe(
       path.join(options.mergedPath, 'global', 'excel', 'foo.txt'),
     );
-    expect(resolveModOutputPath(options, path.join('..', 'hd', 'foo.json'))).toBe(
+    expect(
+      resolveModOutputPath(options, path.join('..', 'hd', 'foo.json')),
+    ).toBe(
       path.join(gameRoot, 'mods', 'Merged', 'Merged.mpq', 'hd', 'foo.json'),
     );
     expect(
@@ -77,39 +70,32 @@ describe('mod output path containment', () => {
     ).toBe(path.join(gameRoot, 'mods', 'Merged', 'd2rloader', 'plugin.dll'));
   });
 
-  it('preserves direct data and D2RLoader locations inside the fake game root', () => {
-    options.isDirectMode = true;
+  it('ignores legacy Direct Mode fields and stays inside the mod envelope', () => {
+    const legacyOptions = {
+      ...options,
+      dataPath: path.join(gameRoot, 'data'),
+      isDirectMode: true,
+    } as IInstallModsOptions;
 
-    expect(getModOutputEnvelopePath(options)).toBe(gameRoot);
-    expect(resolveModOutputPath(options, 'global/excel/foo.txt')).toBe(
-      path.join(gameRoot, 'data', 'global', 'excel', 'foo.txt'),
+    expect(getModOutputEnvelopePath(legacyOptions)).toBe(
+      path.join(gameRoot, 'mods', 'Merged'),
+    );
+    expect(resolveModOutputPath(legacyOptions, 'global/excel/foo.txt')).toBe(
+      path.join(options.mergedPath, 'global', 'excel', 'foo.txt'),
     );
     expect(
       resolveModOutputPath(
-        options,
-        path.join('..', 'd2rloader', 'plugin.dll'),
+        legacyOptions,
+        path.join('..', '..', 'd2rloader', 'plugin.dll'),
       ),
-    ).toBe(path.join(gameRoot, 'd2rloader', 'plugin.dll'));
-  });
-
-  it('allows direct uninstall to remove D2RLoader files inside the fake game root', () => {
-    options.isDirectMode = true;
-    const loaderFile = path.join(gameRoot, 'd2rloader', 'plugin.dll');
-    mkdirSync(path.dirname(loaderFile), { recursive: true });
-    writeFileSync(loaderFile, 'fake plugin');
-
-    const uninstallPath = resolveModOutputPath(
-      options,
-      path.join('..', 'd2rloader', 'plugin.dll'),
-    );
-    rmSync(uninstallPath);
-
-    expect(existsSync(loaderFile)).toBe(false);
-    expectSentinelUnchanged();
+    ).toBe(path.join(gameRoot, 'mods', 'Merged', 'd2rloader', 'plugin.dll'));
   });
 
   it.each([
-    ['relative traversal', () => path.relative(options.mergedPath, sentinelPath)],
+    [
+      'relative traversal',
+      () => path.relative(options.mergedPath, sentinelPath),
+    ],
     ['absolute path', () => sentinelPath],
     ['POSIX absolute path', () => '/outside/sentinel.txt'],
     ['UNC path', () => '\\\\server\\share\\sentinel.txt'],
@@ -124,7 +110,10 @@ describe('mod output path containment', () => {
     [
       'the output envelope itself',
       () =>
-        path.relative(options.mergedPath, path.join(gameRoot, 'mods', 'Merged')),
+        path.relative(
+          options.mergedPath,
+          path.join(gameRoot, 'mods', 'Merged'),
+        ),
     ],
   ])('rejects %s without changing the outside sentinel', (_label, getInput) => {
     expect(() => resolveModOutputPath(options, getInput())).toThrow();

@@ -9,10 +9,15 @@ import {
 } from '@testing-library/react';
 
 const mockState = {
+  importPluginSources: jest.fn(),
   installMods: jest.fn(),
+  installModFromZip: jest.fn(),
   openExternal: jest.fn(),
   readD2RLoaderConfig: jest.fn(),
+  readModConfig: jest.fn(),
   readModDirectory: jest.fn(),
+  readModInfo: jest.fn(),
+  readPluginInventory: jest.fn(),
 };
 
 jest.mock('renderer/IPC', () => ({
@@ -32,19 +37,41 @@ jest.mock('renderer/IPC', () => ({
             if (api === 'installMods') {
               return mockState.installMods(...args);
             }
+            if (api === 'installModFromZip') {
+              return mockState.installModFromZip(...args);
+            }
+            if (api === 'importSources') {
+              return mockState.importPluginSources(...args);
+            }
             if (api === 'openExternal') {
               return mockState.openExternal(...args);
             }
             if (api === 'readModDirectory') {
               return mockState.readModDirectory(...args);
             }
+            if (api === 'readModInfo') {
+              return mockState.readModInfo(...args);
+            }
+            if (api === 'readModConfig') {
+              return mockState.readModConfig(...args);
+            }
             if (api === 'readD2RLoaderConfig') {
               return mockState.readD2RLoaderConfig(...args);
+            }
+            if (api === 'readInventory') {
+              return mockState.readPluginInventory(...args);
             }
             return [];
           },
       },
     ),
+}));
+
+jest.mock('renderer/ElectronUtilsAPI', () => ({
+  __esModule: true,
+  default: {
+    getPathForFile: (file: File) => `C:\\Dropped\\${file.name}`,
+  },
 }));
 
 jest.mock('renderer/AppInfoAPI', () => ({
@@ -56,9 +83,28 @@ describe('App', () => {
   beforeEach(() => {
     localStorage.clear();
     mockState.installMods.mockResolvedValue(undefined);
+    mockState.installModFromZip.mockResolvedValue(undefined);
+    mockState.importPluginSources.mockResolvedValue({
+      importedFiles: 1,
+      packages: ['Example'],
+      warnings: [],
+    });
     mockState.openExternal.mockResolvedValue(undefined);
     mockState.readD2RLoaderConfig.mockResolvedValue(null);
+    mockState.readModConfig.mockResolvedValue({});
     mockState.readModDirectory.mockResolvedValue([]);
+    mockState.readModInfo.mockResolvedValue({
+      name: 'Example Mod',
+      type: 'd2rmm',
+    });
+    mockState.readPluginInventory.mockResolvedValue({
+      conflicts: [],
+      managedSignature: '',
+      managedRoot: 'C:\\D2RMM\\d2rloader',
+      packages: [],
+      patches: [],
+      plugins: [],
+    });
   });
 
   it('should render', () => {
@@ -66,10 +112,15 @@ describe('App', () => {
   });
 
   it('should open lazy settings and logs tabs', async () => {
+    localStorage.setItem('direct-mod', 'true');
     render(<App />);
 
     fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
     expect(await screen.findByText('D2RLoader')).toBeInTheDocument();
+    expect(screen.queryByText('Direct Mode')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('settings.directMode.title'),
+    ).not.toBeInTheDocument();
 
     const logsTab = screen.getByRole('tab', { name: 'Logs' });
     fireEvent.click(logsTab);
@@ -172,6 +223,127 @@ describe('App', () => {
 
     await waitFor(() => expect(runButton).not.toBeDisabled());
     expect(installButton).not.toBeDisabled();
+  });
+
+  it('renders tabs in order and keeps Plugins mounted across tab changes', () => {
+    render(<App />);
+
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Mods',
+      'Plugins',
+      'Settings',
+      'Logs',
+    ]);
+    const pluginTab = screen.getByRole('tab', { name: 'Plugins' });
+    const pluginPanel = document.getElementById(
+      pluginTab.getAttribute('aria-controls')!,
+    );
+    expect(pluginPanel).not.toBeNull();
+    expect(pluginPanel).toHaveAttribute('hidden');
+    expect(screen.getByText('D2RLoader Plugins')).toBeInTheDocument();
+
+    fireEvent.click(pluginTab);
+
+    expect(pluginPanel).not.toHaveAttribute('hidden');
+    expect(screen.getByText('Plugins (0)')).toBeInTheDocument();
+    expect(screen.getByText('Patches (0)')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Mods' }));
+    expect(pluginPanel).toHaveAttribute('hidden');
+    expect(screen.getByText('D2RLoader Plugins')).toBeInTheDocument();
+  });
+
+  it('routes ZIP drops on Plugins only to the plugin importer', async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Plugins' }));
+    const pluginHeading = await screen.findByText('D2RLoader Plugins');
+    const zip = new File(['zip'], 'Example.zip', {
+      type: 'application/zip',
+    });
+
+    fireEvent.drop(pluginHeading, {
+      dataTransfer: {
+        files: [zip],
+        items: [{ webkitGetAsEntry: () => ({ isDirectory: false }) }],
+      },
+    });
+
+    await waitFor(() =>
+      expect(mockState.importPluginSources).toHaveBeenCalledWith([
+        'C:\\Dropped\\Example.zip',
+      ]),
+    );
+    expect(mockState.installModFromZip).not.toHaveBeenCalled();
+  });
+
+  it('preserves loose companion files dropped with a plugin DLL', async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Plugins' }));
+    const pluginHeading = await screen.findByText('D2RLoader Plugins');
+    const dll = new File(['dll'], 'Example.dll');
+    const ini = new File(['config'], 'Example.ini');
+
+    fireEvent.drop(pluginHeading, {
+      dataTransfer: {
+        files: [dll, ini],
+        items: [
+          { webkitGetAsEntry: () => ({ isDirectory: false }) },
+          { webkitGetAsEntry: () => ({ isDirectory: false }) },
+        ],
+      },
+    });
+
+    await waitFor(() =>
+      expect(mockState.importPluginSources).toHaveBeenCalledWith([
+        'C:\\Dropped\\Example.dll',
+        'C:\\Dropped\\Example.ini',
+      ]),
+    );
+  });
+
+  it('rescans plugin origins after Refresh Mod List removes a mod', async () => {
+    mockState.readModDirectory.mockResolvedValueOnce(['With Loader']);
+    render(<App />);
+
+    await waitFor(() =>
+      expect(mockState.readPluginInventory).toHaveBeenCalledWith([
+        'With Loader',
+      ]),
+    );
+    mockState.readModDirectory.mockResolvedValue([]);
+    const overflow = document.getElementById('overflow-actions-button');
+    if (overflow == null) throw new Error('Overflow button was not rendered.');
+    fireEvent.click(overflow);
+    fireEvent.click(await screen.findByText('Refresh Mod List'));
+
+    await waitFor(() =>
+      expect(mockState.readPluginInventory).toHaveBeenLastCalledWith([]),
+    );
+  });
+
+  it('rescans loader files when Refresh Mod List keeps the same mod IDs', async () => {
+    mockState.readModDirectory.mockResolvedValue(['With Loader']);
+    render(<App />);
+
+    await waitFor(() =>
+      expect(mockState.readPluginInventory).toHaveBeenCalledWith([
+        'With Loader',
+      ]),
+    );
+    const previousScanCount = mockState.readPluginInventory.mock.calls.length;
+    const overflow = document.getElementById('overflow-actions-button');
+    if (overflow == null) throw new Error('Overflow button was not rendered.');
+    fireEvent.click(overflow);
+    fireEvent.click(await screen.findByText('Refresh Mod List'));
+
+    await waitFor(() =>
+      expect(mockState.readPluginInventory.mock.calls.length).toBeGreaterThan(
+        previousScanCount,
+      ),
+    );
+    expect(mockState.readPluginInventory).toHaveBeenLastCalledWith([
+      'With Loader',
+    ]);
   });
 
   it('should open the Discord invite from the button next to Logs', () => {

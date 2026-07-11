@@ -1,11 +1,11 @@
 import type { IInstallModsOptions, Mod } from 'bridge/BridgeAPI';
-import type { ResourceLimits } from '../main/worker/ResourceBudget';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { copySourceTreeBounded } from '../main/worker/DataSourceResourceGuard';
 import { InstallationRuntime } from '../main/worker/InstallationRuntime';
 import { getModAPI } from '../main/worker/ModAPI';
+import type { ResourceLimits } from '../main/worker/ResourceBudget';
 
 jest.mock('main/worker/CascLib', () => ({
   readCString: jest.fn(),
@@ -20,7 +20,10 @@ describe('data source in-memory copy bounds', () => {
     sourceRoot = path.join(tempRoot, 'source');
     mkdirSync(path.join(sourceRoot, 'nested'), { recursive: true });
     writeFileSync(path.join(sourceRoot, 'first.bin'), Buffer.alloc(8, 1));
-    writeFileSync(path.join(sourceRoot, 'nested', 'second.bin'), Buffer.alloc(16, 2));
+    writeFileSync(
+      path.join(sourceRoot, 'nested', 'second.bin'),
+      Buffer.alloc(16, 2),
+    );
   });
 
   afterEach(() => {
@@ -109,9 +112,7 @@ describe('current data-mod retention evidence', () => {
     );
 
     const options: IInstallModsOptions = {
-      dataPath: path.join(tempRoot, 'game', 'data'),
       gamePath: path.join(tempRoot, 'game'),
-      isDirectMode: false,
       isDryRun: true,
       isPreExtractedData: true,
       mergedPath: path.join(tempRoot, 'output', 'Fake.mpq', 'data'),
@@ -134,8 +135,8 @@ describe('current data-mod retention evidence', () => {
 
     const retained = runtime.fileManager.getModifiedFiles();
     expect(retained).toHaveLength(2);
-    expect(
-      retained.reduce((total, file) => total + file.data.length, 0),
-    ).toBe(24);
+    expect(retained.reduce((total, file) => total + file.data.length, 0)).toBe(
+      24,
+    );
   });
 });

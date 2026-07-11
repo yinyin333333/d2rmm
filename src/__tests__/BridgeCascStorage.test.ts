@@ -1,14 +1,9 @@
 import type { IInstallModsOptions } from 'bridge/BridgeAPI';
 import { constants as bufferConstants } from 'buffer';
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-} from 'fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'fs';
 import os from 'os';
 import path from 'path';
+import { BridgeAPI, getRuntime } from '../main/worker/BridgeAPI';
 
 const CASC_ERROR_FILE_OFFLINE = 4350;
 
@@ -52,8 +47,6 @@ jest.mock('main/worker/third-party/d2s/index', () => ({
   write: jest.fn(),
 }));
 
-import { BridgeAPI, getRuntime } from '../main/worker/BridgeAPI';
-
 const TEN_MIB = 10 * 1024 * 1024;
 
 let tempRoot: string;
@@ -67,9 +60,7 @@ let nextFileID: number;
 function makeOptions(id: string): IInstallModsOptions {
   const root = path.join(tempRoot, id);
   return {
-    dataPath: path.join(root, 'data'),
     gamePath: gamePathA,
-    isDirectMode: false,
     isDryRun: true,
     isPreExtractedData: false,
     mergedPath: path.join(root, 'mods', 'output', 'output.mpq', 'data'),
@@ -86,58 +77,52 @@ function configureSuccessfulNativeAPI(): void {
   nextFileID = 0;
   mockCascLib.CascCloseFile.mockReset().mockReturnValue(true);
   mockCascLib.CascCloseStorage.mockReset().mockReturnValue(true);
-  mockCascLib.CascGetFileSize64
-    .mockReset()
-    .mockImplementation((_file: unknown, sizeOut: (number | bigint)[]) => {
+  mockCascLib.CascGetFileSize64.mockReset().mockImplementation(
+    (_file: unknown, sizeOut: (number | bigint)[]) => {
       sizeOut[0] = configuredFileSize;
       return true;
-    });
-  mockCascLib.CascOpenFile
-    .mockReset()
-    .mockImplementation(
-      (
-        _storage: unknown,
-        _filePath: string,
-        _locale: number,
-        _flags: number,
-        fileOut: unknown[],
-      ) => {
-        fileOut[0] = { fileID: ++nextFileID };
-        return true;
-      },
-    );
+    },
+  );
+  mockCascLib.CascOpenFile.mockReset().mockImplementation(
+    (
+      _storage: unknown,
+      _filePath: string,
+      _locale: number,
+      _flags: number,
+      fileOut: unknown[],
+    ) => {
+      fileOut[0] = { fileID: ++nextFileID };
+      return true;
+    },
+  );
   mockCascLib.CascOpenStorage.mockReset();
-  mockCascLib.CascOpenStorageEx
-    .mockReset()
-    .mockImplementation(
-      (
-        _storagePath: string,
-        _options: object,
-        online: boolean,
-        storageOut: unknown[],
-      ) => {
-        storageOut[0] = { online, storageID: ++nextStorageID };
-        return true;
-      },
-    );
-  mockCascLib.CascReadFile
-    .mockReset()
-    .mockImplementation(
-      (
-        _file: unknown,
-        buffer: Buffer,
-        requestedSize: number,
-        bytesReadOut: number[],
-      ) => {
-        const bytesRead = Math.min(Number(configuredFileSize), requestedSize);
-        if (bytesRead > 0) {
-          buffer[0] = 0x11;
-          buffer[bytesRead - 1] = 0x7f;
-        }
-        bytesReadOut[0] = bytesRead;
-        return true;
-      },
-    );
+  mockCascLib.CascOpenStorageEx.mockReset().mockImplementation(
+    (
+      _storagePath: string,
+      _options: object,
+      online: boolean,
+      storageOut: unknown[],
+    ) => {
+      storageOut[0] = { online, storageID: ++nextStorageID };
+      return true;
+    },
+  );
+  mockCascLib.CascReadFile.mockReset().mockImplementation(
+    (
+      _file: unknown,
+      buffer: Buffer,
+      requestedSize: number,
+      bytesReadOut: number[],
+    ) => {
+      const bytesRead = Math.min(Number(configuredFileSize), requestedSize);
+      if (bytesRead > 0) {
+        buffer[0] = 0x11;
+        buffer[bytesRead - 1] = 0x7f;
+      }
+      bytesReadOut[0] = bytesRead;
+      return true;
+    },
+  );
   mockCascLib.GetCascError.mockReset().mockReturnValue(5);
   mockGetLastCascLibError.mockClear();
 }
@@ -196,7 +181,9 @@ describe('BridgeAPI CASC storage ownership', () => {
 
   it('reopens the same canonical path online when forceOnline upgrades ownership', async () => {
     await openFakeStorage(gamePathA);
-    await expect(BridgeAPI.openStorage(gamePathAlias, true)).resolves.toBe(true);
+    await expect(BridgeAPI.openStorage(gamePathAlias, true)).resolves.toBe(
+      true,
+    );
 
     expect(mockCascLib.CascCloseStorage).toHaveBeenCalledTimes(1);
     expect(mockCascLib.CascOpenStorageEx).toHaveBeenCalledTimes(2);
@@ -386,34 +373,32 @@ describe('BridgeAPI CASC storage ownership', () => {
       async (failurePoint) => {
         configuredFileSize = 4;
         await openFakeStorage();
-        mockCascLib.GetCascError.mockReturnValueOnce(
-          CASC_ERROR_FILE_OFFLINE,
-        );
+        mockCascLib.GetCascError.mockReturnValueOnce(CASC_ERROR_FILE_OFFLINE);
         if (failurePoint === 'size') {
-          mockCascLib.CascGetFileSize64
-            .mockReturnValueOnce(false)
-            .mockImplementation(
-              (_file: unknown, sizeOut: (number | bigint)[]) => {
-                sizeOut[0] = configuredFileSize;
-                return true;
-              },
-            );
+          mockCascLib.CascGetFileSize64.mockReturnValueOnce(
+            false,
+          ).mockImplementation(
+            (_file: unknown, sizeOut: (number | bigint)[]) => {
+              sizeOut[0] = configuredFileSize;
+              return true;
+            },
+          );
         } else {
-          mockCascLib.CascReadFile
-            .mockReturnValueOnce(false)
-            .mockImplementation(
-              (
-                _file: unknown,
-                buffer: Buffer,
-                requestedSize: number,
-                bytesReadOut: number[],
-              ) => {
-                buffer[0] = 0x11;
-                buffer[requestedSize - 1] = 0x7f;
-                bytesReadOut[0] = requestedSize;
-                return true;
-              },
-            );
+          mockCascLib.CascReadFile.mockReturnValueOnce(
+            false,
+          ).mockImplementation(
+            (
+              _file: unknown,
+              buffer: Buffer,
+              requestedSize: number,
+              bytesReadOut: number[],
+            ) => {
+              buffer[0] = 0x11;
+              buffer[requestedSize - 1] = 0x7f;
+              bytesReadOut[0] = requestedSize;
+              return true;
+            },
+          );
         }
 
         const output = await BridgeAPI.extractFileToMemory('fake/offline.bin');

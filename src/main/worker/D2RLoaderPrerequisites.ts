@@ -84,10 +84,7 @@ export async function applyD2RLoaderPrerequisites(
   runtime: D2RLoaderPrerequisiteRuntime,
   assetRoot: string = getD2RLoaderPrerequisiteAssetRoot(),
 ): Promise<void> {
-  if (
-    runtime.options.useD2RLoader !== true ||
-    runtime.options.isDryRun
-  ) {
+  if (runtime.options.useD2RLoader !== true || runtime.options.isDryRun) {
     return;
   }
 
@@ -117,11 +114,7 @@ export async function applyD2RLoaderPrerequisites(
 export async function clearD2RLoaderOutputDirectory(
   runtime: D2RLoaderPrerequisiteRuntime,
 ): Promise<string | null> {
-  if (
-    runtime.options.useD2RLoader !== true ||
-    runtime.options.isDirectMode ||
-    runtime.options.isDryRun
-  ) {
+  if (runtime.options.isDryRun) {
     return null;
   }
 

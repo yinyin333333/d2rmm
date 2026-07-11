@@ -6,7 +6,13 @@ const mockPrepareD2RLoaderLaunch = jest.fn();
 const mockInstallMods = jest.fn();
 const mockShowToast = jest.fn();
 let mockInstallBeforeRun = false;
+let mockHasUnsavedEdits = false;
+let mockIsDeploymentChanged = false;
+let mockIsInventoryCurrent = true;
 let mockIsInstalling = false;
+let mockIsLoadingPlugins = false;
+let mockIsMutatingPlugins = false;
+let mockIsOutputModeChanged = false;
 let mockUseD2RLoader = false;
 
 jest.mock('renderer/BridgeAPI', () => ({
@@ -19,6 +25,17 @@ jest.mock('renderer/react/context/D2RLoaderSettingsContext', () => ({
   useD2RLoaderSettings: () => [
     { useD2RLoader: mockUseD2RLoader, tomlSettings: {} },
   ],
+}));
+
+jest.mock('renderer/react/context/D2RLoaderPluginContext', () => ({
+  useD2RLoaderPluginManager: () => ({
+    hasUnsavedEdits: mockHasUnsavedEdits,
+    isDeploymentChanged: mockIsDeploymentChanged,
+    isInventoryCurrent: mockIsInventoryCurrent,
+    isLoading: mockIsLoadingPlugins,
+    isMutating: mockIsMutatingPlugins,
+    isOutputModeChanged: mockIsOutputModeChanged,
+  }),
 }));
 
 jest.mock('renderer/react/context/GamePathContext', () => ({
@@ -44,15 +61,22 @@ jest.mock('renderer/react/context/OutputModNameContext', () => ({
 
 jest.mock('renderer/react/hooks/useGameLaunchArgs', () => () => []);
 jest.mock('renderer/react/hooks/useToast', () => () => mockShowToast);
-jest.mock('renderer/react/modlist/hooks/useInstallMods', () => () =>
-  mockInstallMods,
+jest.mock(
+  'renderer/react/modlist/hooks/useInstallMods',
+  () => () => mockInstallMods,
 );
 
 describe('RunGameButton launch failures', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockInstallBeforeRun = false;
+    mockHasUnsavedEdits = false;
+    mockIsDeploymentChanged = false;
+    mockIsInventoryCurrent = true;
     mockIsInstalling = false;
+    mockIsLoadingPlugins = false;
+    mockIsMutatingPlugins = false;
+    mockIsOutputModeChanged = false;
     mockUseD2RLoader = false;
     mockExecute.mockResolvedValue(0);
     mockPrepareD2RLoaderLaunch.mockResolvedValue(undefined);
@@ -114,6 +138,30 @@ describe('RunGameButton launch failures', () => {
     fireEvent.click(button);
 
     expect(mockInstallMods).not.toHaveBeenCalled();
+    expect(mockPrepareD2RLoaderLaunch).not.toHaveBeenCalled();
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('waits for managed package inventory before a loader launch', () => {
+    mockUseD2RLoader = true;
+    mockIsLoadingPlugins = true;
+    render(<RunGameButton />);
+
+    const button = screen.getByRole('button', { name: 'Run D2R' });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(button);
+
+    expect(mockPrepareD2RLoaderLaunch).not.toHaveBeenCalled();
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('does not launch with an unsaved loader JSON draft', () => {
+    mockUseD2RLoader = true;
+    mockHasUnsavedEdits = true;
+    render(<RunGameButton />);
+
+    const button = screen.getByRole('button', { name: 'Run D2R' });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(mockPrepareD2RLoaderLaunch).not.toHaveBeenCalled();
     expect(mockExecute).not.toHaveBeenCalled();
   });

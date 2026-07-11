@@ -17,10 +17,7 @@ const DATA_MOD_METADATA_FILES = new Set([
   'modinfo.json',
 ]);
 
-export function getDataModEntryDestinationRelative(
-  entryName: string,
-  isDirectMode: boolean,
-): string {
+export function getDataModEntryDestinationRelative(entryName: string): string {
   const normalizedEntryName = entryName.toLowerCase();
 
   if (normalizedEntryName === 'data') {
@@ -28,9 +25,7 @@ export function getDataModEntryDestinationRelative(
   }
 
   if (normalizedEntryName === 'd2rloader') {
-    return isDirectMode
-      ? path.join('..', entryName)
-      : path.join('..', '..', entryName);
+    return path.join('..', '..', entryName);
   }
 
   // The installer writes relative to <mpq>/data, so MPQ-root siblings need ../.
@@ -296,10 +291,7 @@ async function copyDataModFilesToMemory(
       );
     }
 
-    const dstRelative = getDataModEntryDestinationRelative(
-      entry.name,
-      runtime.options.isDirectMode,
-    );
+    const dstRelative = getDataModEntryDestinationRelative(entry.name);
     const copiedRelativePaths = await copySourceFilesToMemory(
       runtime,
       srcPath,
@@ -315,10 +307,7 @@ async function copyDataModFilesToMemory(
       const copiedRelativePaths = await copySourceFilesToMemory(
         runtime,
         d2rLoaderPath,
-        getDataModEntryDestinationRelative(
-          'd2rloader',
-          runtime.options.isDirectMode,
-        ),
+        getDataModEntryDestinationRelative('d2rloader'),
         overwrite,
       );
       result.push(...copiedRelativePaths);

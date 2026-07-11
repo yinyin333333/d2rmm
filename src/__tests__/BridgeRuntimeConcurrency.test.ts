@@ -1,5 +1,6 @@
 import type { IInstallModsOptions } from 'bridge/BridgeAPI';
 import type { ID2S } from 'bridge/third-party/d2s/d2/types';
+import { BridgeAPI, getRuntime } from '../main/worker/BridgeAPI';
 
 const mockEventSend = jest.fn().mockResolvedValue(undefined);
 const mockWriteD2S = jest.fn();
@@ -34,8 +35,6 @@ jest.mock('main/worker/CascLib', () => ({
   readCString: jest.fn(),
 }));
 
-import { BridgeAPI, getRuntime } from '../main/worker/BridgeAPI';
-
 type Deferred<T> = {
   promise: Promise<T>;
   reject: (reason?: unknown) => void;
@@ -55,9 +54,7 @@ function createDeferred<T>(): Deferred<T> {
 function makeOptions(id: string): IInstallModsOptions {
   const root = `C:\\D2RMM-F04-FAKE\\${id}`;
   return {
-    dataPath: `${root}\\data`,
     gamePath: `${root}\\game`,
-    isDirectMode: false,
     isDryRun: true,
     isPreExtractedData: false,
     mergedPath: `${root}\\mods\\output\\output.mpq\\data`,

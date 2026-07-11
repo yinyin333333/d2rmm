@@ -1,6 +1,12 @@
 import type { IOrderedItem } from 'renderer/react/context/ModsContext';
 import ModList from 'renderer/react/modlist/ModList';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 
 const mockRefreshMods = jest.fn();
 const mockReorderItems = jest.fn();
@@ -14,11 +20,7 @@ jest.mock('renderer/ShellAPI', () => ({
   default: { showItemInFolder: jest.fn().mockResolvedValue(undefined) },
 }));
 jest.mock('renderer/react/ReorderUtils', () => ({
-  isOrderedSectionHeader: (item: IOrderedItem) =>
-    item.type === 'sectionHeader',
-}));
-jest.mock('renderer/react/context/IsDirectModeContext', () => ({
-  useIsDirectMode: () => [false],
+  isOrderedSectionHeader: (item: IOrderedItem) => item.type === 'sectionHeader',
 }));
 jest.mock('renderer/react/context/ModsContext', () => ({
   useEnabledMods: () => [{}],
@@ -54,7 +56,11 @@ jest.mock('react-beautiful-dnd', () => ({
       placeholder: null;
     }) => React.ReactNode;
   }) =>
-    children({ droppableProps: {}, innerRef: () => undefined, placeholder: null }),
+    children({
+      droppableProps: {},
+      innerRef: () => undefined,
+      placeholder: null,
+    }),
 }));
 jest.mock('react-i18next', () => ({
   ...jest.requireActual('react-i18next'),

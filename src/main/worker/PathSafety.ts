@@ -9,11 +9,7 @@ type ResolvePathInsideRootOptions = {
 
 type OutputPathOptions = Pick<
   IInstallModsOptions,
-  | 'dataPath'
-  | 'gamePath'
-  | 'isDirectMode'
-  | 'mergedPath'
-  | 'outputModName'
+  'gamePath' | 'mergedPath' | 'outputModName'
 >;
 
 function isMissingPathError(error: unknown): boolean {
@@ -115,13 +111,7 @@ export function resolvePathInsideRoot(
   return resolvedCandidate;
 }
 
-export function getModOutputEnvelopePath(
-  options: OutputPathOptions,
-): string {
-  if (options.isDirectMode) {
-    return path.resolve(options.gamePath);
-  }
-
+export function getModOutputEnvelopePath(options: OutputPathOptions): string {
   const modsRoot = path.resolve(options.gamePath, 'mods');
   return resolvePathInsideRoot(modsRoot, modsRoot, options.outputModName);
 }
@@ -130,9 +120,7 @@ export function resolveModOutputPath(
   options: OutputPathOptions,
   inputPath: string,
 ): string {
-  const outputPath = options.isDirectMode
-    ? path.resolve(options.dataPath)
-    : path.resolve(options.mergedPath);
+  const outputPath = path.resolve(options.mergedPath);
 
   return resolvePathInsideRoot(
     getModOutputEnvelopePath(options),

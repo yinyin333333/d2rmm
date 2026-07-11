@@ -1,11 +1,12 @@
-import 'renderer/css/App.css';
 import ShellAPI from 'renderer/ShellAPI';
+import 'renderer/css/App.css';
 import ErrorBoundary from 'renderer/react/ErrorBoundary';
 import InstallationProgressBar from 'renderer/react/InstallationProgressBar';
 import ModManagerLogs from 'renderer/react/ModManagerLogs';
+import ModManagerPlugins from 'renderer/react/ModManagerPlugins';
 import ModManagerSettings from 'renderer/react/ModManagerSettings';
+import { D2RLoaderPluginContextProvider } from 'renderer/react/context/D2RLoaderPluginContext';
 import { D2RLoaderSettingsContextProvider } from 'renderer/react/context/D2RLoaderSettingsContext';
-import { DataPathContextProvider } from 'renderer/react/context/DataPathContext';
 import {
   DialogManagerContextProvider,
   DialogRenderer,
@@ -14,7 +15,6 @@ import { ExtraGameLaunchArgsContextProvider } from 'renderer/react/context/Extra
 import { GamePathContextProvider } from 'renderer/react/context/GamePathContext';
 import { InstallBeforeRunContextProvider } from 'renderer/react/context/InstallBeforeRunContext';
 import { InstallContextProvider } from 'renderer/react/context/InstallContext';
-import { IsDirectModeContextProvider } from 'renderer/react/context/IsDirectModeContext';
 import { IsPreExtractedDataContextProvider } from 'renderer/react/context/IsPreExtractedDataContext';
 import { LogsProvider } from 'renderer/react/context/LogContext';
 import { ModsContextProvider } from 'renderer/react/context/ModsContext';
@@ -32,12 +32,17 @@ import {
 import ThemeContextProvider from 'renderer/react/context/ThemeContext';
 import { ToastContextProvider } from 'renderer/react/context/ToastContext';
 import { UpdatesContextProvider } from 'renderer/react/context/UpdatesContext';
+import useD2RLoaderPluginDropZone from 'renderer/react/hooks/useD2RLoaderPluginDropZone';
 import useModDropZone from 'renderer/react/hooks/useModDropZone';
 import ModList from 'renderer/react/modlist/ModList';
 import { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MemoryRouter as Router, Routes, Route } from 'react-router-dom';
-import TabContext from '@mui/lab/TabContext';
+import TabContext, {
+  getPanelId,
+  getTabId,
+  useTabContext,
+} from '@mui/lab/TabContext';
 import TabList from '@mui/lab/TabList';
 import TabPanel from '@mui/lab/TabPanel';
 import { Box, Button, Divider, Tab, Typography } from '@mui/material';
@@ -70,19 +75,55 @@ function TabPanelBox({
   );
 }
 
+function PersistentTabPanelBox({
+  children,
+  value,
+}: {
+  children: React.ReactNode;
+  value: string;
+}): JSX.Element {
+  const context = useTabContext();
+  if (context == null) throw new Error('No TabContext provided.');
+  const active = context.value === value;
+  return (
+    <Box
+      aria-labelledby={getTabId(context, value)}
+      hidden={!active}
+      id={getPanelId(context, value)}
+      role="tabpanel"
+      sx={{ height: '100%', position: 'relative' }}
+    >
+      <Box
+        sx={{
+          bottom: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          left: 0,
+          position: 'absolute',
+          right: 0,
+          top: 0,
+        }}
+      >
+        {children}
+      </Box>
+    </Box>
+  );
+}
+
 function RootRoute() {
   const { t } = useTranslation();
   const [tab, setTab] = useTabState();
-  const { isDraggingOver, onDragEnter, onDragLeave, onDragOver, onDrop } =
-    useModDropZone();
+  const modDropZone = useModDropZone();
+  const pluginDropZone = useD2RLoaderPluginDropZone();
+  const dropZone = tab === 'plugins' ? pluginDropZone : modDropZone;
 
   return (
     <TabContext value={tab}>
       <Box
-        onDragEnter={onDragEnter}
-        onDragLeave={onDragLeave}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
+        onDragEnter={dropZone.onDragEnter}
+        onDragLeave={dropZone.onDragLeave}
+        onDragOver={dropZone.onDragOver}
+        onDrop={dropZone.onDrop}
         sx={{
           display: 'flex',
           flexDirection: 'column',
@@ -92,7 +133,7 @@ function RootRoute() {
           position: 'relative',
         }}
       >
-        {isDraggingOver && (
+        {dropZone.isDraggingOver && (
           <Box
             sx={{
               position: 'absolute',
@@ -111,7 +152,7 @@ function RootRoute() {
               sx={{ color: 'common.white', fontWeight: 'bold' }}
               variant="h5"
             >
-              {t('app.dropZone')}
+              {t(tab === 'plugins' ? 'plugins.dropZone' : 'app.dropZone')}
             </Typography>
           </Box>
         )}
@@ -120,6 +161,7 @@ function RootRoute() {
         >
           <TabList onChange={(_event, value) => setTab(value)}>
             <Tab label={t('tabs.mods')} value="mods" />
+            <Tab label={t('tabs.plugins')} value="plugins" />
             <Tab label={t('tabs.settings')} value="settings" />
             <Tab label={t('tabs.logs')} value="logs" />
           </TabList>
@@ -137,6 +179,9 @@ function RootRoute() {
         <TabPanelBox value="mods">
           <ModList />
         </TabPanelBox>
+        <PersistentTabPanelBox value="plugins">
+          <ModManagerPlugins />
+        </PersistentTabPanelBox>
         <TabPanelBox value="settings">
           {tab === 'settings' ? <ModManagerSettings /> : null}
         </TabPanelBox>
@@ -169,6 +214,7 @@ const CONTEXT_PROVIDERS = [
   InstallContextProvider,
   // ui
   TabContextProvider,
+  D2RLoaderPluginContextProvider,
   // mod data
   ModsContextProvider,
   // preferences
@@ -177,9 +223,7 @@ const CONTEXT_PROVIDERS = [
   InstallBeforeRunContextProvider,
   SavesPathContextProvider,
   OutputPathContextProvider,
-  DataPathContextProvider,
   ExtraGameLaunchArgsContextProvider,
-  IsDirectModeContextProvider,
   OutputModNameContextProvider,
   IsPreExtractedDataContextProvider,
   PreExtractedDataPathContextProvider,

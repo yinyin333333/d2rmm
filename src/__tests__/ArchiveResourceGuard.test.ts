@@ -1,11 +1,11 @@
-import type { ResourceLimits } from '../main/worker/ResourceBudget';
 import decompress from 'decompress';
-import { mkdtempSync, rmSync, statSync, writeFileSync } from 'fs';
 import { zipSync } from 'fflate';
+import { mkdtempSync, rmSync, statSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { setImmediate as nodeSetImmediate } from 'timers';
 import { inspectZipArchive } from '../main/worker/ArchiveResourceGuard';
+import type { ResourceLimits } from '../main/worker/ResourceBudget';
 
 describe('ZIP archive resource preflight', () => {
   let tempRoot: string;
@@ -27,10 +27,7 @@ describe('ZIP archive resource preflight', () => {
     rmSync(tempRoot, { force: true, recursive: true });
   });
 
-  function writeZip(
-    name: string,
-    entries: Record<string, Uint8Array>,
-  ): string {
+  function writeZip(name: string, entries: Record<string, Uint8Array>): string {
     const zipPath = path.join(tempRoot, name);
     const archiveEntries = Object.fromEntries(
       Object.entries(entries).map(([entryName, data]) => [
@@ -111,5 +108,26 @@ describe('ZIP archive resource preflight', () => {
     await expect(
       inspectZipArchive(zipPath, limits({ maxDepth: 5 })),
     ).rejects.toThrow(/depth limit/i);
+  });
+
+  it('rejects case-insensitive duplicate entry paths before extraction', async () => {
+    const zipPath = writeZip('duplicate.zip', {
+      'Package/Plugin.dll': Buffer.from('first'),
+      'package/plugin.DLL': Buffer.from('second'),
+    });
+
+    await expect(inspectZipArchive(zipPath, limits())).rejects.toThrow(
+      /duplicate.*entry path/i,
+    );
+  });
+
+  it('rejects repeated separators that extraction could collapse', async () => {
+    const zipPath = writeZip('repeated-separator.zip', {
+      'Package//Plugin.dll': Buffer.from('plugin'),
+    });
+
+    await expect(inspectZipArchive(zipPath, limits())).rejects.toThrow(
+      /unsafe.*entry path/i,
+    );
   });
 });

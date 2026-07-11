@@ -4,11 +4,19 @@ import { act, render } from '@testing-library/react';
 
 const mockInstallMods = jest.fn();
 const mockLoggerClear = jest.fn();
+const mockMarkDeploymentInstalled = jest.fn();
+const mockMarkDeploymentOutdated = jest.fn();
+const mockMarkOutputModeInstalled = jest.fn();
 const mockSetInstalledMods = jest.fn();
 const mockSetIsInstalling = jest.fn();
 const mockSetTab = jest.fn();
 const mockShowToast = jest.fn();
 let mockModsToInstall: Mod[] = [];
+let mockHasUnsavedEdits = false;
+let mockIsDeploymentChanged = false;
+let mockIsInventoryCurrent = true;
+let mockIsOutputModeChanged = false;
+let mockManagedSignature = '';
 let mockUseD2RLoader = false;
 
 jest.mock('renderer/BridgeAPI', () => ({
@@ -16,8 +24,17 @@ jest.mock('renderer/BridgeAPI', () => ({
   default: { installMods: (...args: unknown[]) => mockInstallMods(...args) },
 }));
 
-jest.mock('renderer/react/context/DataPathContext', () => ({
-  useDataPath: () => 'fake-data',
+jest.mock('renderer/react/context/D2RLoaderPluginContext', () => ({
+  useD2RLoaderPluginManager: () => ({
+    hasUnsavedEdits: mockHasUnsavedEdits,
+    inventory: { managedSignature: mockManagedSignature },
+    isDeploymentChanged: mockIsDeploymentChanged,
+    isInventoryCurrent: mockIsInventoryCurrent,
+    isOutputModeChanged: mockIsOutputModeChanged,
+    markDeploymentInstalled: mockMarkDeploymentInstalled,
+    markDeploymentOutdated: mockMarkDeploymentOutdated,
+    markOutputModeInstalled: mockMarkOutputModeInstalled,
+  }),
 }));
 
 jest.mock('renderer/react/context/D2RLoaderSettingsContext', () => ({
@@ -32,10 +49,6 @@ jest.mock('renderer/react/context/GamePathContext', () => ({
 
 jest.mock('renderer/react/context/InstallContext', () => ({
   useIsInstalling: () => [false, mockSetIsInstalling],
-}));
-
-jest.mock('renderer/react/context/IsDirectModeContext', () => ({
-  useIsDirectMode: () => [false],
 }));
 
 jest.mock('renderer/react/context/IsPreExtractedDataContext', () => ({
@@ -119,10 +132,19 @@ function expectInstallingRestored(): void {
 
 describe('useInstallMods installation results', () => {
   beforeEach(() => {
+    localStorage.clear();
     mockModsToInstall = [];
+    mockHasUnsavedEdits = false;
+    mockIsDeploymentChanged = false;
+    mockIsInventoryCurrent = true;
+    mockIsOutputModeChanged = false;
+    mockManagedSignature = '';
     mockUseD2RLoader = false;
     mockInstallMods.mockReset();
     mockLoggerClear.mockReset();
+    mockMarkDeploymentInstalled.mockReset();
+    mockMarkDeploymentOutdated.mockReset();
+    mockMarkOutputModeInstalled.mockReset();
     mockSetInstalledMods.mockReset();
     mockSetIsInstalling.mockReset();
     mockSetTab.mockReset();
@@ -223,5 +245,85 @@ describe('useInstallMods installation results', () => {
       mockModsToInstall,
       expect.objectContaining({ useD2RLoader: true }),
     );
+  });
+
+  it.each([
+    ['an unsaved JSON draft', true, true],
+    ['a stale plugin inventory', false, false],
+  ])('blocks loader installation with %s', async (_label, dirty, current) => {
+    mockUseD2RLoader = true;
+    mockHasUnsavedEdits = dirty;
+    mockIsInventoryCurrent = current;
+
+    const result = await invokeInstallMods(renderUseInstallMods());
+
+    expect(result).toBe(false);
+    expect(mockInstallMods).not.toHaveBeenCalled();
+    expect(mockShowToast).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'warning' }),
+    );
+    expect(mockSetTab).toHaveBeenCalledWith('plugins');
+    expect(mockSetIsInstalling).not.toHaveBeenCalled();
+  });
+
+  it('ignores a legacy saved Direct Mode value and emits only mod output options', async () => {
+    localStorage.setItem('direct-mod', 'true');
+    mockModsToInstall = [makeMod('A')];
+    mockInstallMods.mockResolvedValue(['A']);
+
+    await invokeInstallMods(renderUseInstallMods());
+
+    const passedOptions = mockInstallMods.mock.calls[0][1];
+    expect(passedOptions).not.toHaveProperty('isDirectMode');
+    expect(passedOptions).not.toHaveProperty('dataPath');
+    expect(passedOptions).toEqual(
+      expect.objectContaining({
+        isDryRun: false,
+        mergedPath: 'fake-output',
+      }),
+    );
+  });
+
+  it('explicitly syncs a changed D2RLoader package set with no selected mods', async () => {
+    mockUseD2RLoader = true;
+    mockIsDeploymentChanged = true;
+    mockInstallMods.mockResolvedValue([]);
+
+    const result = await invokeInstallMods(renderUseInstallMods());
+
+    expect(result).toBe(true);
+    expect(mockInstallMods).toHaveBeenCalledWith(
+      [],
+      expect.objectContaining({ syncD2RLoaderOutput: true }),
+    );
+    expect(mockMarkDeploymentInstalled).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutputModeInstalled).toHaveBeenCalledTimes(1);
+    expect(mockSetInstalledMods).toHaveBeenCalledWith([]);
+  });
+
+  it('invalidates an old deployment after a loader-off rebuild even when the current package set is empty', async () => {
+    mockManagedSignature = '';
+    mockModsToInstall = [makeMod('A')];
+    mockInstallMods.mockResolvedValue(['A']);
+
+    await invokeInstallMods(renderUseInstallMods());
+
+    expect(mockMarkDeploymentOutdated).toHaveBeenCalledTimes(1);
+    expect(mockMarkDeploymentInstalled).not.toHaveBeenCalled();
+  });
+
+  it('syncs a loader-off output mode change and clears stale deployment state with no mods', async () => {
+    mockIsOutputModeChanged = true;
+    mockInstallMods.mockResolvedValue([]);
+
+    await invokeInstallMods(renderUseInstallMods());
+
+    expect(mockInstallMods).toHaveBeenCalledWith(
+      [],
+      expect.objectContaining({ syncD2RLoaderOutput: true }),
+    );
+    expect(mockMarkOutputModeInstalled).toHaveBeenCalledTimes(1);
+    expect(mockMarkDeploymentOutdated).toHaveBeenCalledTimes(1);
+    expect(mockSetInstalledMods).toHaveBeenCalledWith([]);
   });
 });

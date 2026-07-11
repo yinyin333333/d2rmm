@@ -1,7 +1,11 @@
 import type { IInstallModsOptions, Mod } from 'bridge/BridgeAPI';
+import { BridgeAPI, getRuntime } from '../main/worker/BridgeAPI';
+import { SaveFileTransaction } from '../main/worker/SaveFileTransaction';
 
 const mockEventSend = jest.fn().mockResolvedValue(undefined);
 const mockApplyD2RLoaderPrerequisites = jest.fn().mockResolvedValue(undefined);
+const mockApplyManagedD2RLoaderPackages = jest.fn().mockResolvedValue([]);
+const mockClearD2RLoaderOutputDirectory = jest.fn().mockResolvedValue(null);
 
 jest.mock('main/worker/AppInfoAPI', () => ({
   getAppPath: () => 'C:\\D2RMM-F05-FAKE\\app',
@@ -17,7 +21,13 @@ jest.mock('main/worker/EventAPI', () => ({
 jest.mock('main/worker/D2RLoaderPrerequisites', () => ({
   applyD2RLoaderPrerequisites: (...args: unknown[]) =>
     mockApplyD2RLoaderPrerequisites(...args),
-  clearD2RLoaderOutputDirectory: jest.fn().mockResolvedValue(null),
+  clearD2RLoaderOutputDirectory: (...args: unknown[]) =>
+    mockClearD2RLoaderOutputDirectory(...args),
+}));
+
+jest.mock('main/worker/D2RLoaderPluginAPI', () => ({
+  applyManagedD2RLoaderPackages: (...args: unknown[]) =>
+    mockApplyManagedD2RLoaderPackages(...args),
 }));
 
 jest.mock('main/worker/CascLib', () => ({
@@ -36,16 +46,11 @@ jest.mock('main/worker/third-party/d2s/index', () => ({
   write: jest.fn(),
 }));
 
-import { BridgeAPI, getRuntime } from '../main/worker/BridgeAPI';
-
 const options: IInstallModsOptions = {
-  dataPath: 'C:\\D2RMM-F05-FAKE\\game\\data',
   gamePath: 'C:\\D2RMM-F05-FAKE\\game',
-  isDirectMode: false,
   isDryRun: false,
   isPreExtractedData: true,
-  mergedPath:
-    'C:\\D2RMM-F05-FAKE\\output\\Fake.mpq\\data',
+  mergedPath: 'C:\\D2RMM-F05-FAKE\\output\\Fake.mpq\\data',
   normalizeOutputCRLF: false,
   outputModName: 'Fake',
   preExtractedDataPath: 'C:\\D2RMM-F05-FAKE\\source',
@@ -66,6 +71,10 @@ describe('BridgeAPI install commit boundary', () => {
     mockEventSend.mockClear();
     mockApplyD2RLoaderPrerequisites.mockReset();
     mockApplyD2RLoaderPrerequisites.mockResolvedValue(undefined);
+    mockApplyManagedD2RLoaderPackages.mockReset();
+    mockApplyManagedD2RLoaderPackages.mockResolvedValue([]);
+    mockClearD2RLoaderOutputDirectory.mockReset();
+    mockClearD2RLoaderOutputDirectory.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -119,5 +128,145 @@ describe('BridgeAPI install commit boundary', () => {
 
     expect(mockApplyD2RLoaderPrerequisites).toHaveBeenCalledTimes(1);
     expect(readModCode).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds generated D2RLoader output for an explicit loader-output sync', async () => {
+    const deleteFile = jest.spyOn(BridgeAPI, 'deleteFile').mockResolvedValue(1);
+    jest.spyOn(BridgeAPI, 'readFile').mockResolvedValue(null);
+    jest.spyOn(BridgeAPI, 'createDirectory').mockResolvedValue(true);
+    const writeTxt = jest.spyOn(BridgeAPI, 'writeTxt').mockResolvedValue(1);
+    const saveFlush = jest.spyOn(SaveFileTransaction.prototype, 'flush');
+
+    await expect(
+      BridgeAPI.installMods([], {
+        ...options,
+        syncD2RLoaderOutput: true,
+        useD2RLoader: true,
+      }),
+    ).resolves.toEqual([]);
+
+    expect(mockApplyD2RLoaderPrerequisites).toHaveBeenCalledTimes(1);
+    expect(mockApplyManagedD2RLoaderPackages).toHaveBeenCalledTimes(1);
+    expect(deleteFile).toHaveBeenCalledWith(
+      'C:\\D2RMM-F05-FAKE\\output\\Fake.mpq',
+      'None',
+    );
+    expect(mockClearD2RLoaderOutputDirectory).toHaveBeenCalledTimes(1);
+    expect(writeTxt).toHaveBeenCalledWith(
+      'C:\\D2RMM-F05-FAKE\\output\\Fake.mpq\\modinfo.json',
+      'None',
+      expect.any(String),
+    );
+    expect(saveFlush).not.toHaveBeenCalled();
+  });
+
+  it('removes stale loader output when an explicit sync disables D2RLoader', async () => {
+    const deleteFile = jest.spyOn(BridgeAPI, 'deleteFile').mockResolvedValue(1);
+    jest.spyOn(BridgeAPI, 'readFile').mockResolvedValue(null);
+    jest.spyOn(BridgeAPI, 'createDirectory').mockResolvedValue(true);
+    jest.spyOn(BridgeAPI, 'writeTxt').mockResolvedValue(1);
+
+    await expect(
+      BridgeAPI.installMods([], {
+        ...options,
+        syncD2RLoaderOutput: true,
+        useD2RLoader: false,
+      }),
+    ).resolves.toEqual([]);
+
+    expect(mockApplyD2RLoaderPrerequisites).not.toHaveBeenCalled();
+    expect(mockApplyManagedD2RLoaderPackages).not.toHaveBeenCalled();
+    expect(deleteFile).toHaveBeenCalledWith(
+      'C:\\D2RMM-F05-FAKE\\output\\Fake.mpq',
+      'None',
+    );
+    expect(mockClearD2RLoaderOutputDirectory).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves output when managed package staging fails', async () => {
+    const expectedError = new Error('synthetic managed package conflict');
+    mockApplyManagedD2RLoaderPackages.mockRejectedValueOnce(expectedError);
+    const deleteFile = jest.spyOn(BridgeAPI, 'deleteFile').mockResolvedValue(1);
+    const writeTxt = jest.spyOn(BridgeAPI, 'writeTxt').mockResolvedValue(1);
+    const writeBinaryFile = jest
+      .spyOn(BridgeAPI, 'writeBinaryFile')
+      .mockResolvedValue(1);
+
+    await expect(
+      BridgeAPI.installMods([], {
+        ...options,
+        syncD2RLoaderOutput: true,
+        useD2RLoader: true,
+      }),
+    ).rejects.toBe(expectedError);
+
+    expect(deleteFile).not.toHaveBeenCalled();
+    expect(mockClearD2RLoaderOutputDirectory).not.toHaveBeenCalled();
+    expect(writeTxt).not.toHaveBeenCalled();
+    expect(writeBinaryFile).not.toHaveBeenCalled();
+  });
+
+  it('ignores legacy Direct Mode fields and performs a normal output sync', async () => {
+    const deleteFile = jest.spyOn(BridgeAPI, 'deleteFile').mockResolvedValue(1);
+    jest.spyOn(BridgeAPI, 'readFile').mockResolvedValue(null);
+    jest.spyOn(BridgeAPI, 'createDirectory').mockResolvedValue(true);
+    jest.spyOn(BridgeAPI, 'writeTxt').mockResolvedValue(1);
+    const legacyOptions = {
+      ...options,
+      dataPath: 'C:\\D2RMM-F05-FAKE\\game\\data',
+      isDirectMode: true,
+      syncD2RLoaderOutput: true,
+      useD2RLoader: true,
+    } as IInstallModsOptions & {
+      dataPath: string;
+      isDirectMode: boolean;
+    };
+
+    await expect(BridgeAPI.installMods([], legacyOptions)).resolves.toEqual([]);
+
+    expect(mockApplyD2RLoaderPrerequisites).toHaveBeenCalledTimes(1);
+    expect(mockApplyManagedD2RLoaderPackages).toHaveBeenCalledTimes(1);
+    expect(deleteFile).toHaveBeenCalledWith(
+      'C:\\D2RMM-F05-FAKE\\output\\Fake.mpq',
+      'None',
+    );
+    expect(mockClearD2RLoaderOutputDirectory).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores an explicit loader-output sync during a dry run', async () => {
+    const deleteFile = jest.spyOn(BridgeAPI, 'deleteFile').mockResolvedValue(1);
+
+    await expect(
+      BridgeAPI.installMods([], {
+        ...options,
+        isDryRun: true,
+        syncD2RLoaderOutput: true,
+        useD2RLoader: true,
+      }),
+    ).resolves.toEqual([]);
+
+    expect(mockApplyD2RLoaderPrerequisites).not.toHaveBeenCalled();
+    expect(mockApplyManagedD2RLoaderPackages).not.toHaveBeenCalled();
+    expect(deleteFile).not.toHaveBeenCalled();
+    expect(mockClearD2RLoaderOutputDirectory).not.toHaveBeenCalled();
+  });
+
+  it('does not replace output when every selected mod fails during a pending package sync', async () => {
+    jest
+      .spyOn(BridgeAPI, 'readModCode')
+      .mockRejectedValue(new Error('synthetic compile failure'));
+    const deleteFile = jest.spyOn(BridgeAPI, 'deleteFile').mockResolvedValue(1);
+
+    await expect(
+      BridgeAPI.installMods([failedMod()], {
+        ...options,
+        syncD2RLoaderOutput: true,
+        useD2RLoader: true,
+      }),
+    ).resolves.toEqual([]);
+
+    expect(mockApplyManagedD2RLoaderPackages).not.toHaveBeenCalled();
+    expect(deleteFile).not.toHaveBeenCalled();
+    expect(mockClearD2RLoaderOutputDirectory).not.toHaveBeenCalled();
   });
 });

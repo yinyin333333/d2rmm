@@ -11,11 +11,6 @@ import {
 } from 'fs';
 import os from 'os';
 import path from 'path';
-
-jest.mock('main/worker/CascLib', () => ({
-  readCString: (buffer: Buffer) => buffer.toString('utf8'),
-}));
-
 import {
   applyD2RLoaderPrerequisites,
   clearD2RLoaderOutputDirectory,
@@ -25,6 +20,10 @@ import {
 import { InstallationRuntime } from '../main/worker/InstallationRuntime';
 import { getModAPI } from '../main/worker/ModAPI';
 import { parseTsv } from '../main/worker/TSVParser';
+
+jest.mock('main/worker/CascLib', () => ({
+  readCString: (buffer: Buffer) => buffer.toString('utf8'),
+}));
 
 const ORIGINAL_SKILLS = [
   'skill\tsrvstfunc\tcltstfunc\tnote',
@@ -37,9 +36,7 @@ function makeOptions(
   overrides: Partial<IInstallModsOptions> = {},
 ): IInstallModsOptions {
   return {
-    dataPath: 'fake-data',
     gamePath: 'fake-game',
-    isDirectMode: false,
     isDryRun: false,
     isPreExtractedData: false,
     mergedPath: 'fake-output',
@@ -99,9 +96,9 @@ describe('D2RLoader installation prerequisites', () => {
     const monPreset = readFileSync(path.join(bundledAssetRoot, 'monpet.txt'));
 
     expect(() => JSON.parse(desecratedZones.toString('utf8'))).not.toThrow();
-    expect(
-      createHash('sha256').update(desecratedZones).digest('hex'),
-    ).toBe('dac33ac66ac34f125c1af09fe1ae4b12ea5b07e8ecdf416f39157725fa4f2000');
+    expect(createHash('sha256').update(desecratedZones).digest('hex')).toBe(
+      'dac33ac66ac34f125c1af09fe1ae4b12ea5b07e8ecdf416f39157725fa4f2000',
+    );
     expect(createHash('sha256').update(monPreset).digest('hex')).toBe(
       'd08402b46505ce36cb97bf5b74783d49d09b8cf487769c5c238898d7ab728276',
     );
@@ -203,7 +200,9 @@ describe('D2RLoader installation prerequisites', () => {
   });
 
   it('removes only the generated D2RLoader sibling before a new install flush', async () => {
-    const fakeRoot = mkdtempSync(path.join(os.tmpdir(), 'd2rmm-loader-output-'));
+    const fakeRoot = mkdtempSync(
+      path.join(os.tmpdir(), 'd2rmm-loader-output-'),
+    );
     try {
       const gameRoot = path.join(fakeRoot, 'game');
       const outputRoot = path.join(gameRoot, 'mods', 'Merged');
@@ -235,9 +234,9 @@ describe('D2RLoader installation prerequisites', () => {
         [],
       );
 
-      await expect(
-        clearD2RLoaderOutputDirectory(cleanupRuntime),
-      ).resolves.toBe(loaderRoot);
+      await expect(clearD2RLoaderOutputDirectory(cleanupRuntime)).resolves.toBe(
+        loaderRoot,
+      );
       expect(deleteFile).toHaveBeenCalledWith(loaderRoot, 'None');
       expect(existsSync(loaderRoot)).toBe(false);
       expect(readFileSync(outputSentinel, 'utf8')).toBe('output-sentinel');
@@ -247,13 +246,30 @@ describe('D2RLoader installation prerequisites', () => {
     }
   });
 
-  it('keeps the D2RLoader sibling when the option is disabled', async () => {
-    const deleteFile = jest.fn();
-    runtime.BridgeAPI = { deleteFile } as unknown as IBridgeAPI;
-    runtime.options.useD2RLoader = false;
+  it('clears generated D2RLoader output when a standard-mode install replaces the output', async () => {
+    const fakeRoot = mkdtempSync(path.join(os.tmpdir(), 'd2rmm-loader-off-'));
+    try {
+      const deleteFile = jest.fn();
+      runtime.BridgeAPI = { deleteFile } as unknown as IBridgeAPI;
+      runtime.options = makeOptions({
+        gamePath: fakeRoot,
+        mergedPath: path.join(
+          fakeRoot,
+          'mods',
+          'FakeOutput',
+          'FakeOutput.mpq',
+          'data',
+        ),
+        outputModName: 'FakeOutput',
+        useD2RLoader: false,
+      });
 
-    await expect(clearD2RLoaderOutputDirectory(runtime)).resolves.toBeNull();
-    expect(deleteFile).not.toHaveBeenCalled();
+      await expect(
+        clearD2RLoaderOutputDirectory(runtime),
+      ).resolves.not.toBeNull();
+      expect(deleteFile).toHaveBeenCalledWith(expect.any(String), 'None');
+    } finally {
+      rmSync(fakeRoot, { force: true, recursive: true });
+    }
   });
-
 });

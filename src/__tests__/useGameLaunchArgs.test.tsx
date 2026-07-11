@@ -2,15 +2,10 @@ import useGameLaunchArgs from 'renderer/react/hooks/useGameLaunchArgs';
 import { render } from '@testing-library/react';
 
 let mockExtraArgs: string[] = [];
-let mockIsDirectMode = false;
 let mockOutputModName = 'D2RMM';
 
 jest.mock('renderer/react/context/ExtraGameLaunchArgsContext', () => ({
   useExtraGameLaunchArgs: () => [mockExtraArgs],
-}));
-
-jest.mock('renderer/react/context/IsDirectModeContext', () => ({
-  useIsDirectMode: () => [mockIsDirectMode],
 }));
 
 jest.mock('renderer/react/context/OutputModNameContext', () => ({
@@ -32,7 +27,6 @@ function renderUseGameLaunchArgs(): string[] {
 describe('useGameLaunchArgs', () => {
   beforeEach(() => {
     mockExtraArgs = [];
-    mockIsDirectMode = false;
     mockOutputModName = 'D2RMM';
   });
 
@@ -52,5 +46,11 @@ describe('useGameLaunchArgs', () => {
       '-seed',
       '123',
     ]);
+  });
+
+  it('removes Direct Mode flags from extra launch arguments', () => {
+    mockExtraArgs = ['-direct', '-DIRECT', '-w'];
+
+    expect(renderUseGameLaunchArgs()).toEqual(['-mod', 'D2RMM', '-txt', '-w']);
   });
 });

@@ -6,9 +6,7 @@ import type { TSVData } from './TSV';
 import type { ID2S, IStash } from './third-party/d2s/d2/types';
 
 export type IInstallModsOptions = {
-  dataPath: string;
   gamePath: string;
-  isDirectMode: boolean;
   isDryRun: boolean;
   useD2RLoader?: boolean;
   isPreExtractedData: boolean;
@@ -17,6 +15,7 @@ export type IInstallModsOptions = {
   outputModName: string;
   preExtractedDataPath: string;
   savesPath: string;
+  syncD2RLoaderOutput?: boolean;
 };
 
 export type D2RLoaderSettings = {

@@ -32,6 +32,7 @@ import path from 'path';
 import { getAppPath } from './AppInfoAPI';
 import { EventAPI } from './EventAPI';
 import { provideAPI } from './IPC';
+import { withNoAsar } from './NoAsarScope';
 import { RequestAPI } from './RequestAPI';
 
 // TODO: publish status of update checking / downloading / installing for nice UX
@@ -563,7 +564,10 @@ function canonicalizeWithExistingParent(inputPath: string): string {
   return path.resolve(realpathSync.native(currentPath), ...missingSegments);
 }
 
-function isSameOrDescendant(parentPath: string, candidatePath: string): boolean {
+function isSameOrDescendant(
+  parentPath: string,
+  candidatePath: string,
+): boolean {
   const relativePath = path.relative(parentPath, candidatePath);
   return (
     relativePath === '' ||
@@ -592,8 +596,7 @@ function assertNonOverlappingDirectories(
 export function replaceModDirectoryAtomically(
   sourcePath: string,
   destinationPath: string,
-  beforeOperation: (operation: ModDirectoryReplaceOperation) => void =
-    () => {},
+  beforeOperation: (operation: ModDirectoryReplaceOperation) => void = () => {},
 ): void {
   assertNonOverlappingDirectories(sourcePath, destinationPath);
 
@@ -677,15 +680,11 @@ async function installFromZipPath(
   }
   mkdirSync(extractDirPath, { recursive: true });
 
-  const previousNoAsar = process.noAsar;
-  process.noAsar = true;
-  try {
+  await withNoAsar(async () => {
     await decompress(zipFilePath, extractDirPath, {
       map: normalizeZipDirectoryEntry,
     });
-  } finally {
-    process.noAsar = previousNoAsar;
-  }
+  });
 
   console.debug('ModUpdaterAPI', 'extracted zip file', {
     modID,

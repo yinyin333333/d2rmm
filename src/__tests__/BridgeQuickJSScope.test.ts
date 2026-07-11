@@ -1,4 +1,5 @@
 import type { IInstallModsOptions, Mod } from 'bridge/BridgeAPI';
+import { BridgeAPI, getRuntime } from '../main/worker/BridgeAPI';
 
 const mockEventSend = jest.fn().mockResolvedValue(undefined);
 const mockScopeDispose = jest.fn();
@@ -54,15 +55,11 @@ jest.mock('main/worker/third-party/d2s/index', () => ({
   write: jest.fn(),
 }));
 
-import { BridgeAPI, getRuntime } from '../main/worker/BridgeAPI';
-
 const mockedSourceMapConsumer = jest.requireMock('source-map')
   .SourceMapConsumer as jest.Mock;
 
 const options: IInstallModsOptions = {
-  dataPath: 'C:\\D2RMM-TD04-FAKE\\game\\data',
   gamePath: 'C:\\D2RMM-TD04-FAKE\\game',
-  isDirectMode: false,
   isDryRun: true,
   isPreExtractedData: true,
   mergedPath: 'C:\\D2RMM-TD04-FAKE\\output\\Fake.mpq\\data',
