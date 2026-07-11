@@ -153,7 +153,7 @@ import { CURRENT_VERSION } from './version';
     });
     startupMark('main', 'BrowserWindow constructor completed');
     mainWindow.setTitle(
-      `[D2RMM Custom] Diablo II: Resurrected Mod Manager ${CURRENT_VERSION}`,
+      `[D2RMM Custom] Diablo II: Resurrected Mod Manager ${CURRENT_VERSION} for D2RLoader - yinyin333333`,
     );
     mainWindow.removeMenu();
 

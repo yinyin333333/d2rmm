@@ -236,6 +236,7 @@
   "settings.nexus.signOut": "Sign Out",
   "settings.nexus.signedOut": "You are not signed in to Nexus Mods. You will not be able to check for mod updates or download mod updates directly via D2RMM (for premium Nexus Mods users).",
   "settings.nexus.title": "Nexus Mods",
+  "tabs.discord": "Discord",
   "tabs.logs": "Logs",
   "tabs.mods": "Mods",
   "tabs.settings": "Settings",

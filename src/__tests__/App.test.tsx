@@ -10,6 +10,7 @@ import {
 
 const mockState = {
   installMods: jest.fn(),
+  openExternal: jest.fn(),
   readD2RLoaderConfig: jest.fn(),
   readModDirectory: jest.fn(),
 };
@@ -30,6 +31,9 @@ jest.mock('renderer/IPC', () => ({
             }
             if (api === 'installMods') {
               return mockState.installMods(...args);
+            }
+            if (api === 'openExternal') {
+              return mockState.openExternal(...args);
             }
             if (api === 'readModDirectory') {
               return mockState.readModDirectory(...args);
@@ -52,6 +56,7 @@ describe('App', () => {
   beforeEach(() => {
     localStorage.clear();
     mockState.installMods.mockResolvedValue(undefined);
+    mockState.openExternal.mockResolvedValue(undefined);
     mockState.readD2RLoaderConfig.mockResolvedValue(null);
     mockState.readModDirectory.mockResolvedValue([]);
   });
@@ -167,5 +172,15 @@ describe('App', () => {
 
     await waitFor(() => expect(runButton).not.toBeDisabled());
     expect(installButton).not.toBeDisabled();
+  });
+
+  it('should open the Discord invite from the button next to Logs', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discord' }));
+
+    expect(mockState.openExternal).toHaveBeenCalledWith(
+      'https://discord.gg/eEHT2kcBMf',
+    );
   });
 });

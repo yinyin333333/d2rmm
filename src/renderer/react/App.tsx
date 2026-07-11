@@ -1,4 +1,5 @@
 import 'renderer/css/App.css';
+import ShellAPI from 'renderer/ShellAPI';
 import ErrorBoundary from 'renderer/react/ErrorBoundary';
 import InstallationProgressBar from 'renderer/react/InstallationProgressBar';
 import ModManagerLogs from 'renderer/react/ModManagerLogs';
@@ -39,7 +40,9 @@ import { MemoryRouter as Router, Routes, Route } from 'react-router-dom';
 import TabContext from '@mui/lab/TabContext';
 import TabList from '@mui/lab/TabList';
 import TabPanel from '@mui/lab/TabPanel';
-import { Box, Divider, Tab, Typography } from '@mui/material';
+import { Box, Button, Divider, Tab, Typography } from '@mui/material';
+
+const DISCORD_INVITE_URL = 'https://discord.gg/eEHT2kcBMf';
 
 function TabPanelBox({
   children,
@@ -120,6 +123,13 @@ function RootRoute() {
             <Tab label={t('tabs.settings')} value="settings" />
             <Tab label={t('tabs.logs')} value="logs" />
           </TabList>
+          <Button
+            onClick={() => {
+              ShellAPI.openExternal(DISCORD_INVITE_URL).catch(console.error);
+            }}
+          >
+            {t('tabs.discord')}
+          </Button>
           <Box sx={{ flex: 1 }} />
           <InstallationProgressBar />
         </Box>
