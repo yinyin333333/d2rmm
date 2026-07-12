@@ -1,3 +1,5 @@
+import { useD2RLoaderPluginManager } from 'renderer/react/context/D2RLoaderPluginContext';
+import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useIsInstalling } from 'renderer/react/context/InstallContext';
 import {
   useIsInstallConfigChanged,
@@ -8,43 +10,53 @@ import { useTranslation } from 'react-i18next';
 import { SaveOutlined } from '@mui/icons-material';
 import Save from '@mui/icons-material/Save';
 import { LoadingButton } from '@mui/lab';
-import { Tooltip } from '@mui/material';
 
-type Props = {
-  isUninstall?: boolean;
-  tooltip?: string | null;
-};
-
-export default function ModInstallButton({
-  isUninstall = false,
-  tooltip,
-}: Props): JSX.Element {
+export default function ModInstallButton(): JSX.Element {
   const { t } = useTranslation();
   const isInstallConfigChanged = useIsInstallConfigChanged();
+  const {
+    hasUnsavedEdits = false,
+    isDeploymentChanged,
+    isInventoryCurrent = true,
+    isLoading: isLoadingPlugins,
+    isMutating: isMutatingPlugins,
+    isOutputModeChanged,
+  } = useD2RLoaderPluginManager();
+  const [d2rLoaderSettings] = useD2RLoaderSettings();
   const isLoadingMods = useIsLoadingMods();
   const [isInstalling] = useIsInstalling();
-  const onInstallMods = useInstallMods(isUninstall);
+  const onInstallMods = useInstallMods();
+  const hasPendingInstallation =
+    isInstallConfigChanged ||
+    isOutputModeChanged ||
+    (d2rLoaderSettings.useD2RLoader && isDeploymentChanged);
+  const isPluginStateLoading =
+    d2rLoaderSettings.useD2RLoader && (isLoadingPlugins || isMutatingPlugins);
+  const isPluginStateUnsafe =
+    d2rLoaderSettings.useD2RLoader && (hasUnsavedEdits || !isInventoryCurrent);
 
-  const button = (
+  return (
     <LoadingButton
-      disabled={isLoadingMods || isInstalling}
+      disabled={
+        isLoadingMods ||
+        isPluginStateLoading ||
+        isPluginStateUnsafe ||
+        isInstalling
+      }
       loading={isInstalling}
       loadingPosition="start"
       onClick={onInstallMods}
-      startIcon={isInstallConfigChanged ? <Save /> : <SaveOutlined />}
-      variant={isInstallConfigChanged ? 'contained' : 'outlined'}
+      startIcon={hasPendingInstallation ? <Save /> : <SaveOutlined />}
+      title={
+        isPluginStateUnsafe
+          ? hasUnsavedEdits
+            ? 'Save or cancel D2RLoader JSON edits before installing.'
+            : 'Refresh the D2RLoader plugin list before installing.'
+          : undefined
+      }
+      variant={hasPendingInstallation ? 'contained' : 'outlined'}
     >
-      {t(isUninstall ? 'install.button.uninstall' : 'install.button.install')}
+      {t('install.button.install')}
     </LoadingButton>
   );
-
-  if (tooltip != null) {
-    return (
-      <Tooltip title={tooltip}>
-        <span style={{ display: 'inline-flex' }}>{button}</span>
-      </Tooltip>
-    );
-  }
-
-  return button;
 }

@@ -6,6 +6,8 @@ import useModUpdates from 'renderer/react/context/hooks/useModUpdates';
 import { useCallback } from 'react';
 
 const DEFAULT_UPDATE_STATE = {
+  checkedVersion: null,
+  sourceNexusModID: null,
   isUpdateChecked: false,
   isUpdateAvailable: false,
   nexusUpdates: [],

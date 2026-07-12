@@ -1,7 +1,6 @@
 import { getAppPath } from 'renderer/AppInfoAPI';
 import ShellAPI from 'renderer/ShellAPI';
 import { isOrderedSectionHeader } from 'renderer/react/ReorderUtils';
-import { useIsDirectMode } from 'renderer/react/context/IsDirectModeContext';
 import {
   useEnabledMods,
   useIsLoadingMods,
@@ -48,13 +47,15 @@ export default function ModList(): JSX.Element {
   const [, onRefreshMods] = useMods();
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await onRefreshMods();
-    setIsRefreshing(false);
-  }, [onRefreshMods, setIsRefreshing]);
+    try {
+      await onRefreshMods();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [onRefreshMods]);
 
   const [orderedItems, reorderItems] = useOrdereredItems();
   const [enabledMods] = useEnabledMods();
-  const [isDirectMode] = useIsDirectMode();
   const isLoadingMods = useIsLoadingMods();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -91,7 +92,9 @@ export default function ModList(): JSX.Element {
           (item) =>
             searchFilter === '' ||
             (item.type === 'mod' &&
-              item.mod.info.name.toLowerCase().includes(searchFilter)),
+              item.mod.info.name
+                .toLowerCase()
+                .includes(searchFilter.toLowerCase())),
         )
         // filter by section header
         .filter((item, index, array) => {
@@ -266,12 +269,6 @@ export default function ModList(): JSX.Element {
         <Box sx={{ flex: '1 1 0', ml: 1 }} />
         <ButtonGroup sx={{ flex: '0 0 auto' }} variant="outlined">
           <RunGameButton />
-          {isDirectMode ? (
-            <ModInstallButton
-              isUninstall={true}
-              tooltip={t('install.tooltip.uninstall')}
-            />
-          ) : null}
           <ModInstallButton />
           <OverflowActionsButton />
         </ButtonGroup>

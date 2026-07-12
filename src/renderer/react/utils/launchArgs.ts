@@ -43,6 +43,9 @@ export function normalizeLaunchArgs(args: string[]): string[] {
 
   for (let i = 0; i < normalizedArgs.length; i += 1) {
     const arg = normalizedArgs[i];
+    if (arg.toLowerCase() === '-direct') {
+      continue;
+    }
     if (arg === SEED_ARG) {
       const nextArg = normalizedArgs[i + 1];
       if (nextArg != null && !nextArg.startsWith('-')) {

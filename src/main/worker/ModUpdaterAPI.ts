@@ -12,6 +12,7 @@ import type {
   ValidateResult,
 } from 'bridge/NexusModsAPI';
 import type { ResponseHeaders } from 'bridge/RequestAPI';
+import { randomUUID } from 'crypto';
 import decompress from 'decompress';
 import { zipSync } from 'fflate';
 import {
@@ -20,6 +21,8 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -29,6 +32,7 @@ import path from 'path';
 import { getAppPath } from './AppInfoAPI';
 import { EventAPI } from './EventAPI';
 import { provideAPI } from './IPC';
+import { withNoAsar } from './NoAsarScope';
 import { RequestAPI } from './RequestAPI';
 
 // TODO: publish status of update checking / downloading / installing for nice UX
@@ -501,10 +505,173 @@ export function findModInfo(dirPath: string): string | null {
   return null;
 }
 
+export function normalizeZipDirectoryEntry(
+  file: decompress.File,
+): decompress.File {
+  return file.path.endsWith('/') ? { ...file, type: 'directory' } : file;
+}
+
+const WINDOWS_RESERVED_MOD_ID =
+  /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+const WINDOWS_INVALID_MOD_ID_CHARACTERS = /[<>:"/\\|?*]/;
+
+export function getValidatedModInstallPath(
+  appRootPath: string,
+  modID: string,
+): string {
+  if (
+    modID.trim().length === 0 ||
+    modID === '.' ||
+    modID === '..' ||
+    modID.endsWith('.') ||
+    modID.endsWith(' ') ||
+    WINDOWS_INVALID_MOD_ID_CHARACTERS.test(modID) ||
+    Array.from(modID).some((character) => character.charCodeAt(0) < 32) ||
+    WINDOWS_RESERVED_MOD_ID.test(modID) ||
+    path.win32.isAbsolute(modID) ||
+    path.posix.isAbsolute(modID)
+  ) {
+    throw new Error(`Invalid mod ID: "${modID}".`);
+  }
+
+  const modsRootPath = path.resolve(appRootPath, 'mods');
+  const modDirPath = path.resolve(modsRootPath, modID);
+  const relativePath = path.relative(modsRootPath, modDirPath);
+  if (
+    relativePath.length === 0 ||
+    path.isAbsolute(relativePath) ||
+    path.dirname(relativePath) !== '.'
+  ) {
+    throw new Error(`Invalid mod ID: "${modID}".`);
+  }
+
+  return modDirPath;
+}
+
+export type ModDirectoryReplaceOperation = 'copy' | 'config' | 'swap';
+
+function canonicalizeWithExistingParent(inputPath: string): string {
+  let currentPath = path.resolve(inputPath);
+  const missingSegments: string[] = [];
+
+  while (!existsSync(currentPath)) {
+    const parentPath = path.dirname(currentPath);
+    if (parentPath === currentPath) break;
+    missingSegments.unshift(path.basename(currentPath));
+    currentPath = parentPath;
+  }
+
+  return path.resolve(realpathSync.native(currentPath), ...missingSegments);
+}
+
+function isSameOrDescendant(
+  parentPath: string,
+  candidatePath: string,
+): boolean {
+  const relativePath = path.relative(parentPath, candidatePath);
+  return (
+    relativePath === '' ||
+    (relativePath !== '..' &&
+      !relativePath.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relativePath))
+  );
+}
+
+function assertNonOverlappingDirectories(
+  sourcePath: string,
+  destinationPath: string,
+): void {
+  const canonicalSource = canonicalizeWithExistingParent(sourcePath);
+  const canonicalDestination = canonicalizeWithExistingParent(destinationPath);
+  if (
+    isSameOrDescendant(canonicalSource, canonicalDestination) ||
+    isSameOrDescendant(canonicalDestination, canonicalSource)
+  ) {
+    throw new Error(
+      `Source and destination directories overlap: "${sourcePath}" and "${destinationPath}".`,
+    );
+  }
+}
+
+export function replaceModDirectoryAtomically(
+  sourcePath: string,
+  destinationPath: string,
+  beforeOperation: (operation: ModDirectoryReplaceOperation) => void = () => {},
+): void {
+  assertNonOverlappingDirectories(sourcePath, destinationPath);
+
+  const destinationParent = path.dirname(destinationPath);
+  const destinationName = path.basename(destinationPath);
+  const suffix = randomUUID();
+  const stagingPath = path.join(
+    destinationParent,
+    `.${destinationName}.staging-${suffix}`,
+  );
+  const backupPath = path.join(
+    destinationParent,
+    `.${destinationName}.backup-${suffix}`,
+  );
+  const existingConfigPath = path.join(destinationPath, 'config.json');
+  const existingConfig = existsSync(existingConfigPath)
+    ? readFileSync(existingConfigPath)
+    : null;
+  let hasBackup = false;
+
+  try {
+    mkdirSync(destinationParent, { recursive: true });
+    beforeOperation('copy');
+    cpSync(sourcePath, stagingPath, { recursive: true });
+
+    if (existingConfig != null) {
+      beforeOperation('config');
+      writeFileSync(path.join(stagingPath, 'config.json'), existingConfig);
+    }
+
+    if (existsSync(destinationPath)) {
+      renameSync(destinationPath, backupPath);
+      hasBackup = true;
+    }
+
+    beforeOperation('swap');
+    renameSync(stagingPath, destinationPath);
+
+    if (hasBackup) {
+      rmSync(backupPath, { force: true, recursive: true });
+      hasBackup = false;
+    }
+  } catch (error) {
+    let rollbackError: unknown = null;
+    try {
+      if (hasBackup) {
+        if (existsSync(destinationPath)) {
+          rmSync(destinationPath, { force: true, recursive: true });
+        }
+        renameSync(backupPath, destinationPath);
+        hasBackup = false;
+      }
+    } catch (caught) {
+      rollbackError = caught;
+    }
+
+    if (existsSync(stagingPath)) {
+      rmSync(stagingPath, { force: true, recursive: true });
+    }
+
+    if (rollbackError != null) {
+      throw new AggregateError(
+        [error, rollbackError],
+        'Failed to replace mod directory and restore its backup.',
+      );
+    }
+    throw error;
+  }
+}
+
 async function installFromZipPath(
   zipFilePath: string,
   modID: string,
 ): Promise<string> {
+  const modDirPath = getValidatedModInstallPath(getAppPath(), modID);
   console.debug('ModUpdaterAPI', 'installFromZipPath', { zipFilePath, modID });
 
   const extractDirPath = path.join(os.tmpdir(), 'D2RMM', 'ModInstall', modID);
@@ -513,9 +680,11 @@ async function installFromZipPath(
   }
   mkdirSync(extractDirPath, { recursive: true });
 
-  process.noAsar = true;
-  await decompress(zipFilePath, extractDirPath);
-  process.noAsar = false;
+  await withNoAsar(async () => {
+    await decompress(zipFilePath, extractDirPath, {
+      map: normalizeZipDirectoryEntry,
+    });
+  });
 
   console.debug('ModUpdaterAPI', 'extracted zip file', {
     modID,
@@ -536,23 +705,11 @@ async function installFromZipPath(
     extractedModDirPath,
   });
 
-  const modDirPath = path.join(getAppPath(), 'mods', modID);
-  const configFilePath = path.join(modDirPath, 'config.json');
-  if (existsSync(configFilePath)) {
-    cpSync(configFilePath, path.join(extractedModDirPath, 'config.json'));
+  try {
+    replaceModDirectoryAtomically(extractedModDirPath, modDirPath);
+  } finally {
+    rmSync(extractDirPath, { force: true, recursive: true });
   }
-  if (existsSync(modDirPath)) {
-    rmSync(modDirPath, { force: true, recursive: true });
-  }
-
-  console.debug('ModUpdaterAPI', 'cleaned up old mod directory', {
-    modID,
-    modDirPath,
-  });
-
-  mkdirSync(modDirPath, { recursive: true });
-  cpSync(extractedModDirPath, modDirPath, { recursive: true });
-  rmSync(extractDirPath, { force: true, recursive: true });
 
   console.debug('ModUpdaterAPI', 'installed mod', { modID });
 
@@ -563,6 +720,7 @@ async function installFromFolderPath(
   folderPath: string,
   modID: string,
 ): Promise<string> {
+  const modDirPath = getValidatedModInstallPath(getAppPath(), modID);
   console.debug('ModUpdaterAPI', 'installFromFolderPath', {
     folderPath,
     modID,
@@ -580,25 +738,7 @@ async function installFromFolderPath(
     extractedModDirPath,
   });
 
-  // Read existing config before overwriting the mod directory, so we do not
-  // write into the user's source folder (unlike the zip path which uses a
-  // temporary extraction directory).
-  const modDirPath = path.join(getAppPath(), 'mods', modID);
-  const configFilePath = path.join(modDirPath, 'config.json');
-  const existingConfig = existsSync(configFilePath)
-    ? readFileSync(configFilePath)
-    : null;
-
-  if (existsSync(modDirPath)) {
-    rmSync(modDirPath, { force: true, recursive: true });
-  }
-
-  mkdirSync(modDirPath, { recursive: true });
-  cpSync(extractedModDirPath, modDirPath, { recursive: true });
-
-  if (existingConfig != null) {
-    writeFileSync(path.join(modDirPath, 'config.json'), existingConfig);
-  }
+  replaceModDirectoryAtomically(extractedModDirPath, modDirPath);
 
   console.debug('ModUpdaterAPI', 'installed mod from folder', { modID });
 
@@ -645,7 +785,21 @@ export async function initModUpdaterAPI(): Promise<void> {
         nexusModID,
         nexusFileID,
       });
-      // get link to the zip file on Nexus Mods CDN
+
+      if (modID == null) {
+        // TODO: should this use the name of the mod on Nexus instead?
+        const file = await NexusModsAPI.getFile(
+          nexusApiKey,
+          nexusModID,
+          nexusFileID,
+        );
+        modID = file.name;
+      }
+
+      getValidatedModInstallPath(getAppPath(), modID);
+
+      // get link to the zip file on Nexus Mods CDN only after the local
+      // destination and download filename are known to be safe.
       const downloadLink = await NexusModsAPI.getDownloadLink(
         nexusApiKey,
         nexusModID,
@@ -658,16 +812,6 @@ export async function initModUpdaterAPI(): Promise<void> {
         throw new Error(
           `No download links found for Nexus mod ${nexusModID} file ${nexusFileID}.`,
         );
-      }
-
-      if (modID == null) {
-        // TODO: should this use the name of the mod on Nexus instead?
-        const file = await NexusModsAPI.getFile(
-          nexusApiKey,
-          nexusModID,
-          nexusFileID,
-        );
-        modID = file.name;
       }
 
       // download the zip file

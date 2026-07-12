@@ -14,6 +14,19 @@ function isSteamDeck() {
   return appPath.startsWith('Z:\\home\\deck\\');
 }
 
+export function getDefaultBaseSavesPath(
+  userProfile: string | undefined,
+  homePath: string,
+): string {
+  return path.resolve(
+    path.join(
+      userProfile ?? homePath,
+      'Saved Games',
+      'Diablo II Resurrected',
+    ),
+  );
+}
+
 export async function initAppInfoAPI(): Promise<void> {
   provideAPI('AppInfoAPI', {
     getIsPackaged: async () => {
@@ -53,12 +66,9 @@ export async function initAppInfoAPI(): Promise<void> {
       }
 
       // Windows: C:\Users\<username>\Saved Games\Diablo II Resurrected
-      return path.resolve(
-        path.join(
-          process.env.USERPROFILE ?? path.join(app.getPath('home'), '..'),
-          'Saved Games',
-          'Diablo II Resurrected',
-        ),
+      return getDefaultBaseSavesPath(
+        process.env.USERPROFILE,
+        app.getPath('home'),
       );
     },
     getAppPath: async () => {

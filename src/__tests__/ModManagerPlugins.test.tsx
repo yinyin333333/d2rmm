@@ -1,0 +1,359 @@
+import ModManagerPlugins from 'renderer/react/ModManagerPlugins';
+import {
+  DialogManagerContextProvider,
+  DialogRenderer,
+} from 'renderer/react/context/DialogContext';
+import '@testing-library/jest-dom';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+
+const mockDeletePackage = jest.fn();
+const mockReadEditableJSON = jest.fn();
+const mockRefresh = jest.fn();
+const mockSaveEditableJSON = jest.fn();
+const mockSetEditableJSONDirty = jest.fn();
+const mockShowToast = jest.fn();
+
+const mockInventory = {
+  conflicts: [],
+  managedRoot: 'C:\\D2RMM\\d2rloader',
+  managedSignature: 'signature',
+  packages: [
+    {
+      configFiles: [],
+      dataFiles: [],
+      name: 'eezstreet-plugin-pack-2.0',
+      patchFiles: [],
+      pluginFiles: ['plugins\\D2RPlugins.json', 'plugins\\plugin-items.dll'],
+      unmappedFiles: [],
+      warnings: [],
+    },
+    {
+      configFiles: [],
+      dataFiles: [],
+      name: 'maxstashgold',
+      patchFiles: ['patches\\maxstashgold.json'],
+      pluginFiles: [],
+      unmappedFiles: [],
+      warnings: [],
+    },
+  ],
+  patches: [
+    {
+      editableSourcePath: 'maxstashgold.json',
+      id: 'managed:maxstashgold:maxstashgold.json',
+      name: 'maxstashgold.json',
+      packageName: 'maxstashgold',
+      relativePath: 'maxstashgold.json',
+      sha256: 'c'.repeat(64),
+      sourceName: 'maxstashgold',
+      sourceType: 'managed' as const,
+    },
+  ],
+  plugins: [
+    {
+      editableSourcePath: 'D2RPlugins.json',
+      id: 'managed:eezstreet:D2RPlugins.json',
+      name: 'D2RPlugins.json',
+      packageName: 'eezstreet-plugin-pack-2.0',
+      relativePath: 'D2RPlugins.json',
+      sha256: 'a'.repeat(64),
+      sourceName: 'eezstreet-plugin-pack-2.0',
+      sourceType: 'managed' as const,
+    },
+    {
+      editableSourcePath: null,
+      id: 'managed:eezstreet:plugin-items.dll',
+      name: 'plugin-items.dll',
+      packageName: 'eezstreet-plugin-pack-2.0',
+      relativePath: 'plugin-items.dll',
+      sha256: 'b'.repeat(64),
+      sourceName: 'eezstreet-plugin-pack-2.0',
+      sourceType: 'managed' as const,
+    },
+    {
+      editableSourcePath: null,
+      id: 'mod:Example Mod:mod-settings.json',
+      name: 'mod-settings.json',
+      packageName: null,
+      relativePath: 'mod-settings.json',
+      sha256: 'd'.repeat(64),
+      sourceName: 'Example Mod',
+      sourceType: 'mod' as const,
+    },
+  ],
+};
+
+jest.mock('renderer/BridgeAPI', () => ({
+  __esModule: true,
+  default: { createDirectory: jest.fn() },
+}));
+
+jest.mock('renderer/ShellAPI', () => ({
+  __esModule: true,
+  default: { showItemInFolder: jest.fn() },
+}));
+
+jest.mock('renderer/react/context/D2RLoaderPluginContext', () => ({
+  useD2RLoaderPluginManager: () => ({
+    deletePackage: mockDeletePackage,
+    error: null,
+    hasUnsavedEdits: false,
+    inventory: mockInventory,
+    isInventoryCurrent: true,
+    isLoading: false,
+    isMutating: false,
+    readEditableJSON: mockReadEditableJSON,
+    refresh: mockRefresh,
+    saveEditableJSON: mockSaveEditableJSON,
+    setEditableJSONDirty: mockSetEditableJSONDirty,
+  }),
+}));
+
+jest.mock('renderer/react/context/InstallContext', () => ({
+  useIsInstalling: () => [false, jest.fn()],
+}));
+
+jest.mock('renderer/react/hooks/useToast', () => ({
+  __esModule: true,
+  default: () => mockShowToast,
+}));
+
+function renderPlugins(): void {
+  render(
+    <DialogManagerContextProvider>
+      <ModManagerPlugins />
+      <DialogRenderer />
+    </DialogManagerContextProvider>,
+  );
+}
+
+describe('ModManagerPlugins', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDeletePackage.mockResolvedValue(undefined);
+    mockReadEditableJSON.mockImplementation(
+      async (packageName: string, sourcePath: string) => ({
+        contents:
+          sourcePath === 'maxstashgold.json'
+            ? '{"version":1,"patches":[{"op":"write-u32","rva":"0x10"}]}'
+            : '{\n  // editable\n  "enabled": true,\n}\n',
+        packageName,
+        role: sourcePath === 'maxstashgold.json' ? 'patch' : 'plugin',
+        sha256:
+          sourcePath === 'maxstashgold.json' ? 'c'.repeat(64) : 'a'.repeat(64),
+        sourcePath,
+        targetPath:
+          sourcePath === 'maxstashgold.json'
+            ? 'patches\\maxstashgold.json'
+            : 'plugins\\D2RPlugins.json',
+      }),
+    );
+    mockRefresh.mockResolvedValue(mockInventory);
+    mockSaveEditableJSON.mockResolvedValue({
+      sha256: 'e'.repeat(64),
+      warnings: [],
+    });
+  });
+
+  it('separates files by package or mod source and exposes editors only for managed JSON', () => {
+    renderPlugins();
+
+    expect(
+      screen.getByText('D2RMM package: eezstreet-plugin-pack-2.0'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('D2RMM package: maxstashgold')).toBeInTheDocument();
+    expect(screen.getByText('Mod: Example Mod')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: 'Edit D2RPlugins.json in eezstreet-plugin-pack-2.0',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: 'Edit maxstashgold.json in maxstashgold',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Edit mod-settings.json' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Edit plugin-items.dll' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('lazy-loads, expands, edits, and saves managed JSON', async () => {
+    renderPlugins();
+    const editButton = screen.getByRole('button', {
+      name: 'Edit D2RPlugins.json in eezstreet-plugin-pack-2.0',
+    });
+
+    expect(editButton).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(editButton);
+    const editor = await screen.findByRole('textbox', {
+      name: 'JSON editor for D2RPlugins.json in eezstreet-plugin-pack-2.0',
+    });
+    expect(editButton).toHaveAttribute('aria-expanded', 'true');
+    expect(mockReadEditableJSON).toHaveBeenCalledWith(
+      'eezstreet-plugin-pack-2.0',
+      'D2RPlugins.json',
+    );
+
+    const edited = '{\n  "enabled": false\n}\n';
+    fireEvent.change(editor, { target: { value: edited } });
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Save D2RPlugins.json in eezstreet-plugin-pack-2.0',
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mockSaveEditableJSON).toHaveBeenCalledWith(
+        'eezstreet-plugin-pack-2.0',
+        'D2RPlugins.json',
+        'a'.repeat(64),
+        edited,
+      ),
+    );
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'D2RPlugins.json saved' }),
+      ),
+    );
+    expect(mockSetEditableJSONDirty).toHaveBeenCalledWith(
+      'managed:eezstreet:D2RPlugins.json',
+      true,
+    );
+  });
+
+  it('offers an explicit reload after a stale revision save error', async () => {
+    mockSaveEditableJSON.mockRejectedValueOnce(
+      new Error('Managed package JSON changed since the editor was opened.'),
+    );
+    mockReadEditableJSON
+      .mockResolvedValueOnce({
+        contents: '{"value":"old"}',
+        packageName: 'eezstreet-plugin-pack-2.0',
+        role: 'plugin',
+        sha256: 'a'.repeat(64),
+        sourcePath: 'D2RPlugins.json',
+        targetPath: 'plugins\\D2RPlugins.json',
+      })
+      .mockResolvedValueOnce({
+        contents: '{"value":"external"}',
+        packageName: 'eezstreet-plugin-pack-2.0',
+        role: 'plugin',
+        sha256: 'f'.repeat(64),
+        sourcePath: 'D2RPlugins.json',
+        targetPath: 'plugins\\D2RPlugins.json',
+      });
+    renderPlugins();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Edit D2RPlugins.json in eezstreet-plugin-pack-2.0',
+      }),
+    );
+    const editor = await screen.findByRole('textbox', {
+      name: 'JSON editor for D2RPlugins.json in eezstreet-plugin-pack-2.0',
+    });
+    fireEvent.change(editor, { target: { value: '{"value":"draft"}' } });
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Save D2RPlugins.json in eezstreet-plugin-pack-2.0',
+      }),
+    );
+
+    const reload = await screen.findByRole('button', {
+      name: 'Reload D2RPlugins.json in eezstreet-plugin-pack-2.0',
+    });
+    fireEvent.click(reload);
+    await waitFor(() => expect(mockReadEditableJSON).toHaveBeenCalledTimes(2));
+    expect(
+      await screen.findByRole('textbox', {
+        name: 'JSON editor for D2RPlugins.json in eezstreet-plugin-pack-2.0',
+      }),
+    ).toHaveValue('{"value":"external"}');
+  });
+
+  it('allows correcting a role validation error without discarding the draft', async () => {
+    mockSaveEditableJSON.mockRejectedValueOnce(
+      new Error(
+        'Plugin companion JSON/JSONC cannot be changed into a patch: "D2RPlugins.json".',
+      ),
+    );
+    renderPlugins();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Edit D2RPlugins.json in eezstreet-plugin-pack-2.0',
+      }),
+    );
+    const editor = await screen.findByRole('textbox', {
+      name: 'JSON editor for D2RPlugins.json in eezstreet-plugin-pack-2.0',
+    });
+    const patchDraft =
+      '{"version":1,"patches":[{"op":"write-u8","rva":"0x10"}]}';
+    fireEvent.change(editor, { target: { value: patchDraft } });
+    const saveButton = screen.getByRole('button', {
+      name: 'Save D2RPlugins.json in eezstreet-plugin-pack-2.0',
+    });
+    fireEvent.click(saveButton);
+
+    expect(
+      await screen.findByText(/cannot be changed into a patch/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {
+        name: 'Reload D2RPlugins.json in eezstreet-plugin-pack-2.0',
+      }),
+    ).not.toBeInTheDocument();
+    expect(saveButton).not.toBeDisabled();
+
+    const correctedDraft = '{"enabled":false}';
+    fireEvent.change(editor, { target: { value: correctedDraft } });
+    fireEvent.click(saveButton);
+    await waitFor(() =>
+      expect(mockSaveEditableJSON).toHaveBeenLastCalledWith(
+        'eezstreet-plugin-pack-2.0',
+        'D2RPlugins.json',
+        'a'.repeat(64),
+        correctedDraft,
+      ),
+    );
+    expect(mockSaveEditableJSON).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the same Material dialog style for package deletion', async () => {
+    const confirmSpy = jest.spyOn(window, 'confirm');
+    renderPlugins();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Delete eezstreet-plugin-pack-2.0',
+      }),
+    );
+    expect(
+      await screen.findByText(
+        'Are you sure you want to delete "eezstreet-plugin-pack-2.0"?',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('dialog', {
+        name: 'Are you sure you want to delete "eezstreet-plugin-pack-2.0"?',
+      }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(mockDeletePackage).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Delete eezstreet-plugin-pack-2.0',
+      }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    await waitFor(() =>
+      expect(mockDeletePackage).toHaveBeenCalledWith(
+        'eezstreet-plugin-pack-2.0',
+      ),
+    );
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+});

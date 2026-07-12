@@ -42,6 +42,10 @@ export function makeCascOpenStorageArgs(flags: number): object {
 export type ICascLib = {
   CascCloseFile: (handle: unknown) => boolean;
   CascCloseStorage: (storage: unknown) => boolean;
+  CascGetFileSize64: (
+    file: unknown,
+    fileSizeOut: (bigint | number)[],
+  ) => boolean;
   CascOpenFile: (
     storage: unknown,
     filePath: string,
@@ -94,6 +98,9 @@ export async function initCascLib(): Promise<void> {
   CASC_LIB = {
     CascCloseFile: lib.func('bool CascCloseFile(void *handle)'),
     CascCloseStorage: lib.func('bool CascCloseStorage(void *storage)'),
+    CascGetFileSize64: lib.func(
+      'bool CascGetFileSize64(void *file, _Out_ uint64_t *fileSize)',
+    ),
     CascOpenFile: lib.func(
       'bool CascOpenFile(void *storage, str filePath, int locale, int flags, _Out_ void **file)',
     ),
@@ -104,7 +111,7 @@ export async function initCascLib(): Promise<void> {
       'bool CascOpenStorageEx(str path, CASC_OPEN_STORAGE_ARGS *args, bool online, _Out_ void **storage)',
     ),
     CascReadFile: lib.func(
-      'bool CascReadFile(void *file, void *buffer, int size, _Out_ uint32_t *bytesRead)',
+      'bool CascReadFile(void *file, void *buffer, uint32_t size, _Out_ uint32_t *bytesRead)',
     ),
     GetCascError: lib.func('int GetCascError()'),
   };

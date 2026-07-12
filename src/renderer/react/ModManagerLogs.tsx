@@ -91,7 +91,7 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
   const [isInstalling] = useIsInstalling();
   const [levels, setLevels] = useLogLevels();
   const [filter, setFilter] = useState('');
-  const [selectedRowIndex, setSelectedRowIndex] = useState<number>(-1);
+  const [selectedLogID, setSelectedLogID] = useState<number | null>(null);
   const listRef = useRef<FixedSizeList | null>(null);
   const [exportAnchorEl, setExportAnchorEl] =
     useState<HTMLButtonElement | null>(null);
@@ -152,6 +152,11 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
     [logs, levels, t, filter],
   );
 
+  const selectedLog = useMemo(
+    () => filteredLogs.find((log) => log.id === selectedLogID) ?? null,
+    [filteredLogs, selectedLogID],
+  );
+
   const renderRow = useCallback(
     ({ style, index }: ListChildComponentProps) => {
       const log = filteredLogs[index];
@@ -159,7 +164,7 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
         <ListItemButton
           key={log.id}
           divider={index < filteredLogs.length - 1}
-          onClick={() => setSelectedRowIndex(index)}
+          onClick={() => setSelectedLogID(log.id)}
           style={style}
           sx={{ flex: 1, userSelect: 'none' }}
         >
@@ -205,15 +210,15 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
   }, [isInstalling, filteredLogs]);
 
   const drawerTitle =
-    selectedRowIndex === -1
+    selectedLog == null
       ? ''
-      : filteredLogs[selectedRowIndex].level === 'error'
+      : selectedLog.level === 'error'
         ? t('logs.drawer.error')
-        : filteredLogs[selectedRowIndex].level === 'warn'
+        : selectedLog.level === 'warn'
           ? t('logs.drawer.warn')
-          : filteredLogs[selectedRowIndex].level === 'log'
+          : selectedLog.level === 'log'
             ? t('logs.drawer.info')
-            : filteredLogs[selectedRowIndex].level === 'debug'
+            : selectedLog.level === 'debug'
               ? t('logs.drawer.debug')
               : '';
 
@@ -328,10 +333,10 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
       </Box>
       <Drawer
         anchor="bottom"
-        onClose={() => setSelectedRowIndex(-1)}
-        open={selectedRowIndex !== -1}
+        onClose={() => setSelectedLogID(null)}
+        open={selectedLog != null}
       >
-        {selectedRowIndex === -1 ? null : (
+        {selectedLog == null ? null : (
           <>
             <AppBar position="static">
               <Toolbar>
@@ -343,9 +348,7 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
                   color="inherit"
                   edge="start"
                   onClick={() =>
-                    navigator.clipboard.writeText(
-                      filteredLogs[selectedRowIndex].text,
-                    )
+                    navigator.clipboard.writeText(selectedLog.text)
                   }
                   size="large"
                   sx={{ marginRight: 2 }}
@@ -355,7 +358,7 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
                 <IconButton
                   color="inherit"
                   edge="start"
-                  onClick={() => setSelectedRowIndex(-1)}
+                  onClick={() => setSelectedLogID(null)}
                   size="large"
                 >
                   <CloseIcon />
@@ -371,7 +374,7 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
                 whiteSpace: 'pre-wrap',
               }}
             >
-              {filteredLogs[selectedRowIndex].text}
+              {selectedLog.text}
             </Box>
           </>
         )}

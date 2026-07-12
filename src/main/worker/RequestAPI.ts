@@ -15,7 +15,16 @@ export type OnProgress = (progress: {
   bytesTotal: number;
 }) => Promise<void>;
 
-type ILocalRequestAPI = {
+export type WorkerRequestAPIDependencies = {
+  addProgressListener: (eventID: string, listener: OnProgress) => void;
+  createEventID: () => string;
+  networkedRequestAPI: Pick<IRequestAPI, 'download'>;
+  readFile: (filePath: string) => Buffer;
+  removeFile: (filePath: string) => void;
+  removeProgressListener: (eventID: string, listener: OnProgress) => void;
+};
+
+export type ILocalRequestAPI = {
   downloadToFile(
     url: string,
     options?: {
@@ -39,27 +48,51 @@ type ILocalRequestAPI = {
   }>;
 };
 
-export const RequestAPI = {
-  async downloadToFile(url, options) {
-    const eventID = options?.onProgress == null ? null : uuidv4();
-    if (eventID != null && options?.onProgress != null) {
-      EventAPI.addListener(eventID, options?.onProgress);
-    }
-    const { filePath, headers } = await NetworkedRequestAPI.download(url, {
-      eventID,
-      fileName: options?.fileName,
-      headers: options?.headers,
-    });
-    if (eventID != null && options?.onProgress != null) {
-      EventAPI.removeListener(eventID, options?.onProgress);
-    }
-    return { filePath, headers };
-  },
+export function createWorkerRequestAPI(
+  dependencies: WorkerRequestAPIDependencies,
+): ILocalRequestAPI {
+  const api: ILocalRequestAPI = {
+    async downloadToFile(url, options) {
+      const onProgress = options?.onProgress;
+      const eventID = onProgress == null ? null : dependencies.createEventID();
+      if (eventID != null && onProgress != null) {
+        dependencies.addProgressListener(eventID, onProgress);
+      }
 
-  async downloadToBuffer(url, options) {
-    const { filePath, headers } = await RequestAPI.downloadToFile(url, options);
-    const response = readFileSync(filePath, { encoding: null });
-    rmSync(filePath);
-    return { response, headers };
+      try {
+        return await dependencies.networkedRequestAPI.download(url, {
+          eventID,
+          fileName: options?.fileName,
+          headers: options?.headers,
+        });
+      } finally {
+        if (eventID != null && onProgress != null) {
+          dependencies.removeProgressListener(eventID, onProgress);
+        }
+      }
+    },
+
+    async downloadToBuffer(url, options) {
+      const { filePath, headers } = await api.downloadToFile(url, options);
+      try {
+        return { response: dependencies.readFile(filePath), headers };
+      } finally {
+        dependencies.removeFile(filePath);
+      }
+    },
+  };
+  return api;
+}
+
+export const RequestAPI = createWorkerRequestAPI({
+  addProgressListener: (eventID, listener) => {
+    EventAPI.addListener(eventID, listener);
   },
-} as ILocalRequestAPI;
+  createEventID: uuidv4,
+  networkedRequestAPI: NetworkedRequestAPI,
+  readFile: (filePath) => readFileSync(filePath, { encoding: null }),
+  removeFile: (filePath) => rmSync(filePath, { force: true }),
+  removeProgressListener: (eventID, listener) => {
+    EventAPI.removeListener(eventID, listener);
+  },
+});

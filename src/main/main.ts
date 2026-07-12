@@ -1,5 +1,5 @@
 import 'core-js/stable';
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import log from 'electron-log/main';
 import path from 'path';
 import 'regenerator-runtime/runtime';
@@ -9,10 +9,15 @@ import { initAppInfoAPI } from './AppInfoAPI';
 import { initConsoleAPI } from './ConsoleAPI';
 import { initEventAPI } from './EventAPI';
 import { initIPC } from './IPC';
-import { initNxmProtocolAPI } from './NxmProtocolAPI';
+import { createMainLifecycleCoordinator } from './MainLifecycle';
+import {
+  captureNxmProtocolEvents,
+  initNxmProtocolAPI,
+  markNxmProtocolRendererUnavailable,
+} from './NxmProtocolAPI';
 import { RendererIPCAPI } from './RendererIPCAPI';
 import { initRequestAPI } from './RequestAPI';
-import { initShellAPI } from './ShellAPI';
+import { configureWebContentsSecurity, initShellAPI } from './ShellAPI';
 import { getWorkers, spawnNewWorker } from './Workers';
 import { initI18n } from './i18n';
 import { initPreferences } from './preferences';
@@ -20,6 +25,7 @@ import { resolveHtmlPath } from './util';
 import { CURRENT_VERSION } from './version';
 
 (async () => {
+  captureNxmProtocolEvents(process.argv);
   startupMark('main', 'main process entry');
   const isSingleInstance = app.requestSingleInstanceLock();
   if (!isSingleInstance) {
@@ -75,6 +81,48 @@ import { CURRENT_VERSION } from './version';
       .catch(console.log);
   };
 
+  const mainLifecycle = createMainLifecycleCoordinator<BrowserWindow>({
+    bindWindow: async (window) => {
+      console.debug('[main] Initializing IPC...');
+      await startupMeasure('main', 'initIPC', () => initIPC(window));
+    },
+    initEventAPI: async () => {
+      console.debug('[main] Initializing EventAPI...');
+      await startupMeasure('main', 'initEventAPI', initEventAPI);
+    },
+    initConsoleAPI: async () => {
+      console.debug('[main] Initializing ConsoleAPI...');
+      await startupMeasure('main', 'initConsoleAPI', initConsoleAPI);
+    },
+    initAppInfoAPI: async () => {
+      console.debug('[main] Initializing AppInfoAPI...');
+      await startupMeasure('main', 'initAppInfoAPI', initAppInfoAPI);
+    },
+    initShellAPI: async () => {
+      console.debug('[main] Initializing ShellAPI...');
+      await startupMeasure('main', 'initShellAPI', initShellAPI);
+    },
+    initRequestAPI: async () => {
+      console.debug('[main] Initializing RequestAPI...');
+      await startupMeasure('main', 'initRequestAPI', initRequestAPI);
+    },
+    initNxmProtocolAPI: async () => {
+      console.debug('[main] Initializing NxmProtocolAPI...');
+      await startupMeasure('main', 'initNxmProtocolAPI', initNxmProtocolAPI);
+      console.debug('[main] Initialized');
+    },
+    spawnWorker: async () => {
+      try {
+        console.debug('[main] Spawning worker...');
+        await startupMeasure('main', 'spawnNewWorker', spawnNewWorker);
+        console.debug('[main] Worker spawned successfully!');
+      } catch (e) {
+        console.error(tl('main.worker.spawnFailed'), e);
+        app.quit();
+      }
+    },
+  });
+
   const createWindow = async () => {
     startupMark('main', 'createWindow start');
     console.debug('[main] Initializing...');
@@ -105,7 +153,7 @@ import { CURRENT_VERSION } from './version';
     });
     startupMark('main', 'BrowserWindow constructor completed');
     mainWindow.setTitle(
-      `[D2RMM Custom] Diablo II: Resurrected Mod Manager ${CURRENT_VERSION}`,
+      `[D2RMM Custom] Diablo II: Resurrected Mod Manager ${CURRENT_VERSION} for D2RLoader`,
     );
     mainWindow.removeMenu();
 
@@ -132,42 +180,17 @@ import { CURRENT_VERSION } from './version';
     });
 
     mainWindow.on('closed', () => {
+      markNxmProtocolRendererUnavailable();
       mainWindow = null;
     });
 
-    // Open urls in the user's browser
-    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-      shell.openExternal(url).catch(console.error);
-      return { action: 'deny' };
-    });
+    const documentURL = resolveHtmlPath('index.html');
+    configureWebContentsSecurity(mainWindow.webContents, documentURL);
 
-    console.debug('[main] Initializing IPC...');
-    await startupMeasure('main', 'initIPC', () => initIPC(mainWindow!));
-    console.debug('[main] Initializing EventAPI...');
-    await startupMeasure('main', 'initEventAPI', initEventAPI);
-    console.debug('[main] Initializing ConsoleAPI...');
-    await startupMeasure('main', 'initConsoleAPI', initConsoleAPI);
-    console.debug('[main] Initializing AppInfoAPI...');
-    await startupMeasure('main', 'initAppInfoAPI', initAppInfoAPI);
-    console.debug('[main] Initializing ShellAPI...');
-    await startupMeasure('main', 'initShellAPI', initShellAPI);
-    console.debug('[main] Initializing RequestAPI...');
-    await startupMeasure('main', 'initRequestAPI', initRequestAPI);
-    console.debug('[main] Initializing NxmProtocolAPI...');
-    await startupMeasure('main', 'initNxmProtocolAPI', initNxmProtocolAPI);
-    console.debug('[main] Initialized');
-
-    try {
-      console.debug('[main] Spawning worker...');
-      await startupMeasure('main', 'spawnNewWorker', spawnNewWorker);
-      console.debug('[main] Worker spawned successfully!');
-    } catch (e) {
-      console.error(tl('main.worker.spawnFailed'), e);
-      app.quit();
-    }
+    await mainLifecycle.attachWindow(mainWindow);
 
     await startupMeasure('main', 'loadURL', () =>
-      mainWindow!.loadURL(resolveHtmlPath('index.html')),
+      mainWindow!.loadURL(documentURL),
     );
     startupMark('main', 'createWindow completed');
   };

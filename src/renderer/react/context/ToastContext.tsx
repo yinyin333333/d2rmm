@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, AlertColor, AlertTitle, Button, Snackbar } from '@mui/material';
 
 export type Toast = {
@@ -21,11 +21,16 @@ type Props = {
   children: React.ReactNode;
 };
 
+type QueuedToast = Toast & { id: number };
+
 export function ToastContextProvider({ children }: Props): JSX.Element {
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [toasts, setToasts] = useState<QueuedToast[]>([]);
+  const nextToastID = useRef(0);
 
   const showToast = useCallback((toast: Toast): void => {
-    setToasts((oldToasts) => [...oldToasts, toast]);
+    const id = nextToastID.current;
+    nextToastID.current += 1;
+    setToasts((oldToasts) => [...oldToasts, { ...toast, id }]);
   }, []);
 
   const popToast = useCallback((): void => {
@@ -47,6 +52,7 @@ export function ToastContextProvider({ children }: Props): JSX.Element {
     <ToastContext.Provider value={context}>
       {children}
       <Snackbar
+        key={currentToast?.id}
         autoHideDuration={currentToast?.duration ?? null}
         onClose={popToast}
         open={toasts.length > 0}

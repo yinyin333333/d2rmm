@@ -6,15 +6,17 @@ export function useUpdateModVersion(): (
   modID: string,
   version: string,
 ) => Promise<boolean> {
-  const [, setUpdates] = useModUpdates();
+  const [updates, setUpdates] = useModUpdates();
 
   return useCallback(
     async (modID: string, newVersion: string): Promise<boolean> => {
-      let isUpdated = false;
+      if (!updates.has(modID)) {
+        return false;
+      }
+
       setUpdates((oldUpdates) => {
         const oldUpdateState = oldUpdates.get(modID);
         if (oldUpdateState == null) {
-          isUpdated = false;
           return oldUpdates;
         }
 
@@ -25,16 +27,17 @@ export function useUpdateModVersion(): (
 
         const newUpdates = new Map(oldUpdates);
         newUpdates.set(modID, {
+          checkedVersion: newVersion,
+          sourceNexusModID: oldUpdateState.sourceNexusModID,
           isUpdateChecked: true,
           isUpdateAvailable: nexusUpdates.length > 0,
           nexusUpdates,
           nexusDownloads: oldUpdateState.nexusDownloads,
         });
-        isUpdated = true;
         return newUpdates;
       });
-      return isUpdated;
+      return true;
     },
-    [setUpdates],
+    [setUpdates, updates],
   );
 }

@@ -18,24 +18,59 @@ export type FileStatus = {
   operations: FileOperation[];
 };
 
+export function getFileManagerPathIdentity(
+  filePath: string,
+  platform: NodeJS.Platform = process.platform,
+): { filePath: string; key: string } {
+  const normalizedFilePath = filePath.replace(/\\/g, '/');
+  const effectiveFilePath =
+    platform === 'win32' ? normalizedFilePath.toLowerCase() : normalizedFilePath;
+  return { filePath: effectiveFilePath, key: effectiveFilePath };
+}
+
 export class FileManager {
   private files: Record<string, FileStatus> = {};
+  private transactionJournal: Map<string, FileStatus | null> | null = null;
   constructor(private runtime: InstallationRuntime) {}
 
+  private cloneFileStatus(fileStatus: FileStatus): FileStatus {
+    return {
+      ...fileStatus,
+      data: fileStatus.data == null ? null : Buffer.from(fileStatus.data),
+      operations: fileStatus.operations.map((operation) => ({ ...operation })),
+    };
+  }
+
+  private rememberForRollback(normalizedFilePath: string): void {
+    if (
+      this.transactionJournal == null ||
+      this.transactionJournal.has(normalizedFilePath)
+    ) {
+      return;
+    }
+
+    const current = this.files[normalizedFilePath];
+    this.transactionJournal.set(
+      normalizedFilePath,
+      current == null ? null : this.cloneFileStatus(current),
+    );
+  }
+
   private get(filePath: string): FileStatus {
-    const normalizedFilePath = filePath.replace(/\\/g, '/').toLowerCase();
-    if (this.files[normalizedFilePath] == undefined) {
-      return (this.files[normalizedFilePath] = {
+    const identity = getFileManagerPathIdentity(filePath);
+    if (this.files[identity.key] == undefined) {
+      this.rememberForRollback(identity.key);
+      return (this.files[identity.key] = {
         data: null,
         exists: false,
         extracted: false,
-        filePath: normalizedFilePath,
+        filePath: identity.filePath,
         gameFile: null,
         modified: false,
         operations: [],
       });
     }
-    return this.files[normalizedFilePath];
+    return this.files[identity.key];
   }
 
   public extracted(filePath: string): boolean {
@@ -56,7 +91,12 @@ export class FileManager {
       return fileStatus.gameFile;
     }
     try {
-      return await this.runtime.BridgeAPI.isGameFile(fileStatus.filePath);
+      const isGameFile = await this.runtime.BridgeAPI.isGameFile(
+        fileStatus.filePath,
+      );
+      this.rememberForRollback(fileStatus.filePath);
+      fileStatus.gameFile = isGameFile;
+      return isGameFile;
     } catch {
       return false;
     }
@@ -64,6 +104,7 @@ export class FileManager {
 
   public async extract(filePath: string, mod: string): Promise<void> {
     const fileStatus = this.get(filePath);
+    this.rememberForRollback(fileStatus.filePath);
     fileStatus.operations.push({ mod, type: 'extract' });
     fileStatus.exists = true;
     fileStatus.extracted = true;
@@ -71,11 +112,13 @@ export class FileManager {
 
   public async read(filePath: string, mod: string): Promise<void> {
     const fileStatus = this.get(filePath);
+    this.rememberForRollback(fileStatus.filePath);
     fileStatus.operations.push({ mod, type: 'read' });
   }
 
   public async write(filePath: string, mod: string): Promise<void> {
     const fileStatus = this.get(filePath);
+    this.rememberForRollback(fileStatus.filePath);
 
     if (
       // if the mod is writing a file that it has never read or written
@@ -121,6 +164,7 @@ export class FileManager {
 
   public setData(filePath: string, data: Buffer): void {
     const fileStatus = this.get(filePath);
+    this.rememberForRollback(fileStatus.filePath);
     fileStatus.data = data;
     fileStatus.exists = true;
   }
@@ -139,5 +183,34 @@ export class FileManager {
         filePath,
         data: fileStatus.data,
       }));
+  }
+
+  public beginTransaction(): void {
+    if (this.transactionJournal != null) {
+      throw new Error('A FileManager transaction is already active.');
+    }
+    this.transactionJournal = new Map();
+  }
+
+  public commitTransaction(): void {
+    if (this.transactionJournal == null) {
+      throw new Error('No FileManager transaction is active.');
+    }
+    this.transactionJournal = null;
+  }
+
+  public rollbackTransaction(): void {
+    if (this.transactionJournal == null) {
+      throw new Error('No FileManager transaction is active.');
+    }
+
+    for (const [filePath, previous] of this.transactionJournal) {
+      if (previous == null) {
+        delete this.files[filePath];
+      } else {
+        this.files[filePath] = this.cloneFileStatus(previous);
+      }
+    }
+    this.transactionJournal = null;
   }
 }

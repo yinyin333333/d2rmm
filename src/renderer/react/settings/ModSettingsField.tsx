@@ -37,9 +37,12 @@ export default function ModSettingsField({
 
   const onChangeConfig = useCallback(
     (fieldID: string, value: ModConfigSingleValue): void => {
-      setModConfig(mod.id, { ...mod.config, [fieldID]: value });
+      setModConfig(mod.id, (config) => ({
+        ...config,
+        [fieldID]: value,
+      }));
     },
-    [mod, setModConfig],
+    [mod.id, setModConfig],
   );
 
   const onReset = useCallback((): void => {

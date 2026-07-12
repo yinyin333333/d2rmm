@@ -1,0 +1,146 @@
+import type { Mod } from 'bridge/BridgeAPI';
+import type { ModConfig } from 'bridge/ModConfig';
+import {
+  ModsContextProvider,
+  useMods,
+} from 'renderer/react/context/ModsContext';
+import { act, render, screen, waitFor } from '@testing-library/react';
+
+const mockReadModConfig = jest.fn();
+const mockReadModDirectory = jest.fn();
+const mockReadModInfo = jest.fn();
+const mockLogger = { error: jest.fn() };
+const mockShowToast = jest.fn();
+const mockConfigOverrides = {};
+const mockSetConfigOverrides = jest.fn();
+
+jest.mock('renderer/BridgeAPI', () => ({
+  __esModule: true,
+  default: {
+    readModConfig: (...args: unknown[]) => mockReadModConfig(...args),
+    readModDirectory: (...args: unknown[]) => mockReadModDirectory(...args),
+    readModInfo: (...args: unknown[]) => mockReadModInfo(...args),
+    writeModConfig: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
+jest.mock('renderer/react/BindingsParser', () => ({
+  parseBinding: jest.fn(),
+}));
+
+jest.mock('renderer/react/context/LogContext', () => ({
+  useLogger: () => mockLogger,
+}));
+
+jest.mock('renderer/react/context/hooks/useModsContextConfigOverrides', () => ({
+  __esModule: true,
+  default: () => [mockConfigOverrides, mockSetConfigOverrides],
+}));
+
+jest.mock('renderer/react/hooks/useSavedState', () => ({
+  __esModule: true,
+  default: function useMockSavedState(
+    _key: string,
+    initialValue: unknown,
+  ) {
+    const React = require('react') as typeof import('react');
+    return React.useState(initialValue);
+  },
+}));
+
+jest.mock('renderer/react/hooks/useToast', () => ({
+  __esModule: true,
+  default: () => mockShowToast,
+}));
+
+jest.mock('renderer/utils/deferUntilAfterFirstPaint', () => ({
+  __esModule: true,
+  default: (callback: () => void) => {
+    callback();
+    return jest.fn();
+  },
+}));
+
+jest.mock('shared/startupProfiler', () => ({
+  startupMark: jest.fn(),
+  startupMeasure: (_scope: string, _name: string, callback: () => unknown) =>
+    callback(),
+}));
+
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+};
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function info(id: string): ModConfig {
+  return { name: id, type: 'd2rmm', version: '1.0.0' };
+}
+
+let refreshMods: ((ids?: string[]) => Promise<Mod[]>) | undefined;
+
+function Probe(): JSX.Element {
+  const [mods, refresh] = useMods();
+  refreshMods = refresh;
+  return <output>{mods.map(({ id }) => id).join(',')}</output>;
+}
+
+function renderProvider(): void {
+  render(
+    <ModsContextProvider>
+      <Probe />
+    </ModsContextProvider>,
+  );
+}
+
+describe('ModsContext initial/full and partial refresh ordering', () => {
+  beforeEach(() => {
+    refreshMods = undefined;
+    mockReadModConfig.mockReset().mockResolvedValue({});
+    mockReadModDirectory.mockReset().mockResolvedValue(['A']);
+    mockReadModInfo.mockReset();
+  });
+
+  it('keeps a newly installed partial mod when the older initial scan finishes', async () => {
+    const initialA = deferred<ModConfig | null>();
+    mockReadModInfo.mockImplementation((id: string) =>
+      id === 'A' ? initialA.promise : Promise.resolve(info(id)),
+    );
+    renderProvider();
+    await waitFor(() => expect(mockReadModInfo).toHaveBeenCalledWith('A'));
+
+    await act(async () => {
+      await refreshMods?.(['B']);
+    });
+    expect(screen.getByText('B')).toBeTruthy();
+
+    await act(async () => initialA.resolve(info('A')));
+    await waitFor(() => expect(screen.getByText('A,B')).toBeTruthy());
+  });
+
+  it('does not resurrect a mod deleted by a partial refresh during initial scan', async () => {
+    const initialA = deferred<ModConfig | null>();
+    mockReadModInfo
+      .mockImplementationOnce(() => initialA.promise)
+      .mockResolvedValueOnce(null);
+    renderProvider();
+    await waitFor(() => expect(mockReadModInfo).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await refreshMods?.(['A']);
+    });
+    expect(document.querySelector('output')?.textContent).toBe('');
+
+    await act(async () => initialA.resolve(info('A')));
+    await waitFor(() =>
+      expect(document.querySelector('output')?.textContent).toBe(''),
+    );
+  });
+});

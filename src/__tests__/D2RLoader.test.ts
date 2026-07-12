@@ -163,4 +163,36 @@ describe('D2RLoader TOML config', () => {
     expect(output).toContain('add_shared_tabs = 0');
     expect(output).toContain('set_materials_limit = 255');
   });
+
+  it('does not rewrite multiline raw values or leave trailing TOML fragments', () => {
+    const input = [
+      '[d2rloader]',
+      'locales = [',
+      '  "enUS",',
+      '  "koKR",',
+      '] # keep the complete array',
+      'skip_title_screen = false',
+      '',
+    ].join('\n');
+
+    const output = updateD2RLoaderConfig(input, {
+      ...SETTINGS,
+      tomlSettings: {
+        'd2rloader.locales': '["frFR"]',
+      },
+    });
+
+    expect(output).toBe(input);
+  });
+
+  it('preserves single-line raw values even when stale UI state has an override', () => {
+    const input = '[d2rloader]\nlocales = ["enUS", "koKR"]\n';
+
+    expect(
+      updateD2RLoaderConfig(input, {
+        ...SETTINGS,
+        tomlSettings: { 'd2rloader.locales': '["frFR"]' },
+      }),
+    ).toBe(input);
+  });
 });

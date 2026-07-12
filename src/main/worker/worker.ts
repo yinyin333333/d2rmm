@@ -1,11 +1,14 @@
+import type { WorkerLifecycleIPCMessage } from 'bridge/IPC';
 import { startupMark, startupMeasure } from '../../shared/startupProfiler';
 import { initAppInfoAPI } from './AppInfoAPI';
 import { initBridgeAPI } from './BridgeAPI';
 import { initCascLib } from './CascLib';
 import { initConsoleAPI } from './ConsoleAPI';
+import { initD2RLoaderPluginAPI } from './D2RLoaderPluginAPI';
 import { initEventAPI } from './EventAPI';
 import { initIPC } from './IPC';
 import { initModUpdaterAPI } from './ModUpdaterAPI';
+import { runWorkerInitialization } from './WorkerLifecycle';
 import { initAsar } from './asar';
 import { initI18n } from './i18n';
 import { initQuickJS } from './quickjs';
@@ -33,8 +36,36 @@ async function start(): Promise<void> {
   await startupMeasure('worker', 'initBridgeAPI', initBridgeAPI);
   console.debug('[worker] Initializing ModUpdaterAPI...');
   await startupMeasure('worker', 'initModUpdaterAPI', initModUpdaterAPI);
+  console.debug('[worker] Initializing D2RLoaderPluginAPI...');
+  await startupMeasure(
+    'worker',
+    'initD2RLoaderPluginAPI',
+    initD2RLoaderPluginAPI,
+  );
   console.debug('[worker] Initialized');
   startupMark('worker', 'worker initialized');
 }
 
-start().then().catch(console.error);
+function sendWorkerLifecycleMessage(
+  message: WorkerLifecycleIPCMessage,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (process.send == null || !process.connected) {
+      reject(new Error('Worker IPC transport is disconnected.'));
+      return;
+    }
+    process.send(message, (error) => {
+      if (error != null) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+runWorkerInitialization(
+  start,
+  sendWorkerLifecycleMessage,
+  process.exit.bind(process),
+).catch(console.error);

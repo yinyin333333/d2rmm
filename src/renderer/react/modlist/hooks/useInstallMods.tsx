@@ -1,9 +1,9 @@
 import type { IInstallModsOptions } from 'bridge/BridgeAPI';
 import BridgeAPI from 'renderer/BridgeAPI';
-import { useDataPath } from 'renderer/react/context/DataPathContext';
+import { useD2RLoaderPluginManager } from 'renderer/react/context/D2RLoaderPluginContext';
+import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useSanitizedGamePath } from 'renderer/react/context/GamePathContext';
 import { useIsInstalling } from 'renderer/react/context/InstallContext';
-import { useIsDirectMode } from 'renderer/react/context/IsDirectModeContext';
 import { useIsPreExtractedData } from 'renderer/react/context/IsPreExtractedDataContext';
 import { useLogger } from 'renderer/react/context/LogContext';
 import {
@@ -21,14 +21,20 @@ import { localizeConsoleArgs } from 'shared/i18n';
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
-export default function useInstallMods(
-  isUninstall: boolean = false,
-): () => Promise<boolean> {
+export default function useInstallMods(): () => Promise<boolean> {
   const { t } = useTranslation();
   const showToast = useToast();
-  const dataPath = useDataPath();
+  const {
+    hasUnsavedEdits = false,
+    isDeploymentChanged,
+    isInventoryCurrent = true,
+    isOutputModeChanged,
+    markDeploymentInstalled,
+    markDeploymentOutdated,
+    markOutputModeInstalled,
+  } = useD2RLoaderPluginManager();
+  const [d2rLoaderSettings] = useD2RLoaderSettings();
   const gamePath = useSanitizedGamePath();
-  const [isDirectMode] = useIsDirectMode();
   const [isPreExtractedData] = useIsPreExtractedData();
   const [preExtractedDataPath] = usePreExtractedDataPath();
   const [outputModName] = useOutputModName();
@@ -43,79 +49,124 @@ export default function useInstallMods(
   const [, setTab] = useTabState();
 
   return useCallback(async (): Promise<boolean> => {
+    if (
+      d2rLoaderSettings.useD2RLoader &&
+      (hasUnsavedEdits || !isInventoryCurrent)
+    ) {
+      showToast({
+        severity: 'warning',
+        title: hasUnsavedEdits
+          ? 'Save or cancel D2RLoader JSON edits before installing.'
+          : 'Refresh the D2RLoader plugin list before installing.',
+      });
+      setTab('plugins');
+      return false;
+    }
+    setIsInstalling(true);
     try {
       logger.clear();
-      setIsInstalling(true);
 
       const options: IInstallModsOptions = {
-        dataPath,
         gamePath,
-        isDirectMode,
-        isDryRun: isUninstall,
+        isDryRun: false,
+        useD2RLoader: d2rLoaderSettings.useD2RLoader,
         isPreExtractedData,
         mergedPath: outputPath,
         normalizeOutputCRLF,
         outputModName,
         preExtractedDataPath,
         savesPath,
+        syncD2RLoaderOutput:
+          isOutputModeChanged ||
+          (d2rLoaderSettings.useD2RLoader && isDeploymentChanged),
       };
 
       console.debug(`Installing mods...`, options);
-      let modsInstalled = [];
-      modsInstalled = await BridgeAPI.installMods(modsToInstall, options);
-      setInstalledMods(
-        modsToInstall.map((mod) => ({ id: mod.id, config: mod.config })),
+      const installedModIDs = await BridgeAPI.installMods(
+        modsToInstall,
+        options,
       );
-      setIsInstalling(false);
+
+      const didSyncD2RLoaderOutput =
+        options.syncD2RLoaderOutput === true &&
+        (modsToInstall.length === 0 || installedModIDs.length > 0);
+      const didApplyOutputMode =
+        installedModIDs.length > 0 ||
+        (modsToInstall.length === 0 && didSyncD2RLoaderOutput);
+      if (didApplyOutputMode) {
+        markOutputModeInstalled();
+      }
+      if (didSyncD2RLoaderOutput && d2rLoaderSettings.useD2RLoader) {
+        markDeploymentInstalled();
+      } else if (
+        !d2rLoaderSettings.useD2RLoader &&
+        (installedModIDs.length > 0 || didSyncD2RLoaderOutput)
+      ) {
+        // Rebuilding the non-loader output removes any previously deployed
+        // managed data files. Make that visible if D2RLoader is enabled later.
+        markDeploymentOutdated();
+      }
 
       if (modsToInstall.length === 0) {
+        if (didApplyOutputMode) {
+          setInstalledMods([]);
+        }
         showToast({
           severity: 'success',
           title: t(
-            isUninstall
-              ? 'install.toast.noMods.uninstall'
+            didSyncD2RLoaderOutput
+              ? 'install.toast.output.install'
               : 'install.toast.noMods.install',
           ),
         });
-      } else if (modsInstalled.length > 0) {
-        showToast({
-          severity:
-            modsInstalled.length < modsToInstall.length ? 'warning' : 'success',
-          title: t(
-            isUninstall
-              ? 'install.toast.success.uninstall'
-              : 'install.toast.success.install',
-            {
-              installed: modsInstalled.length,
-              total: modsToInstall.length,
-            },
-          ),
-        });
+        return true;
       }
+
+      const installedModIDSet = new Set(installedModIDs);
+      const installedMods = modsToInstall.filter(({ id }) =>
+        installedModIDSet.has(id),
+      );
+      if (installedMods.length === 0) {
+        throw new Error(t('install.toast.error.install'));
+      }
+
+      setInstalledMods(
+        installedMods.map((mod) => ({ id: mod.id, config: mod.config })),
+      );
+      showToast({
+        severity:
+          installedMods.length < modsToInstall.length ? 'warning' : 'success',
+        title: t('install.toast.success.install', {
+          installed: installedMods.length,
+          total: modsToInstall.length,
+        }),
+      });
       return true;
     } catch (error) {
-      setIsInstalling(false);
       console.error(error);
       showToast({
         severity: 'error',
-        title: t(
-          isUninstall
-            ? 'install.toast.error.uninstall'
-            : 'install.toast.error.install',
-        ),
+        title: t('install.toast.error.install'),
         description: localizeConsoleArgs([error as ConsoleArg]).join(' '),
       });
       // switch to the logs tab so user can see what happened
       setTab('logs');
       return false;
+    } finally {
+      setIsInstalling(false);
     }
   }, [
-    dataPath,
+    d2rLoaderSettings.useD2RLoader,
     gamePath,
-    isDirectMode,
+    hasUnsavedEdits,
     isPreExtractedData,
-    isUninstall,
+    isDeploymentChanged,
+    isInventoryCurrent,
+    isOutputModeChanged,
     logger,
+    markDeploymentInstalled,
+    markDeploymentOutdated,
+    markOutputModeInstalled,
     modsToInstall,
     normalizeOutputCRLF,
     outputModName,

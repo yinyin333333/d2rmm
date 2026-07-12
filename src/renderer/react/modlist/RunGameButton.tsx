@@ -1,7 +1,9 @@
 import BridgeAPI from 'renderer/BridgeAPI';
+import { useD2RLoaderPluginManager } from 'renderer/react/context/D2RLoaderPluginContext';
 import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useSanitizedGamePath } from 'renderer/react/context/GamePathContext';
 import { useInstallBeforeRun } from 'renderer/react/context/InstallBeforeRunContext';
+import { useIsInstalling } from 'renderer/react/context/InstallContext';
 import {
   useIsInstallConfigChanged,
   useIsLoadingMods,
@@ -9,6 +11,7 @@ import {
 import { useOutputModName } from 'renderer/react/context/OutputModNameContext';
 import useAsyncCallback from 'renderer/react/hooks/useAsyncCallback';
 import useGameLaunchArgs from 'renderer/react/hooks/useGameLaunchArgs';
+import useToast from 'renderer/react/hooks/useToast';
 import useInstallMods from 'renderer/react/modlist/hooks/useInstallMods';
 import resolvePath from 'renderer/utils/resolvePath';
 import { useMemo } from 'react';
@@ -23,7 +26,17 @@ type Props = Record<string, never>;
 
 export default function RunGameButton(_props: Props): JSX.Element {
   const { t } = useTranslation();
+  const showToast = useToast();
   const isInstallConfigChanged = useIsInstallConfigChanged();
+  const {
+    hasUnsavedEdits = false,
+    isDeploymentChanged,
+    isInventoryCurrent = true,
+    isLoading: isLoadingPlugins,
+    isMutating: isMutatingPlugins,
+    isOutputModeChanged,
+  } = useD2RLoaderPluginManager();
+  const [isInstalling] = useIsInstalling();
   const isLoadingMods = useIsLoadingMods();
 
   const gamePath = useSanitizedGamePath();
@@ -40,11 +53,24 @@ export default function RunGameButton(_props: Props): JSX.Element {
   );
 
   const [isInstallBeforeRunEnabled] = useInstallBeforeRun();
+  const hasPendingInstallation =
+    isInstallConfigChanged ||
+    isOutputModeChanged ||
+    (d2rLoaderSettings.useD2RLoader && isDeploymentChanged);
+  const isPluginStateLoading =
+    d2rLoaderSettings.useD2RLoader && (isLoadingPlugins || isMutatingPlugins);
+  const isPluginStateUnsafe =
+    d2rLoaderSettings.useD2RLoader && (hasUnsavedEdits || !isInventoryCurrent);
 
   const onInstallMods = useInstallMods();
 
   const onPress = useAsyncCallback(async () => {
-    if (isLoadingMods) {
+    if (
+      isLoadingMods ||
+      isPluginStateLoading ||
+      isPluginStateUnsafe ||
+      isInstalling
+    ) {
       return;
     }
 
@@ -53,18 +79,26 @@ export default function RunGameButton(_props: Props): JSX.Element {
         return;
       }
     }
-    if (d2rLoaderSettings.useD2RLoader) {
-      const pathD2RLoaderExe = resolvePath(gamePath, 'D2RLoader.exe');
-      await BridgeAPI.prepareD2RLoaderLaunch(gamePath, {
-        defaultMod: outputModName,
-        tomlSettings: d2rLoaderSettings.tomlSettings,
-      });
-      await BridgeAPI.execute(pathD2RLoaderExe, args);
-      return;
-    }
+    try {
+      if (d2rLoaderSettings.useD2RLoader) {
+        const pathD2RLoaderExe = resolvePath(gamePath, 'D2RLoader.exe');
+        await BridgeAPI.prepareD2RLoaderLaunch(gamePath, {
+          defaultMod: outputModName,
+          tomlSettings: d2rLoaderSettings.tomlSettings,
+        });
+        await BridgeAPI.execute(pathD2RLoaderExe, args);
+        return;
+      }
 
-    const pathD2rExe = resolvePath(gamePath, 'D2R.exe');
-    await BridgeAPI.execute(pathD2rExe, args);
+      const pathD2rExe = resolvePath(gamePath, 'D2R.exe');
+      await BridgeAPI.execute(pathD2rExe, args);
+    } catch (error) {
+      showToast({
+        severity: 'error',
+        title: t('run.toast.error'),
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
   }, [
     isInstallBeforeRunEnabled,
     onInstallMods,
@@ -73,24 +107,38 @@ export default function RunGameButton(_props: Props): JSX.Element {
     outputModName,
     args,
     isLoadingMods,
+    isPluginStateLoading,
+    isPluginStateUnsafe,
+    isInstalling,
+    showToast,
+    t,
   ]);
 
-  const tooltipText = isInstallConfigChanged
-    ? `${t('run.tooltip', { command })} ${t('run.tooltip.unsaved')}`
-    : t('run.tooltip', { command });
+  const tooltipText = isPluginStateUnsafe
+    ? hasUnsavedEdits
+      ? 'Save or cancel D2RLoader JSON edits before running the game.'
+      : 'Refresh the D2RLoader plugin list before running the game.'
+    : hasPendingInstallation
+      ? `${t('run.tooltip', { command })} ${t('run.tooltip.unsaved')}`
+      : t('run.tooltip', { command });
 
   const button = (
     <Button
-      disabled={isLoadingMods}
+      disabled={
+        isLoadingMods ||
+        isPluginStateLoading ||
+        isPluginStateUnsafe ||
+        isInstalling
+      }
       onClick={onPress}
       startIcon={
-        !isInstallConfigChanged ? (
+        !hasPendingInstallation ? (
           <PlayCircleFilled />
         ) : (
           <PlayCircleOutlineOutlined />
         )
       }
-      variant={!isInstallConfigChanged ? 'contained' : 'outlined'}
+      variant={!hasPendingInstallation ? 'contained' : 'outlined'}
     >
       {t('run.button')}
     </Button>

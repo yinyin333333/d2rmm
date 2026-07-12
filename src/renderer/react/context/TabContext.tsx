@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 
-export type Tab = 'mods' | 'settings' | 'logs';
+export type Tab = 'mods' | 'plugins' | 'settings' | 'logs';
 type SetTab = React.Dispatch<React.SetStateAction<Tab>>;
 
 export type ITabContext = {

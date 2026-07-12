@@ -26,10 +26,18 @@ export default function useModUpdater(mod: Mod): {
     nexusAuthState != null && mod.info.website != null && nexusModID != null;
   const isDownloadPossible =
     isUpdatePossible && (nexusAuthState.isPremium ?? false);
-  const [updateState] = useModUpdate(mod.id);
-  const latestUpdate = updateState.nexusUpdates[0];
-  const isUpdateChecked = updateState.isUpdateChecked;
-  const isUpdateAvailable = updateState.isUpdateAvailable;
+  const [cachedUpdateState] = useModUpdate(mod.id);
+  const currentVersion = mod.info.version ?? '0';
+  const isCacheCurrent =
+    cachedUpdateState.sourceNexusModID === nexusModID &&
+    cachedUpdateState.checkedVersion === currentVersion;
+  const latestUpdate = isCacheCurrent
+    ? cachedUpdateState.nexusUpdates[0] ?? null
+    : null;
+  const isUpdateChecked = isCacheCurrent && cachedUpdateState.isUpdateChecked;
+  const isUpdateAvailable =
+    isCacheCurrent && cachedUpdateState.isUpdateAvailable;
+  const downloads = isCacheCurrent ? cachedUpdateState.nexusDownloads : [];
 
   const onCheckForUpdates = useAsyncCallback(async () => {
     await checkModForUpdates(mod);
@@ -37,7 +45,12 @@ export default function useModUpdater(mod: Mod): {
 
   const onDownloadVersion = useCallback(
     async (download: ModUpdaterDownload) => {
-      if (nexusAuthState.apiKey == null || nexusModID == null) {
+      if (
+        nexusAuthState.apiKey == null ||
+        nexusModID == null ||
+        !isCacheCurrent ||
+        download.modID !== nexusModID
+      ) {
         return;
       }
 
@@ -48,7 +61,13 @@ export default function useModUpdater(mod: Mod): {
         version: download.version,
       });
     },
-    [nexusAuthState.apiKey, nexusModID, installMod, mod.id],
+    [
+      nexusAuthState.apiKey,
+      nexusModID,
+      isCacheCurrent,
+      installMod,
+      mod.id,
+    ],
   );
 
   return {
@@ -57,7 +76,7 @@ export default function useModUpdater(mod: Mod): {
     isUpdateChecked,
     isUpdateAvailable,
     latestUpdate,
-    downloads: updateState.nexusDownloads,
+    downloads,
     onCheckForUpdates,
     onDownloadVersion,
   };

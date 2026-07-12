@@ -8,13 +8,11 @@ import BridgeAPI from 'renderer/BridgeAPI';
 import ShellAPI from 'renderer/ShellAPI';
 import type { D2RLoaderSettingsState } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
-import { useDataPath } from 'renderer/react/context/DataPathContext';
 import { useExtraGameLaunchArgs } from 'renderer/react/context/ExtraGameLaunchArgsContext';
 import {
   useGamePath,
   useSanitizedGamePath,
 } from 'renderer/react/context/GamePathContext';
-import { useIsDirectMode } from 'renderer/react/context/IsDirectModeContext';
 import { useIsPreExtractedData } from 'renderer/react/context/IsPreExtractedDataContext';
 import { useNormalizeCRLFOnInstall } from 'renderer/react/context/NormalizeCRLFOnInstallContext';
 import { useOutputModName } from 'renderer/react/context/OutputModNameContext';
@@ -136,7 +134,8 @@ function isEditableD2RLoaderTomlSetting(
 ): boolean {
   return (
     setting.section !== 'd2rcore.fonts' &&
-    setting.id !== 'd2rloader.default_mod'
+    setting.id !== 'd2rloader.default_mod' &&
+    setting.valueType !== 'raw'
   );
 }
 
@@ -158,14 +157,12 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
   const [d2rLoaderSettings, setD2RLoaderSettings] = useD2RLoaderSettings();
   const [rawGamePath, setRawGamePath] = useGamePath();
   const gamePath = useSanitizedGamePath();
-  const [isDirectMode, setIsDirectMode] = useIsDirectMode();
   const [isPreExtractedData, setIsPreExtractedData] = useIsPreExtractedData();
   const [preExtractedDataPath, setPreExtractedDataPath] =
     usePreExtractedDataPath();
   const [outputModName, setOutputModName] = useOutputModName();
   const mergedPath = useOutputPath();
-  const dataPath = useDataPath();
-  const outputPath = isDirectMode ? dataPath : mergedPath;
+  const outputPath = mergedPath;
   const [savesPath, setSavesPath] = useSavesPath();
   const baseSavesPath = getBaseSavesPath();
   const defaultSavesPath = useDefaultSavesPath();
@@ -223,7 +220,11 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
 
         setD2RLoaderConfig(config);
         if (config?.format === 'toml') {
-          const settingIDs = new Set(config.settings.map(({ id }) => id));
+          const settingIDs = new Set(
+            config.settings
+              .filter(isEditableD2RLoaderTomlSetting)
+              .map(({ id }) => id),
+          );
           setD2RLoaderSettings((settings) => {
             const tomlSettings = Object.fromEntries(
               Object.entries(settings.tomlSettings ?? {}).filter(([id]) =>
@@ -314,8 +315,8 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
       const checked = value === true;
       return (
         <ListItemButton
-          disabled={!d2rLoaderSettings.useD2RLoader}
           key={setting.id}
+          disabled={!d2rLoaderSettings.useD2RLoader}
           onClick={() => setD2RLoaderTomlSetting(setting.id, !checked)}
         >
           <ListItemIcon>
@@ -343,11 +344,11 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
       const inputValue = d2rLoaderTomlInputValues[setting.id] ?? String(value);
       return (
         <TextField
+          key={setting.id}
           disabled={!d2rLoaderSettings.useD2RLoader}
           fullWidth={true}
           helperText={description}
           inputProps={getD2RLoaderTomlNumberBounds(setting)}
-          key={setting.id}
           label={label}
           onBlur={() => {
             setD2RLoaderTomlInputValues((inputValues) => {
@@ -382,10 +383,10 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
 
     return (
       <TextField
+        key={setting.id}
         disabled={!d2rLoaderSettings.useD2RLoader}
         fullWidth={true}
         helperText={description}
-        key={setting.id}
         label={label}
         onChange={(event) =>
           setD2RLoaderTomlSetting(setting.id, event.target.value)
@@ -497,26 +498,22 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
               ) : null}
             </>
           ) : null}
-          {!isDirectMode ? (
-            <>
-              <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
-              <Typography color="text.secondary" variant="subtitle2">
-                {t('settings.general.outputModName.description')}
-              </Typography>
-              <TextField
-                fullWidth={true}
-                label={t('settings.general.outputModName.label')}
-                onChange={(event) =>
-                  setOutputModName(
-                    event.target.value.replace(/[^a-zA-Z0-9-_]/g, ''),
-                  )
-                }
-                value={outputModName}
-                variant="filled"
-              />
-            </>
-          ) : null}
-          {!isDirectMode && outputModName.trim() === '' ? (
+          <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
+          <Typography color="text.secondary" variant="subtitle2">
+            {t('settings.general.outputModName.description')}
+          </Typography>
+          <TextField
+            fullWidth={true}
+            label={t('settings.general.outputModName.label')}
+            onChange={(event) =>
+              setOutputModName(
+                event.target.value.replace(/[^a-zA-Z0-9-_]/g, ''),
+              )
+            }
+            value={outputModName}
+            variant="filled"
+          />
+          {outputModName.trim() === '' ? (
             <Alert severity="warning">
               <Typography>
                 {t('settings.general.outputModName.empty')}
@@ -613,55 +610,6 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
             checked={normalizeOutputCRLF}
             onChange={(_event, checked) => setNormalizeOutputCRLF(checked)}
           />
-        </StyledAccordionDetails>
-      </StyledAccordion>
-      <StyledAccordion
-        defaultExpanded={useRef(isDirectMode).current}
-        disableGutters={true}
-        elevation={0}
-        square={true}
-        sx={{ order: 2 }}
-      >
-        <StyledAccordionSummary
-          aria-controls="direct-mode-content"
-          expandIcon={<ExpandMore />}
-          id="direct-mode-header"
-        >
-          <Typography sx={{ marginLeft: 1 }}>
-            {t('settings.directMode.title')}
-          </Typography>
-        </StyledAccordionSummary>
-        <StyledAccordionDetails id="direct-mode-content">
-          <Typography color="text.secondary" variant="subtitle2">
-            {t('settings.directMode.description')}
-          </Typography>
-          <ListItemButton
-            onClick={() => {
-              setIsDirectMode(!isDirectMode);
-            }}
-          >
-            <ListItemIcon>
-              <Checkbox
-                checked={isDirectMode}
-                disableRipple={true}
-                edge="start"
-                inputProps={{
-                  'aria-labelledby': 'enable-direct-mode',
-                }}
-                tabIndex={-1}
-              />
-            </ListItemIcon>
-            <ListItemText
-              id="enable-direct-mode"
-              primary={t('settings.directMode.enable')}
-            />
-          </ListItemButton>
-          {!isDirectMode ? null : (
-            <Typography color="text.secondary" variant="subtitle2">
-              {t('settings.directMode.outputPath', { path: outputPath })}
-            </Typography>
-          )}
-          <Alert severity="warning">{t('settings.directMode.warning')}</Alert>
         </StyledAccordionDetails>
       </StyledAccordion>
       <StyledAccordion
@@ -818,31 +766,26 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
                   {t('settings.d2rLoader.missingTomlConfig')}
                 </Typography>
               </Alert>
+            ) : d2rLoaderTomlSections.length === 0 ? (
+              <Typography color="text.secondary" sx={{ marginTop: 1 }}>
+                {t('settings.d2rLoader.noTomlSettings')}
+              </Typography>
             ) : (
-              d2rLoaderTomlSections.length === 0 ? (
-                <Typography color="text.secondary" sx={{ marginTop: 1 }}>
-                  {t('settings.d2rLoader.noTomlSettings')}
-                </Typography>
-              ) : (
-                <>
-                  {d2rLoaderTomlSections.map(
-                    ({ section, settings }, sectionIndex) => (
-                      <Box
-                        key={section}
-                        sx={{ marginTop: sectionIndex ? 2 : 1 }}
-                      >
-                        {sectionIndex === 0 ? null : (
-                          <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
-                        )}
-                        <Typography color="text.secondary" variant="subtitle2">
-                          {section}
-                        </Typography>
-                        {settings.map(renderD2RLoaderTomlSetting)}
-                      </Box>
-                    ),
-                  )}
-                </>
-              )
+              <>
+                {d2rLoaderTomlSections.map(
+                  ({ section, settings }, sectionIndex) => (
+                    <Box key={section} sx={{ marginTop: sectionIndex ? 2 : 1 }}>
+                      {sectionIndex === 0 ? null : (
+                        <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
+                      )}
+                      <Typography color="text.secondary" variant="subtitle2">
+                        {section}
+                      </Typography>
+                      {settings.map(renderD2RLoaderTomlSetting)}
+                    </Box>
+                  ),
+                )}
+              </>
             )
           ) : null}
         </StyledAccordionDetails>

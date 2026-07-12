@@ -8,24 +8,18 @@ import {
 
 describe('D2RMM.copyDataModFiles destination mapping', () => {
   it('keeps data files inside the MPQ data root', () => {
-    expect(getDataModEntryDestinationRelative('data', false)).toBe('');
+    expect(getDataModEntryDestinationRelative('data')).toBe('');
   });
 
   it('keeps ordinary root siblings at the MPQ root', () => {
-    expect(getDataModEntryDestinationRelative('hd', false)).toBe(
+    expect(getDataModEntryDestinationRelative('hd')).toBe(
       path.join('..', 'hd'),
     );
   });
 
   it('writes D2RLoader folders to the output mod root', () => {
-    expect(getDataModEntryDestinationRelative('d2rloader', false)).toBe(
+    expect(getDataModEntryDestinationRelative('d2rloader')).toBe(
       path.join('..', '..', 'd2rloader'),
-    );
-  });
-
-  it('writes D2RLoader folders to the game root in direct mode', () => {
-    expect(getDataModEntryDestinationRelative('d2rloader', true)).toBe(
-      path.join('..', 'd2rloader'),
     );
   });
 });

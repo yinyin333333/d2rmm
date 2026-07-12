@@ -25,6 +25,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -102,6 +103,7 @@ export type IModsContext = {
   isLoadingMods: boolean;
   modConfigOverrides: IModConfigOverrides;
   mods: IMods;
+  modsRevision: number;
   modsToInstall: IOrderedMods;
   orderedItems: IOrderedItems;
   refreshMods: IModsRefresher;
@@ -144,6 +146,30 @@ function getDefaultConfig(
     }
   }
   return defaultConfig;
+}
+
+function mergeInitialModsWithPartialRefreshes(
+  initialMods: Mod[],
+  currentMods: Mod[],
+  partiallyRefreshedIDs: ReadonlySet<string>,
+): Mod[] {
+  const currentByID = new Map(currentMods.map((mod) => [mod.id, mod]));
+  const initialIDs = new Set(initialMods.map((mod) => mod.id));
+  const merged = initialMods.flatMap((initialMod) => {
+    if (!partiallyRefreshedIDs.has(initialMod.id)) {
+      return [initialMod];
+    }
+    const currentMod = currentByID.get(initialMod.id);
+    return currentMod == null ? [] : [currentMod];
+  });
+
+  return merged.concat(
+    currentMods.filter(
+      (currentMod) =>
+        partiallyRefreshedIDs.has(currentMod.id) &&
+        !initialIDs.has(currentMod.id),
+    ),
+  );
 }
 
 export function ModsContextProvider({
@@ -203,6 +229,9 @@ export function ModsContextProvider({
 
   const [modsWithoutOverrides, setMods] = useState<Mod[]>([]);
   const [isLoadingMods, setIsLoadingMods] = useState(true);
+  const [modsRevision, setModsRevision] = useState(0);
+  const initialLoadIsPending = useRef(true);
+  const initialLoadPartialIDs = useRef(new Set<string>());
 
   useEffect(() => {
     startupMark('renderer', 'first ModList load scheduled after first paint');
@@ -214,7 +243,15 @@ export function ModsContextProvider({
           if (!isMounted) {
             return;
           }
-          setMods(mods);
+          const partiallyRefreshedIDs = new Set(initialLoadPartialIDs.current);
+          setMods((currentMods) =>
+            mergeInitialModsWithPartialRefreshes(
+              mods,
+              currentMods,
+              partiallyRefreshedIDs,
+            ),
+          );
+          setModsRevision((revision) => revision + 1);
           startupMark(
             'renderer',
             `first ModList load completed with ${mods.length} mods`,
@@ -222,6 +259,8 @@ export function ModsContextProvider({
         })
         .catch(console.error)
         .finally(() => {
+          initialLoadIsPending.current = false;
+          initialLoadPartialIDs.current.clear();
           if (isMounted) {
             setIsLoadingMods(false);
           }
@@ -240,14 +279,21 @@ export function ModsContextProvider({
         prevMods.map((mod) => {
           if (mod.id === id) {
             const config = getConfig(mod.config);
-            BridgeAPI.writeModConfig(id, config).catch(console.error);
+            BridgeAPI.writeModConfig(id, config).catch((error) => {
+              logger.error('Failed to save mod config', id, error as Error);
+              showToast({
+                severity: 'error',
+                title: `Failed to save mod config for ${id}`,
+                description: String(error),
+              });
+            });
             return { ...mod, config };
           }
           return mod;
         }),
       );
     },
-    [],
+    [logger, showToast],
   );
 
   const refreshMods = useCallback(
@@ -262,6 +308,11 @@ export function ModsContextProvider({
         );
         if (ids != null) {
           // partial update
+          if (initialLoadIsPending.current) {
+            for (const id of ids) {
+              initialLoadPartialIDs.current.add(id);
+            }
+          }
           setMods((oldMods) =>
             oldMods
               // remove deleted mods
@@ -286,6 +337,7 @@ export function ModsContextProvider({
         } else {
           setMods(mods);
         }
+        setModsRevision((revision) => revision + 1);
         return mods;
       } finally {
         if (ids == null) {
@@ -298,7 +350,7 @@ export function ModsContextProvider({
 
   const [installedMods, setInstalledMods] = useSavedState(
     'installed-mods',
-    {} as IInstalledMods,
+    [] as IInstalledMods,
     (map) => JSON.stringify(map),
     (str) => JSON.parse(str),
   );
@@ -469,6 +521,7 @@ export function ModsContextProvider({
       isLoadingMods,
       modConfigOverrides,
       mods,
+      modsRevision,
       modsToInstall,
       orderedItems,
       refreshMods,
@@ -490,6 +543,7 @@ export function ModsContextProvider({
       isLoadingMods,
       modConfigOverrides,
       mods,
+      modsRevision,
       modsToInstall,
       orderedItems,
       refreshMods,
@@ -543,6 +597,14 @@ export function useMods(): [IMods, IModsRefresher] {
     throw new Error('No preferences context available.');
   }
   return [context.mods, context.refreshMods];
+}
+
+export function useModsRevision(): number {
+  const context = useContext(Context);
+  if (context == null) {
+    throw new Error('No preferences context available.');
+  }
+  return context.modsRevision;
 }
 
 export function useIsLoadingMods(): boolean {

@@ -300,7 +300,10 @@ export function updateD2RLoaderConfig(
       id,
     );
 
-    if (!isDefaultMod && !hasDynamicSetting) {
+    if (
+      parsedValue.valueType === 'raw' ||
+      (!isDefaultMod && !hasDynamicSetting)
+    ) {
       return line;
     }
 

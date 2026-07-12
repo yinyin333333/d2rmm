@@ -1,5 +1,4 @@
 import { getBaseSavesPath } from 'renderer/AppInfoAPI';
-import { useIsDirectMode } from 'renderer/react/context/IsDirectModeContext';
 import { useOutputModName } from 'renderer/react/context/OutputModNameContext';
 import useSavedState from 'renderer/react/hooks/useSavedState';
 import resolvePath from 'renderer/utils/resolvePath';
@@ -54,11 +53,11 @@ type Props = {
 export function SavesPathContextProvider({ children }: Props): JSX.Element {
   const [savesPath, setSavesPath] = useSavedState<IPath>('saves-path', '');
 
-  const [isDirectMode] = useIsDirectMode();
   const [outputModName] = useOutputModName();
   const defaultSavesPath = resolvePath(
     getBaseSavesPath(),
-    ...(isDirectMode ? [] : ['mods', outputModName]),
+    'mods',
+    outputModName,
   );
   const finalSavesPath =
     savesPath == null || savesPath === '' ? defaultSavesPath : savesPath;

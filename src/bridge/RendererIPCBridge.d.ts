@@ -1,8 +1,8 @@
-import { IPCMessage } from './IPC';
+import { IPCMessage, RendererIPCMessage } from './IPC';
 
 type RendererIPCListener = (
   event: Electron.IpcRendererEvent,
-  message: IPCMessage,
+  message: RendererIPCMessage,
 ) => void;
 
 export type RendererIPCBridge = {
