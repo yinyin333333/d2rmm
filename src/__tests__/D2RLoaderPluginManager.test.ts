@@ -696,13 +696,30 @@ describe('D2RLoader plugin package manager', () => {
     expectSentinelUnchanged();
   });
 
-  it('refuses an empty or reparse-point current storage root', () => {
+  it('accepts an empty current storage root while scanning mod plugins, but refuses a reparse point', () => {
     const currentRoot = path.join(appRoot, D2R_LOADER_PACKAGES_DIRECTORY);
     mkdirSync(currentRoot, { recursive: true });
-
-    expect(() => readD2RLoaderPluginInventory(appRoot, [])).toThrow(
-      /directory is empty.*refusing/i,
+    writeFile(
+      path.join(
+        appRoot,
+        'mods',
+        'Reimagined',
+        'd2rloader',
+        'plugins',
+        'Reimagined.dll',
+      ),
+      'mod plugin',
     );
+
+    const inventory = readD2RLoaderPluginInventory(appRoot, ['Reimagined']);
+    expect(inventory.managedRoot).toBe(currentRoot);
+    expect(inventory.plugins).toEqual([
+      expect.objectContaining({
+        relativePath: 'Reimagined.dll',
+        sourceName: 'Reimagined',
+        sourceType: 'mod',
+      }),
+    ]);
     expect(existsSync(currentRoot)).toBe(true);
     rmdirSync(currentRoot);
 

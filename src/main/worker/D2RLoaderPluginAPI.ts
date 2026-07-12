@@ -529,11 +529,7 @@ function getSafeManagedPackagesRoot(appRoot: string): string {
     );
   }
   if (rootStat != null) {
-    if (validateManagedPackagesRoot(root) === 0) {
-      throw new Error(
-        `Existing D2RLoader directory is empty and cannot be identified as D2RMM package storage; refusing to use it: "${root}".`,
-      );
-    }
+    validateManagedPackagesRoot(root);
     return root;
   }
   if (legacyStat != null) {
