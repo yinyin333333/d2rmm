@@ -100,6 +100,11 @@ function EditableInventoryFile({
   const isEditable =
     item.sourceType === 'managed' && packageName != null && sourcePath != null;
   const editorLabel = `${item.name} in ${packageName ?? item.sourceName}`;
+  const editorFormat =
+    document?.format === 'toml' ||
+    (document == null && /\.toml$/i.test(sourcePath ?? ''))
+      ? 'TOML'
+      : 'JSON';
   const isDirty = document != null && draft !== document.contents;
 
   useEffect(() => {
@@ -333,7 +338,7 @@ function EditableInventoryFile({
                 <TextField
                   fullWidth={true}
                   inputProps={{
-                    'aria-label': `JSON editor for ${editorLabel}`,
+                    'aria-label': `${editorFormat} editor for ${editorLabel}`,
                     spellCheck: false,
                   }}
                   maxRows={24}
@@ -776,8 +781,9 @@ export default function ModManagerPlugins(): JSX.Element {
         <Box sx={{ flex: 1 }}>
           <Typography variant="h5">D2RLoader Plugins</Typography>
           <Typography color="text.secondary" variant="body2">
-            Drop DLL, patch JSON, plugin folders, or ZIP packages here. Refresh
-            Mod List also refreshes mod-scoped loader files.
+            Drop DLL, patch JSON/JSONC, plugin TOML, plugin folders, or ZIP
+            packages here. Files copied into Open Storage are imported on
+            Refresh. The loader-wide d2rloader.toml remains in Settings.
           </Typography>
         </Box>
         <Button
@@ -788,7 +794,7 @@ export default function ModManagerPlugins(): JSX.Element {
           Open Storage
         </Button>
         <LoadingButton
-          disabled={isMutating}
+          disabled={hasUnsavedEdits || isMutating}
           loading={isLoading || isMutating}
           onClick={() => refresh().catch(console.error)}
           startIcon={<Refresh />}
@@ -811,8 +817,8 @@ export default function ModManagerPlugins(): JSX.Element {
       ) : null}
       {hasUnsavedEdits ? (
         <Alert severity="warning" sx={{ mt: 2 }}>
-          An edited JSON file has unsaved changes. Save or cancel it before
-          importing, deleting, installing, or running D2R.
+          An edited plugin file has unsaved changes. Save or cancel it before
+          importing, deleting, refreshing, installing, or running D2R.
         </Alert>
       ) : null}
       {!isInventoryCurrent ? (
@@ -857,6 +863,12 @@ export default function ModManagerPlugins(): JSX.Element {
           emptyText="No patch JSON files found."
           items={inventory.patches}
           title="Patches"
+        />
+        <InventorySection
+          disabled={isEditorActionDisabled}
+          emptyText="No plugin TOML config files found."
+          items={inventory.configs}
+          title="Plugin Configs"
         />
       </Stack>
     </Box>

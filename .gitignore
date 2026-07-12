@@ -12,6 +12,9 @@ tools/CascLib.dylib
 # Mods
 mods
 
+# D2RLoader plugin packages
+d2rloader
+
 # Logs
 logs
 *.log

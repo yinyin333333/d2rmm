@@ -19,6 +19,7 @@ import React, {
 } from 'react';
 
 const EMPTY_INVENTORY: D2RLoaderPluginInventory = {
+  configs: [],
   conflicts: [],
   managedSignature: '',
   managedRoot: '',
@@ -155,7 +156,7 @@ export function D2RLoaderPluginContextProvider({
       if (dirtyEditors.current.size > 0) {
         return Promise.reject(
           new Error(
-            'Save or cancel all D2RLoader JSON edits before importing packages.',
+            'Save or cancel all D2RLoader file edits before importing packages.',
           ),
         );
       }
@@ -174,7 +175,7 @@ export function D2RLoaderPluginContextProvider({
       if (dirtyEditors.current.size > 0) {
         return Promise.reject(
           new Error(
-            'Save or cancel all D2RLoader JSON edits before deleting packages.',
+            'Save or cancel all D2RLoader file edits before deleting packages.',
           ),
         );
       }

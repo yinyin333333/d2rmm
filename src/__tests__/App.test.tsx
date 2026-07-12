@@ -98,6 +98,7 @@ describe('App', () => {
       type: 'd2rmm',
     });
     mockState.readPluginInventory.mockResolvedValue({
+      configs: [],
       conflicts: [],
       managedSignature: '',
       managedRoot: 'C:\\D2RMM\\d2rloader',

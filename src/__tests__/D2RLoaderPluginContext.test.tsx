@@ -88,6 +88,7 @@ describe('D2RLoaderPluginContext deployment state', () => {
     mockReadEditableJSON.mockReset();
     mockSaveEditableJSON.mockReset();
     mockReadInventory.mockResolvedValue({
+      configs: [],
       conflicts: [],
       managedRoot: 'C:\\FakeApp\\d2rloader',
       managedSignature: 'same-package-signature',
@@ -186,6 +187,7 @@ describe('D2RLoaderPluginContext deployment state', () => {
   it('loads and saves editable JSON through the shared package mutation boundary', async () => {
     const document = {
       contents: '{"enabled":true}',
+      format: 'json' as const,
       packageName: 'Editable',
       role: 'plugin' as const,
       sha256: 'a'.repeat(64),

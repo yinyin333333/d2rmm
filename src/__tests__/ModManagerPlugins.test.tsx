@@ -14,12 +14,24 @@ const mockSetEditableJSONDirty = jest.fn();
 const mockShowToast = jest.fn();
 
 const mockInventory = {
+  configs: [
+    {
+      editableSourcePath: 'settings.toml',
+      id: 'managed:eezstreet:settings.toml',
+      name: 'settings.toml',
+      packageName: 'eezstreet-plugin-pack-2.0',
+      relativePath: 'settings.toml',
+      sha256: 'f'.repeat(64),
+      sourceName: 'eezstreet-plugin-pack-2.0',
+      sourceType: 'managed' as const,
+    },
+  ],
   conflicts: [],
   managedRoot: 'C:\\D2RMM\\d2rloader',
   managedSignature: 'signature',
   packages: [
     {
-      configFiles: [],
+      configFiles: ['config\\settings.toml'],
       dataFiles: [],
       name: 'eezstreet-plugin-pack-2.0',
       patchFiles: [],
@@ -132,21 +144,37 @@ describe('ModManagerPlugins', () => {
     jest.clearAllMocks();
     mockDeletePackage.mockResolvedValue(undefined);
     mockReadEditableJSON.mockImplementation(
-      async (packageName: string, sourcePath: string) => ({
-        contents:
-          sourcePath === 'maxstashgold.json'
-            ? '{"version":1,"patches":[{"op":"write-u32","rva":"0x10"}]}'
-            : '{\n  // editable\n  "enabled": true,\n}\n',
-        packageName,
-        role: sourcePath === 'maxstashgold.json' ? 'patch' : 'plugin',
-        sha256:
-          sourcePath === 'maxstashgold.json' ? 'c'.repeat(64) : 'a'.repeat(64),
-        sourcePath,
-        targetPath:
-          sourcePath === 'maxstashgold.json'
-            ? 'patches\\maxstashgold.json'
-            : 'plugins\\D2RPlugins.json',
-      }),
+      async (packageName: string, sourcePath: string) => {
+        const isTOML = sourcePath === 'settings.toml';
+        const isPatch = sourcePath === 'maxstashgold.json';
+        const format: 'json' | 'toml' = isTOML ? 'toml' : 'json';
+        const role: 'config' | 'patch' | 'plugin' = isTOML
+          ? 'config'
+          : isPatch
+            ? 'patch'
+            : 'plugin';
+        return {
+          contents: isTOML
+            ? 'enabled = true\n'
+            : isPatch
+              ? '{"version":1,"patches":[{"op":"write-u32","rva":"0x10"}]}'
+              : '{\n  // editable\n  "enabled": true,\n}\n',
+          format,
+          packageName,
+          role,
+          sha256: isTOML
+            ? 'f'.repeat(64)
+            : isPatch
+              ? 'c'.repeat(64)
+              : 'a'.repeat(64),
+          sourcePath,
+          targetPath: isTOML
+            ? 'config\\settings.toml'
+            : isPatch
+              ? 'patches\\maxstashgold.json'
+              : 'plugins\\D2RPlugins.json',
+        };
+      },
     );
     mockRefresh.mockResolvedValue(mockInventory);
     mockSaveEditableJSON.mockResolvedValue({
@@ -155,12 +183,12 @@ describe('ModManagerPlugins', () => {
     });
   });
 
-  it('separates files by package or mod source and exposes editors only for managed JSON', () => {
+  it('separates files by package or mod source and exposes editors only for managed JSON and TOML', () => {
     renderPlugins();
 
     expect(
-      screen.getByText('D2RMM package: eezstreet-plugin-pack-2.0'),
-    ).toBeInTheDocument();
+      screen.getAllByText('D2RMM package: eezstreet-plugin-pack-2.0'),
+    ).toHaveLength(2);
     expect(screen.getByText('D2RMM package: maxstashgold')).toBeInTheDocument();
     expect(screen.getByText('Mod: Example Mod')).toBeInTheDocument();
     expect(
@@ -173,6 +201,12 @@ describe('ModManagerPlugins', () => {
         name: 'Edit maxstashgold.json in maxstashgold',
       }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: 'Edit settings.toml in eezstreet-plugin-pack-2.0',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Plugin Configs (1)')).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Edit mod-settings.json' }),
     ).not.toBeInTheDocument();
@@ -225,6 +259,44 @@ describe('ModManagerPlugins', () => {
     );
   });
 
+  it('lazy-loads, edits, and saves managed TOML', async () => {
+    renderPlugins();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Edit settings.toml in eezstreet-plugin-pack-2.0',
+      }),
+    );
+    const editor = await screen.findByRole('textbox', {
+      name: 'TOML editor for settings.toml in eezstreet-plugin-pack-2.0',
+    });
+    expect(mockReadEditableJSON).toHaveBeenCalledWith(
+      'eezstreet-plugin-pack-2.0',
+      'settings.toml',
+    );
+
+    const edited = 'enabled = false\n[feature]\nmode = "safe"\n';
+    fireEvent.change(editor, { target: { value: edited } });
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Save settings.toml in eezstreet-plugin-pack-2.0',
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mockSaveEditableJSON).toHaveBeenCalledWith(
+        'eezstreet-plugin-pack-2.0',
+        'settings.toml',
+        'f'.repeat(64),
+        edited,
+      ),
+    );
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'settings.toml saved' }),
+      ),
+    );
+  });
+
   it('offers an explicit reload after a stale revision save error', async () => {
     mockSaveEditableJSON.mockRejectedValueOnce(
       new Error('Managed package JSON changed since the editor was opened.'),
@@ -232,6 +304,7 @@ describe('ModManagerPlugins', () => {
     mockReadEditableJSON
       .mockResolvedValueOnce({
         contents: '{"value":"old"}',
+        format: 'json',
         packageName: 'eezstreet-plugin-pack-2.0',
         role: 'plugin',
         sha256: 'a'.repeat(64),
@@ -240,6 +313,7 @@ describe('ModManagerPlugins', () => {
       })
       .mockResolvedValueOnce({
         contents: '{"value":"external"}',
+        format: 'json',
         packageName: 'eezstreet-plugin-pack-2.0',
         role: 'plugin',
         sha256: 'f'.repeat(64),

@@ -93,6 +93,11 @@
         "from": "mods.empty",
         "to": "mods",
         "filter": ["**/*"]
+      },
+      {
+        "from": "d2rloader.empty",
+        "to": "d2rloader",
+        "filter": ["**/*"]
       }
     ],
     "afterPack": "./afterPack.js",

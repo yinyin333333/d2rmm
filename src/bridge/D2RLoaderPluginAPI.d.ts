@@ -22,6 +22,7 @@ export type D2RLoaderPluginPackageSummary = {
 };
 
 export type D2RLoaderPluginInventory = {
+  configs: D2RLoaderPluginInventoryItem[];
   conflicts: string[];
   managedSignature: string;
   managedRoot: string;
@@ -38,8 +39,9 @@ export type D2RLoaderPluginImportResult = {
 
 export type D2RLoaderPluginEditableJSON = {
   contents: string;
+  format: 'json' | 'toml';
   packageName: string;
-  role: 'patch' | 'plugin';
+  role: 'config' | 'patch' | 'plugin';
   sha256: string;
   sourcePath: string;
   targetPath: string;
