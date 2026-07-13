@@ -18,6 +18,7 @@ import { zipSync } from 'fflate';
 import {
   cpSync,
   existsSync,
+  mkdtempSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -548,6 +549,50 @@ export function getValidatedModInstallPath(
   return modDirPath;
 }
 
+const modInstallLocks = new Map<string, Promise<void>>();
+
+function getModInstallLockKey(appRootPath: string, modID: string): string {
+  const destinationPath = getValidatedModInstallPath(appRootPath, modID);
+  return process.platform === 'win32'
+    ? destinationPath.toLowerCase()
+    : destinationPath;
+}
+
+export async function withModInstallLock<T>(
+  appRootPath: string,
+  modID: string,
+  operation: () => Promise<T> | T,
+): Promise<T> {
+  const lockKey = getModInstallLockKey(appRootPath, modID);
+  const previousLock = modInstallLocks.get(lockKey);
+  let releaseLock!: () => void;
+  const currentLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  modInstallLocks.set(lockKey, currentLock);
+
+  if (previousLock != null) {
+    await previousLock;
+  }
+
+  try {
+    return await operation();
+  } finally {
+    releaseLock();
+    if (modInstallLocks.get(lockKey) === currentLock) {
+      modInstallLocks.delete(lockKey);
+    }
+  }
+}
+
+export function createModInstallTempDirectory(
+  tempBasePath: string = os.tmpdir(),
+): string {
+  const tempRootPath = path.join(tempBasePath, 'D2RMM', 'ModInstall');
+  mkdirSync(tempRootPath, { recursive: true });
+  return mkdtempSync(path.join(tempRootPath, `${process.pid}-`));
+}
+
 export type ModDirectoryReplaceOperation = 'copy' | 'config' | 'swap';
 
 function canonicalizeWithExistingParent(inputPath: string): string {
@@ -667,45 +712,40 @@ export function replaceModDirectoryAtomically(
   }
 }
 
-async function installFromZipPath(
+async function installFromZipPathUnlocked(
   zipFilePath: string,
   modID: string,
+  appRootPath: string,
 ): Promise<string> {
-  const modDirPath = getValidatedModInstallPath(getAppPath(), modID);
+  const modDirPath = getValidatedModInstallPath(appRootPath, modID);
   console.debug('ModUpdaterAPI', 'installFromZipPath', { zipFilePath, modID });
 
-  const extractDirPath = path.join(os.tmpdir(), 'D2RMM', 'ModInstall', modID);
-  if (existsSync(extractDirPath)) {
-    rmSync(extractDirPath, { force: true, recursive: true });
-  }
-  mkdirSync(extractDirPath, { recursive: true });
-
-  await withNoAsar(async () => {
-    await decompress(zipFilePath, extractDirPath, {
-      map: normalizeZipDirectoryEntry,
-    });
-  });
-
-  console.debug('ModUpdaterAPI', 'extracted zip file', {
-    modID,
-    zipFilePath,
-    extractDirPath,
-  });
-
-  const extractedModDirPath = findModInfo(extractDirPath);
-  if (extractedModDirPath == null) {
-    rmSync(extractDirPath, { force: true, recursive: true });
-    throw new Error(
-      `Mod has an unexpected file structure. Expected to find a "mod.json" (for D2RMM mods) or a "modinfo.json" (for data mods) file somewhere in the .zip file.`,
-    );
-  }
-
-  console.debug('ModUpdaterAPI', 'validated extracted files', {
-    modID,
-    extractedModDirPath,
-  });
-
+  const extractDirPath = createModInstallTempDirectory();
   try {
+    await withNoAsar(async () => {
+      await decompress(zipFilePath, extractDirPath, {
+        map: normalizeZipDirectoryEntry,
+      });
+    });
+
+    console.debug('ModUpdaterAPI', 'extracted zip file', {
+      modID,
+      zipFilePath,
+      extractDirPath,
+    });
+
+    const extractedModDirPath = findModInfo(extractDirPath);
+    if (extractedModDirPath == null) {
+      throw new Error(
+        `Mod has an unexpected file structure. Expected to find a "mod.json" (for D2RMM mods) or a "modinfo.json" (for data mods) file somewhere in the .zip file.`,
+      );
+    }
+
+    console.debug('ModUpdaterAPI', 'validated extracted files', {
+      modID,
+      extractedModDirPath,
+    });
+
     replaceModDirectoryAtomically(extractedModDirPath, modDirPath);
   } finally {
     rmSync(extractDirPath, { force: true, recursive: true });
@@ -716,11 +756,12 @@ async function installFromZipPath(
   return modID;
 }
 
-async function installFromFolderPath(
+async function installFromFolderPathUnlocked(
   folderPath: string,
   modID: string,
+  appRootPath: string,
 ): Promise<string> {
-  const modDirPath = getValidatedModInstallPath(getAppPath(), modID);
+  const modDirPath = getValidatedModInstallPath(appRootPath, modID);
   console.debug('ModUpdaterAPI', 'installFromFolderPath', {
     folderPath,
     modID,
@@ -796,53 +837,64 @@ export async function initModUpdaterAPI(): Promise<void> {
         modID = file.name;
       }
 
-      getValidatedModInstallPath(getAppPath(), modID);
-
-      // get link to the zip file on Nexus Mods CDN only after the local
-      // destination and download filename are known to be safe.
-      const downloadLink = await NexusModsAPI.getDownloadLink(
-        nexusApiKey,
-        nexusModID,
-        nexusFileID,
-        key,
-        expires,
-      );
-      const downloadUrl = downloadLink[0]?.URI;
-      if (downloadUrl == null) {
-        throw new Error(
-          `No download links found for Nexus mod ${nexusModID} file ${nexusFileID}.`,
+      const appRootPath = getAppPath();
+      return withModInstallLock(appRootPath, modID, async () => {
+        // get link to the zip file on Nexus Mods CDN only after the local
+        // destination and download filename are known to be safe.
+        const downloadLink = await NexusModsAPI.getDownloadLink(
+          nexusApiKey,
+          nexusModID,
+          nexusFileID,
+          key,
+          expires,
         );
-      }
-
-      // download the zip file
-      const fileName = `${modID}.zip`;
-      const { filePath } = await RequestAPI.downloadToFile(downloadUrl, {
-        fileName,
-      });
-
-      console.debug('ModUpdaterAPI', 'downloaded zip file', {
-        modID,
-        nexusModID,
-        nexusFileID,
-        downloadFilePath: filePath,
-      });
-
-      try {
-        return await installFromZipPath(filePath, modID);
-      } finally {
-        // Always remove the downloaded temp zip, even on failure.
-        if (existsSync(filePath)) {
-          rmSync(filePath);
+        const downloadUrl = downloadLink[0]?.URI;
+        if (downloadUrl == null) {
+          throw new Error(
+            `No download links found for Nexus mod ${nexusModID} file ${nexusFileID}.`,
+          );
         }
-      }
+
+        // download the zip file
+        const fileName = `${modID}.zip`;
+        const { filePath } = await RequestAPI.downloadToFile(downloadUrl, {
+          fileName,
+        });
+
+        console.debug('ModUpdaterAPI', 'downloaded zip file', {
+          modID,
+          nexusModID,
+          nexusFileID,
+          downloadFilePath: filePath,
+        });
+
+        try {
+          return await installFromZipPathUnlocked(
+            filePath,
+            modID,
+            appRootPath,
+          );
+        } finally {
+          // Always remove the downloaded temp zip, even on failure.
+          if (existsSync(filePath)) {
+            rmSync(filePath);
+          }
+        }
+      });
     },
     installModFromZip: async (zipFilePath) => {
       const modID = path.basename(zipFilePath, '.zip');
-      return installFromZipPath(zipFilePath, modID);
+      const appRootPath = getAppPath();
+      return withModInstallLock(appRootPath, modID, () =>
+        installFromZipPathUnlocked(zipFilePath, modID, appRootPath),
+      );
     },
     installModFromFolder: async (folderPath) => {
       const modID = path.basename(folderPath);
-      return installFromFolderPath(folderPath, modID);
+      const appRootPath = getAppPath();
+      return withModInstallLock(appRootPath, modID, () =>
+        installFromFolderPathUnlocked(folderPath, modID, appRootPath),
+      );
     },
     getCollectionRevision: async (
       nexusApiKey,
