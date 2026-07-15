@@ -176,7 +176,14 @@ describe('D2RLoader plugin package manager', () => {
     ]);
     expect(first.configs).toEqual([
       expect.objectContaining({
-        editableSourcePath: null,
+        editableSource: {
+          category: 'config',
+          loaderRootPath: 'D2RLoader',
+          modID: 'Mod B',
+          sourcePath: 'settings.toml',
+          sourceType: 'mod',
+        },
+        editableSourcePath: 'settings.toml',
         sourceName: 'Mod B',
         relativePath: 'settings.toml',
       }),

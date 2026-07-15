@@ -18,6 +18,7 @@ const mockState = {
   readModDirectory: jest.fn(),
   readModInfo: jest.fn(),
   readPluginInventory: jest.fn(),
+  selectDirectory: jest.fn(),
 };
 
 jest.mock('renderer/IPC', () => ({
@@ -58,6 +59,9 @@ jest.mock('renderer/IPC', () => ({
             if (api === 'readD2RLoaderConfig') {
               return mockState.readD2RLoaderConfig(...args);
             }
+            if (api === 'selectDirectory') {
+              return mockState.selectDirectory(...args);
+            }
             if (api === 'readInventory') {
               return mockState.readPluginInventory(...args);
             }
@@ -81,6 +85,7 @@ jest.mock('renderer/AppInfoAPI', () => ({
 
 describe('App', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
     localStorage.clear();
     mockState.installMods.mockResolvedValue(undefined);
     mockState.installModFromZip.mockResolvedValue(undefined);
@@ -91,6 +96,7 @@ describe('App', () => {
     });
     mockState.openExternal.mockResolvedValue(undefined);
     mockState.readD2RLoaderConfig.mockResolvedValue(null);
+    mockState.selectDirectory.mockResolvedValue(null);
     mockState.readModConfig.mockResolvedValue({});
     mockState.readModDirectory.mockResolvedValue([]);
     mockState.readModInfo.mockResolvedValue({
@@ -117,7 +123,7 @@ describe('App', () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
-    expect(await screen.findByText('D2RLoader')).toBeInTheDocument();
+    expect((await screen.findAllByText('D2RLoader')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Direct Mode')).not.toBeInTheDocument();
     expect(
       screen.queryByText('settings.directMode.title'),
@@ -126,6 +132,29 @@ describe('App', () => {
     const logsTab = screen.getByRole('tab', { name: 'Logs' });
     fireEvent.click(logsTab);
     expect(logsTab).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('should browse for directories from settings', async () => {
+    mockState.selectDirectory.mockResolvedValue(
+      'D:\\Games\\Diablo II Resurrected',
+    );
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Browse: Game Directory',
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mockState.selectDirectory).toHaveBeenCalledWith(
+        'C:\\Diablo II Resurrected',
+      ),
+    );
+    expect(screen.getByLabelText('Game Directory')).toHaveValue(
+      'D:\\Games\\Diablo II Resurrected',
+    );
   });
 
   it('should render dynamic D2RLoader TOML settings', async () => {
@@ -246,8 +275,12 @@ describe('App', () => {
     fireEvent.click(pluginTab);
 
     expect(pluginPanel).not.toHaveAttribute('hidden');
-    expect(screen.getByText('Plugins (0)')).toBeInTheDocument();
-    expect(screen.getByText('Patches (0)')).toBeInTheDocument();
+    expect(
+      screen.getByRole('tab', { name: /^Plugins . 0$/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('tab', { name: /^Patches . 0$/ }),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Mods' }));
     expect(pluginPanel).toHaveAttribute('hidden');

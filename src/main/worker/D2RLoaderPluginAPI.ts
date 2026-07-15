@@ -1,5 +1,6 @@
 import type {
   D2RLoaderPluginEditableJSON,
+  D2RLoaderPluginEditableSource,
   D2RLoaderPluginEditResult,
   D2RLoaderPluginImportResult,
   D2RLoaderPluginInventory,
@@ -1939,6 +1940,330 @@ export function saveD2RLoaderPluginPackageJSON(
   }
 }
 
+type ModEditableSource = Extract<
+  D2RLoaderPluginEditableSource,
+  { sourceType: 'mod' }
+>;
+
+type ResolvedModEditableSource = {
+  filePath: string;
+  format: 'json' | 'toml';
+  formatLabel: 'JSON/JSONC' | 'TOML';
+  role: 'config' | 'patch' | 'plugin';
+  sourcePath: string;
+  targetPath: string;
+};
+
+function getValidatedModRoot(appRoot: string, modID: string): string {
+  const modsRoot = path.resolve(appRoot, 'mods');
+  if (!existsSync(modsRoot)) {
+    throw new Error('The D2RMM mods directory does not exist.');
+  }
+  const modRoot = path.resolve(modsRoot, modID);
+  const relativeModPath = path.relative(modsRoot, modRoot);
+  if (
+    relativeModPath.length === 0 ||
+    path.isAbsolute(relativeModPath) ||
+    path.dirname(relativeModPath) !== '.'
+  ) {
+    throw new Error(`Invalid mod ID for D2RLoader access: "${modID}".`);
+  }
+  try {
+    return resolveManagedEntry(modsRoot, modID, 'directory');
+  } catch (error) {
+    throw new Error(
+      `Cannot open D2RLoader files for mod "${modID}". ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+function resolveModEditableSource(
+  appRoot: string,
+  source: ModEditableSource,
+): ResolvedModEditableSource {
+  const modRoot = getValidatedModRoot(appRoot, source.modID);
+  let requestedLoaderRoot: string;
+  try {
+    requestedLoaderRoot = resolveManagedEntry(
+      modRoot,
+      source.loaderRootPath,
+      'directory',
+    );
+  } catch (error) {
+    throw new Error(
+      `Invalid D2RLoader root for mod "${source.modID}". ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  const dataModRoot = getDataModRootPath(modRoot);
+  const candidateRoots = [
+    modRoot,
+    ...(dataModRoot != null && dataModRoot !== modRoot ? [dataModRoot] : []),
+  ];
+  const isKnownLoaderRoot = candidateRoots.some((candidateRoot) => {
+    const loaderRoot = findCaseInsensitiveDirectory(candidateRoot, 'd2rloader');
+    return (
+      loaderRoot != null &&
+      pathKey(path.resolve(loaderRoot)) ===
+        pathKey(path.resolve(requestedLoaderRoot))
+    );
+  });
+  if (!isKnownLoaderRoot) {
+    throw new Error(
+      `The selected file is not inside a recognized D2RLoader folder for mod "${source.modID}".`,
+    );
+  }
+
+  if (!['plugins', 'patches', 'config'].includes(source.category)) {
+    throw new Error(`Invalid D2RLoader file category: "${source.category}".`);
+  }
+  const categoryRoot = findCaseInsensitiveDirectory(
+    requestedLoaderRoot,
+    source.category,
+  );
+  if (categoryRoot == null) {
+    throw new Error(
+      `D2RLoader ${source.category} folder no longer exists for mod "${source.modID}". Refresh the inventory.`,
+    );
+  }
+
+  let filePath: string;
+  try {
+    filePath = resolveManagedEntry(categoryRoot, source.sourcePath, 'file');
+  } catch (error) {
+    throw new Error(
+      `Invalid mod plugin source path "${source.sourcePath}". ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  const isTOML =
+    source.category === 'config' &&
+    /\.toml$/i.test(source.sourcePath) &&
+    path.basename(source.sourcePath).toLowerCase() !==
+      D2R_LOADER_MAIN_CONFIG_FILE;
+  const isJSON =
+    source.category !== 'config' && /\.jsonc?$/i.test(source.sourcePath);
+  if (!isTOML && !isJSON) {
+    throw new Error(
+      `Mod file is not an editable plugin JSON/JSONC or plugin TOML file: "${source.sourcePath}".`,
+    );
+  }
+
+  return {
+    filePath,
+    format: isTOML ? 'toml' : 'json',
+    formatLabel: isTOML ? 'TOML' : 'JSON/JSONC',
+    role:
+      source.category === 'config'
+        ? 'config'
+        : source.category === 'patches'
+          ? 'patch'
+          : 'plugin',
+    sourcePath: source.sourcePath,
+    targetPath: path.join(source.category, source.sourcePath),
+  };
+}
+
+function readD2RLoaderModPluginJSON(
+  appRoot: string,
+  source: ModEditableSource,
+): D2RLoaderPluginEditableJSON {
+  const resolved = resolveModEditableSource(appRoot, source);
+  const stat = lstatSync(resolved.filePath);
+  assertEditableTextSize(stat.size);
+  const data = readBoundedFile(resolved.filePath);
+  const contents = decodeStrictUTF8(data, resolved.formatLabel);
+  if (resolved.format === 'json') {
+    try {
+      parseJSONC(data);
+    } catch (error) {
+      throw new Error(
+        `Mod plugin JSON/JSONC is invalid: "${source.sourcePath}". ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  return {
+    contents,
+    format: resolved.format,
+    packageName: null,
+    role: resolved.role,
+    sha256: hashBuffer(data),
+    sourcePath: resolved.sourcePath,
+    targetPath: resolved.targetPath,
+  };
+}
+
+function replaceModSourceFile(
+  filePath: string,
+  expectedSha256: string,
+  editedData: Buffer,
+): string[] {
+  const token = randomUUID();
+  const directoryPath = path.dirname(filePath);
+  const stagedPath = path.join(directoryPath, `.d2rmm-edit-${token}.tmp`);
+  const backupPath = path.join(directoryPath, `.d2rmm-edit-${token}.bak`);
+  const expectedEditedSha256 = hashBuffer(editedData);
+  const warnings: string[] = [];
+  let originalMoved = false;
+  let replacementInstalled = false;
+
+  writeFileSync(stagedPath, editedData, {
+    flag: 'wx',
+    mode: lstatSync(filePath).mode,
+  });
+  try {
+    if (hashFile(filePath).toLowerCase() !== expectedSha256.toLowerCase()) {
+      throw new Error(
+        'The mod file changed immediately before the edit was committed. Refresh and reopen it.',
+      );
+    }
+    renameSync(filePath, backupPath);
+    originalMoved = true;
+    if (hashFile(backupPath).toLowerCase() !== expectedSha256.toLowerCase()) {
+      throw new Error(
+        'The mod file changed while the edit was being committed. Refresh and reopen it.',
+      );
+    }
+    renameSync(stagedPath, filePath);
+    replacementInstalled = true;
+    if (
+      hashFile(filePath).toLowerCase() !== expectedEditedSha256.toLowerCase()
+    ) {
+      throw new Error('The edited mod file failed post-write verification.');
+    }
+    try {
+      rmSync(backupPath, { force: true });
+    } catch (error) {
+      warnings.push(
+        `The edit was saved, but its temporary backup could not be removed: "${backupPath}". ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    originalMoved = false;
+    return warnings;
+  } catch (error) {
+    const rollbackErrors: unknown[] = [];
+    if (replacementInstalled && existsSync(filePath)) {
+      try {
+        rmSync(filePath, { force: true });
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (originalMoved && existsSync(backupPath)) {
+      try {
+        renameSync(backupPath, filePath);
+        originalMoved = false;
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...rollbackErrors],
+        'Failed to save the mod file and fully restore its previous contents.',
+      );
+    }
+    throw error;
+  } finally {
+    if (existsSync(stagedPath)) {
+      rmSync(stagedPath, { force: true });
+    }
+  }
+}
+
+function saveD2RLoaderModPluginJSON(
+  appRoot: string,
+  source: ModEditableSource,
+  expectedSha256: string,
+  contents: string,
+): D2RLoaderPluginEditResult {
+  const resolved = resolveModEditableSource(appRoot, source);
+  if (!/^[a-f0-9]{64}$/i.test(expectedSha256)) {
+    throw new Error(`Invalid expected ${resolved.formatLabel} revision hash.`);
+  }
+  const editedData = Buffer.from(contents, 'utf8');
+  assertEditableTextSize(editedData.length);
+  decodeStrictUTF8(editedData, resolved.formatLabel);
+  if (resolved.format === 'json') {
+    try {
+      parseJSONC(editedData);
+    } catch (error) {
+      throw new Error(
+        `Cannot save invalid JSON/JSONC: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  assertEditableTextSize(lstatSync(resolved.filePath).size);
+  const currentData = readBoundedFile(resolved.filePath);
+  if (hashBuffer(currentData).toLowerCase() !== expectedSha256.toLowerCase()) {
+    throw new Error(
+      `Mod ${resolved.formatLabel} changed since the editor was opened: "${source.sourcePath}". Refresh and reopen it.`,
+    );
+  }
+  if (resolved.role === 'patch' && !isPatchJSON(editedData)) {
+    throw new Error(
+      `Patch JSON/JSONC must remain a valid D2RLoader patch: "${source.sourcePath}".`,
+    );
+  }
+  if (resolved.role === 'plugin' && isPatchJSON(editedData)) {
+    throw new Error(
+      `Plugin companion JSON/JSONC cannot be changed into a patch: "${source.sourcePath}". Move it to the patches folder instead.`,
+    );
+  }
+
+  return {
+    sha256: hashBuffer(editedData),
+    warnings: replaceModSourceFile(
+      resolved.filePath,
+      expectedSha256,
+      editedData,
+    ),
+  };
+}
+
+export function readD2RLoaderPluginSourceJSON(
+  appRoot: string,
+  source: D2RLoaderPluginEditableSource,
+): D2RLoaderPluginEditableJSON {
+  return source.sourceType === 'managed'
+    ? readD2RLoaderPluginPackageJSON(
+        appRoot,
+        source.packageName,
+        source.sourcePath,
+      )
+    : readD2RLoaderModPluginJSON(appRoot, source);
+}
+
+export function saveD2RLoaderPluginSourceJSON(
+  appRoot: string,
+  source: D2RLoaderPluginEditableSource,
+  expectedSha256: string,
+  contents: string,
+): D2RLoaderPluginEditResult {
+  return source.sourceType === 'managed'
+    ? saveD2RLoaderPluginPackageJSON(
+        appRoot,
+        source.packageName,
+        source.sourcePath,
+        expectedSha256,
+        contents,
+      )
+    : saveD2RLoaderModPluginJSON(appRoot, source, expectedSha256, contents);
+}
+
 function getManagedPackageEntries(packagesRoot: string): Dirent[] {
   if (!existsSync(packagesRoot)) return [];
   return readdirSync(packagesRoot, { withFileTypes: true })
@@ -2087,6 +2412,11 @@ function manifestToSummary(
   };
 }
 
+type ModInventoryLocation = Omit<
+  Extract<D2RLoaderPluginEditableSource, { sourceType: 'mod' }>,
+  'sourcePath' | 'sourceType'
+>;
+
 function inventoryItem(
   sourceType: 'managed' | 'mod',
   sourceName: string,
@@ -2095,8 +2425,10 @@ function inventoryItem(
   packageName: string | null,
   sha256: string = hashFile(filePath),
   editableSourcePath: string | null = null,
+  editableSource: D2RLoaderPluginEditableSource | null = null,
 ): D2RLoaderPluginInventoryItem {
   return {
+    editableSource,
     editableSourcePath,
     id: `${sourceType}:${sourceName}:${editableSourcePath ?? relativePath}`,
     name: path.basename(relativePath),
@@ -2112,6 +2444,7 @@ function listInventoryFiles(
   categoryPath: string,
   sourceName: string,
   budget: ResourceBudget,
+  location: ModInventoryLocation,
 ): D2RLoaderPluginInventoryItem[] {
   if (!existsSync(categoryPath) || !lstatSync(categoryPath).isDirectory()) {
     return [];
@@ -2141,8 +2474,33 @@ function listInventoryFiles(
           depth: getPathDepth(relativePath),
           name: `${sourceName}/${relativePath}`,
         });
+        const editableSourcePath =
+          location.category === 'config'
+            ? isPluginTOMLPath(relativePath)
+              ? relativePath
+              : null
+            : /\.jsonc?$/i.test(relativePath)
+              ? relativePath
+              : null;
+        const editableSource =
+          editableSourcePath == null
+            ? null
+            : {
+                ...location,
+                sourcePath: editableSourcePath,
+                sourceType: 'mod' as const,
+              };
         result.push(
-          inventoryItem('mod', sourceName, relativePath, entryPath, null),
+          inventoryItem(
+            'mod',
+            sourceName,
+            relativePath,
+            entryPath,
+            null,
+            undefined,
+            editableSourcePath,
+            editableSource,
+          ),
         );
       }
     }
@@ -2220,18 +2578,7 @@ export function readD2RLoaderPluginInventory(
   mkdirSync(packagesRoot, { recursive: true });
 
   for (const modID of [...modIDs].sort((a, b) => a.localeCompare(b))) {
-    const modRoot = path.resolve(appRoot, 'mods', modID);
-    const relativeModPath = path.relative(
-      path.resolve(appRoot, 'mods'),
-      modRoot,
-    );
-    if (
-      relativeModPath.length === 0 ||
-      path.isAbsolute(relativeModPath) ||
-      path.dirname(relativeModPath) !== '.'
-    ) {
-      throw new Error(`Invalid mod ID for D2RLoader inventory: "${modID}".`);
-    }
+    const modRoot = getValidatedModRoot(appRoot, modID);
     const dataModRoot = getDataModRootPath(modRoot);
     const candidateRoots = [
       modRoot,
@@ -2248,6 +2595,7 @@ export function readD2RLoaderPluginInventory(
       }
       seenLoaderRoots.add(pathKey(loaderRoot));
       const candidateRelative = path.relative(modRoot, candidateRoot);
+      const loaderRootPath = path.relative(modRoot, loaderRoot);
       const sourceName =
         candidateRelative === '' ? modID : `${modID} (${candidateRelative})`;
       const pluginRoot = findCaseInsensitiveDirectory(loaderRoot, 'plugins');
@@ -2255,21 +2603,29 @@ export function readD2RLoaderPluginInventory(
       const configRoot = findCaseInsensitiveDirectory(loaderRoot, 'config');
       if (pluginRoot != null) {
         plugins.push(
-          ...listInventoryFiles(pluginRoot, sourceName, modInventoryBudget),
+          ...listInventoryFiles(pluginRoot, sourceName, modInventoryBudget, {
+            category: 'plugins',
+            loaderRootPath,
+            modID,
+          }),
         );
       }
       if (patchRoot != null) {
         patches.push(
-          ...listInventoryFiles(patchRoot, sourceName, modInventoryBudget),
+          ...listInventoryFiles(patchRoot, sourceName, modInventoryBudget, {
+            category: 'patches',
+            loaderRootPath,
+            modID,
+          }),
         );
       }
       if (configRoot != null) {
         configs.push(
-          ...listInventoryFiles(
-            configRoot,
-            sourceName,
-            modInventoryBudget,
-          ).filter(({ relativePath }) => isPluginTOMLPath(relativePath)),
+          ...listInventoryFiles(configRoot, sourceName, modInventoryBudget, {
+            category: 'config',
+            loaderRootPath,
+            modID,
+          }).filter(({ relativePath }) => isPluginTOMLPath(relativePath)),
         );
       }
     }
@@ -2357,6 +2713,14 @@ export function readD2RLoaderPluginInventory(
         (file.role !== 'config' && /\.jsonc?$/i.test(file.sourcePath))
           ? file.sourcePath
           : null;
+      const editableSource =
+        editableSourcePath == null
+          ? null
+          : {
+              packageName: manifest.name,
+              sourcePath: editableSourcePath,
+              sourceType: 'managed' as const,
+            };
       const item = inventoryItem(
         'managed',
         manifest.name,
@@ -2365,6 +2729,7 @@ export function readD2RLoaderPluginInventory(
         manifest.name,
         sourceHash,
         editableSourcePath,
+        editableSource,
       );
       if (file.role === 'plugin') plugins.push(item);
       else if (file.role === 'patch') patches.push(item);
@@ -2402,18 +2767,40 @@ export function readD2RLoaderPluginInventory(
     ),
   );
 
+  const managedSignature =
+    managedSignatureParts.size === 0
+      ? ''
+      : createHash('sha256')
+          .update(Array.from(managedSignatureParts).sort().join('\0'))
+          .digest('hex');
+  const deploymentSignatureParts = new Set(managedSignatureParts);
+  for (const [category, items] of [
+    ['plugins', plugins],
+    ['patches', patches],
+    ['config', configs],
+  ] as const) {
+    for (const item of items) {
+      if (item.sourceType !== 'mod') continue;
+      deploymentSignatureParts.add(
+        `mod:${category}:${item.sourceName}:${pathKey(item.relativePath)}:${item.sha256}`,
+      );
+    }
+  }
+  const deploymentSignature =
+    deploymentSignatureParts.size === 0
+      ? ''
+      : createHash('sha256')
+          .update(Array.from(deploymentSignatureParts).sort().join('\0'))
+          .digest('hex');
+
   return {
     configs,
     conflicts: [
       ...getInventoryConflicts(plugins, patches, configs),
       ...managedTargetConflicts,
     ],
-    managedSignature:
-      managedSignatureParts.size === 0
-        ? ''
-        : createHash('sha256')
-            .update(Array.from(managedSignatureParts).sort().join('\0'))
-            .digest('hex'),
+    deploymentSignature,
+    managedSignature,
     managedRoot: packagesRoot,
     packages,
     patches,
@@ -2655,24 +3042,18 @@ export async function initD2RLoaderPluginAPI(): Promise<void> {
       runPackageMutation(() =>
         importD2RLoaderPluginSources(appRoot, sourcePaths),
       ),
-    readEditableJSON: async (packageName, sourcePath) =>
-      readD2RLoaderPluginPackageJSON(appRoot, packageName, sourcePath),
+    readEditableJSON: async (source) =>
+      readD2RLoaderPluginSourceJSON(appRoot, source),
     readInventory: async (modIDs) =>
       runPackageMutation(async () => {
         await synchronizeD2RLoaderPluginDirectory(appRoot);
         return readD2RLoaderPluginInventory(appRoot, modIDs);
       }),
-    saveEditableJSON: async (
-      packageName,
-      sourcePath,
-      expectedSha256,
-      contents,
-    ) =>
+    saveEditableJSON: async (source, expectedSha256, contents) =>
       runPackageMutation(() =>
-        saveD2RLoaderPluginPackageJSON(
+        saveD2RLoaderPluginSourceJSON(
           appRoot,
-          packageName,
-          sourcePath,
+          source,
           expectedSha256,
           contents,
         ),

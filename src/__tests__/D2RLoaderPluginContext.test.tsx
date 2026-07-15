@@ -147,8 +147,11 @@ describe('D2RLoaderPluginContext deployment state', () => {
     );
     await expect(
       pluginManager!.saveEditableJSON(
-        'Package',
-        'settings.json',
+        {
+          packageName: 'Package',
+          sourcePath: 'settings.json',
+          sourceType: 'managed',
+        },
         'a'.repeat(64),
         '{}',
       ),
@@ -207,24 +210,37 @@ describe('D2RLoaderPluginContext deployment state', () => {
     await waitFor(() => expect(pluginManager?.isLoading).toBe(false));
 
     await expect(
-      pluginManager!.readEditableJSON('Editable', 'settings.json'),
+      pluginManager!.readEditableJSON({
+        packageName: 'Editable',
+        sourcePath: 'settings.json',
+        sourceType: 'managed',
+      }),
     ).resolves.toEqual(document);
     await act(async () => {
       await pluginManager!.saveEditableJSON(
-        'Editable',
-        'settings.json',
+        {
+          packageName: 'Editable',
+          sourcePath: 'settings.json',
+          sourceType: 'managed',
+        },
         document.sha256,
         '{"enabled":false}',
       );
     });
 
     expect(mockReadEditableJSON).toHaveBeenCalledWith(
-      'Editable',
-      'settings.json',
+      {
+        packageName: 'Editable',
+        sourcePath: 'settings.json',
+        sourceType: 'managed',
+      },
     );
     expect(mockSaveEditableJSON).toHaveBeenCalledWith(
-      'Editable',
-      'settings.json',
+      {
+        packageName: 'Editable',
+        sourcePath: 'settings.json',
+        sourceType: 'managed',
+      },
       document.sha256,
       '{"enabled":false}',
     );
