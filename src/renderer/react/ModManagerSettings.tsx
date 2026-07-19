@@ -27,7 +27,12 @@ import { IThemeMode, useThemeMode } from 'renderer/react/context/ThemeContext';
 import useNexusAuthState from 'renderer/react/context/hooks/useNexusAuthState';
 import { useAsyncMemo } from 'renderer/react/hooks/useAsyncMemo';
 import { useIsFocused } from 'renderer/react/hooks/useIsFocused';
+import DirectoryField from 'renderer/react/mmsettings/DirectoryField';
 import InstallBeforeRunSettings from 'renderer/react/mmsettings/InstallBeforeRunSettings';
+import SettingsWorkspace, {
+  type SettingsSection,
+  type SettingsSectionId,
+} from 'renderer/react/mmsettings/SettingsWorkspace';
 import {
   SEED_ARG,
   getSeedValue,
@@ -38,9 +43,8 @@ import {
   setExtraArgEnabled,
   setSeedValue,
 } from 'renderer/react/utils/launchArgs';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import ExpandMore from '@mui/icons-material/ExpandMore';
 import {
   Accordion,
   AccordionDetails,
@@ -53,7 +57,6 @@ import {
   Divider,
   LinearProgress,
   Link,
-  List,
   ListItemButton,
   ListItemIcon,
   ListItemText,
@@ -78,29 +81,83 @@ async function getIsValidPreExtractedDataPath(path: string): Promise<boolean> {
 }
 
 const StyledAccordion = styled(Accordion)(() => ({
+  backgroundColor: 'transparent',
+  boxShadow: 'none',
+  margin: 0,
+  '&.Mui-expanded': {
+    margin: 0,
+  },
   '&:before': {
+    display: 'none',
+  },
+  '&[hidden]': {
     display: 'none',
   },
 }));
 
-const StyledAccordionSummary = styled(AccordionSummary)(({ theme }) => ({
-  flexDirection: 'row-reverse',
-  backgroundColor: theme.palette.action.hover,
-  '&:hover': {
-    backgroundColor: theme.palette.action.focus,
-  },
+const StyledAccordionSummary = styled(AccordionSummary)(() => ({
+  display: 'none',
 }));
 
-const StyledAccordionDetails = styled(AccordionDetails)(() => ({}));
+const StyledAccordionDetails = styled(AccordionDetails)(({ theme }) => ({
+  margin: '0 auto',
+  maxWidth: 1040,
+  padding: theme.spacing(3),
+  width: '100%',
+  '& .MuiAlert-root': {
+    borderRadius: theme.shape.borderRadius * 2,
+  },
+  '& .MuiListItemButton-root': {
+    border: `1px solid ${theme.palette.divider}`,
+    borderRadius: theme.shape.borderRadius * 2,
+    marginTop: theme.spacing(1),
+    transition: theme.transitions.create([
+      'background-color',
+      'border-color',
+      'transform',
+    ]),
+  },
+  '& .MuiListItemButton-root:hover': {
+    borderColor: theme.palette.primary.main,
+    transform: 'translateY(-1px)',
+  },
+  '& > .MuiDivider-root': {
+    marginBottom: theme.spacing(1.5),
+    marginTop: theme.spacing(3),
+  },
+  [theme.breakpoints.down('sm')]: {
+    padding: theme.spacing(2),
+  },
+}));
 
 type Props = Record<string, never>;
 
 const LAUNCH_ARG_OPTIONS = [
-  { arg: '-ns', label: 'settings.launcher.arg.noSound' },
-  { arg: '-w', label: 'settings.launcher.arg.window' },
-  { arg: '-skiplogovideo', label: 'settings.launcher.arg.skipIntro' },
-  { arg: '-enablerespec', label: 'settings.launcher.arg.respec' },
-  { arg: '-resetofflinemaps', label: 'settings.launcher.arg.resetMaps' },
+  {
+    arg: '-ns',
+    description: 'settings.launcher.arg.noSound.description',
+    label: 'settings.launcher.arg.noSound',
+  },
+  {
+    arg: '-w',
+    description: 'settings.launcher.arg.window.description',
+    label: 'settings.launcher.arg.window',
+  },
+  {
+    arg: '-skiplogovideo',
+    description: 'settings.launcher.arg.skipIntro.description',
+    label: 'settings.launcher.arg.skipIntro',
+  },
+  {
+    arg: '-enablerespec',
+    description: 'settings.launcher.arg.respec.description',
+    label: 'settings.launcher.arg.respec',
+  },
+  {
+    arg: '-resetofflinemaps',
+    description: 'settings.launcher.arg.resetMaps.description',
+    label: 'settings.launcher.arg.resetMaps',
+  },
 ] as const;
 
 function formatD2RLoaderTomlLabel(key: string): string {
@@ -139,6 +196,34 @@ function isEditableD2RLoaderTomlSetting(
   );
 }
 
+function normalizeDirectoryPath(filePath: string): string {
+  const normalized = filePath
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/');
+  return normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
+}
+
+function isWindowsStylePath(filePath: string): boolean {
+  const trimmed = filePath.trim();
+  return /^[a-z]:[\\/]/i.test(trimmed) || /^\\\\/.test(trimmed);
+}
+
+function isSameOrDescendantPath(
+  candidatePath: string,
+  rootPath: string,
+): boolean {
+  let candidate = normalizeDirectoryPath(candidatePath);
+  let root = normalizeDirectoryPath(rootPath);
+  if (isWindowsStylePath(candidatePath) && isWindowsStylePath(rootPath)) {
+    candidate = candidate.toLowerCase();
+    root = root.toLowerCase();
+  }
+  if (root === '') return false;
+  const rootPrefix = root.endsWith('/') ? root : `${root}/`;
+  return candidate === root || candidate.startsWith(rootPrefix);
+}
+
 export default function ModManagerSettings(_props: Props): JSX.Element {
   const { t } = useTranslation();
   const [extraArgs, setExtraArgs] = useExtraGameLaunchArgs();
@@ -149,12 +234,16 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
     useState<D2RLoaderConfig | null>(null);
   const [isD2RLoaderConfigLoading, setIsD2RLoaderConfigLoading] =
     useState(false);
+  const [d2rLoaderSearch, setD2RLoaderSearch] = useState('');
   const [d2rLoaderTomlInputValues, setD2RLoaderTomlInputValues] = useState<
     Record<string, string>
   >({});
   const [normalizeOutputCRLF, setNormalizeOutputCRLF] =
     useNormalizeCRLFOnInstall();
   const [d2rLoaderSettings, setD2RLoaderSettings] = useD2RLoaderSettings();
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>(() =>
+    d2rLoaderSettings.useD2RLoader ? 'd2rLoader' : 'general',
+  );
   const [rawGamePath, setRawGamePath] = useGamePath();
   const gamePath = useSanitizedGamePath();
   const [isPreExtractedData, setIsPreExtractedData] = useIsPreExtractedData();
@@ -276,6 +365,28 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
     return sections;
   }, [d2rLoaderConfig]);
 
+  const filteredD2RLoaderTomlSections = useMemo(() => {
+    const query = d2rLoaderSearch.trim().toLowerCase();
+    if (query === '') {
+      return d2rLoaderTomlSections;
+    }
+
+    return d2rLoaderTomlSections
+      .map(({ section, settings }) => ({
+        section,
+        settings: settings.filter((setting) =>
+          [
+            section,
+            setting.id,
+            setting.key,
+            formatD2RLoaderTomlLabel(setting.key),
+            setting.description,
+          ].some((value) => value.toLowerCase().includes(query)),
+        ),
+      }))
+      .filter(({ settings }) => settings.length > 0);
+  }, [d2rLoaderSearch, d2rLoaderTomlSections]);
+
   const isValidGamePath =
     useAsyncMemo(useCallback(() => getIsValidGamePath(gamePath), [gamePath])) ??
     true;
@@ -293,6 +404,10 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
 
   const isIdenticalInputAndOutput =
     preExtractedDataPath.toLowerCase() === outputPath.toLowerCase();
+  const isSavesPathOutsideBase = !isSameOrDescendantPath(
+    finalSavesPath,
+    baseSavesPath,
+  );
 
   const {
     nexusApiState,
@@ -303,6 +418,78 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
     registerAsNxmProtocolHandler,
     unregisterAsNxmProtocolHandler,
   } = useNexusAuthState();
+
+  const generalHasError =
+    !isValidGamePath ||
+    outputModName.trim() === '' ||
+    (dataSource === 'directory' &&
+      (!isValidPreExtractedDataPath || isIdenticalInputAndOutput));
+  const generalNeedsAttention = generalHasError || isSavesPathOutsideBase;
+  const d2rLoaderSectionStatus: Pick<
+    SettingsSection,
+    'status' | 'tone'
+  > = isD2RLoaderConfigLoading
+    ? { status: t('settings.status.checking'), tone: 'info' }
+    : !d2rLoaderSettings.useD2RLoader
+      ? { status: t('settings.status.disabled'), tone: 'default' }
+      : d2rLoaderConfig == null
+        ? { status: t('settings.status.needsAttention'), tone: 'warning' }
+        : { status: t('settings.status.enabled'), tone: 'success' };
+  const isNexusReady =
+    nexusAuthState.apiKey != null && isRegisteredAsNxmProtocolHandler;
+  const settingsSections: readonly SettingsSection[] = [
+    {
+      description: t('settings.general.summary'),
+      id: 'general',
+      status: t(
+        generalNeedsAttention
+          ? 'settings.status.needsAttention'
+          : 'settings.status.ready',
+      ),
+      title: t('settings.general.title'),
+      tone: generalHasError
+        ? 'error'
+        : isSavesPathOutsideBase
+          ? 'warning'
+          : 'success',
+    },
+    {
+      description: t('settings.d2rLoader.summary'),
+      id: 'd2rLoader',
+      ...d2rLoaderSectionStatus,
+      title: t('settings.d2rLoader.title'),
+    },
+    {
+      description: t('settings.launcher.summary'),
+      id: 'launcher',
+      status:
+        normalizedExtraArgs.length === 0
+          ? t('settings.status.default')
+          : t('settings.status.custom', {
+              count: normalizedExtraArgs.length,
+            }),
+      title: t('settings.launcher.title'),
+      tone: normalizedExtraArgs.length === 0 ? 'default' : 'info',
+    },
+    {
+      description: t('settings.display.summary'),
+      id: 'display',
+      status: t(`settings.display.theme.${themeMode}`),
+      title: t('settings.display.title'),
+      tone: 'info',
+    },
+    {
+      description: t('settings.nexus.summary'),
+      id: 'nexus',
+      status: isNexusReady
+        ? t('settings.status.connected')
+        : nexusAuthState.apiKey == null
+          ? t('settings.status.notConnected')
+          : t('settings.status.needsAttention'),
+      title: t('settings.nexus.title'),
+      tone: isNexusReady ? 'success' : 'warning',
+    },
+  ];
 
   const renderD2RLoaderTomlSetting = (
     setting: D2RLoaderTomlSetting,
@@ -399,33 +586,20 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
   };
 
   return (
-    <List
-      disablePadding={true}
-      sx={{
-        border: 'none',
-        display: 'flex',
-        flex: 1,
-        flexDirection: 'column',
-        overflow: 'auto',
-        width: '100%',
-      }}
+    <SettingsWorkspace
+      activeSection={activeSection}
+      onSectionChange={setActiveSection}
+      sections={settingsSections}
     >
       <StyledAccordion
-        defaultExpanded={
-          useRef(
-            !isValidGamePath ||
-              !isValidPreExtractedDataPath ||
-              isIdenticalInputAndOutput,
-          ).current
-        }
         disableGutters={true}
         elevation={0}
+        expanded={true}
+        hidden={activeSection !== 'general'}
         square={true}
-        sx={{ order: 0 }}
       >
         <StyledAccordionSummary
           aria-controls="general-content"
-          expandIcon={<ExpandMore />}
           id="general-header"
         >
           <Typography sx={{ marginLeft: 1 }}>
@@ -433,19 +607,17 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
           </Typography>
         </StyledAccordionSummary>
         <StyledAccordionDetails id="general-content">
-          <Typography color="text.secondary" variant="subtitle2">
-            {t('settings.general.gameDir.description')}
-          </Typography>
-          <TextField
+          <DirectoryField
+            browseLabel={t('settings.action.browse')}
+            description={t('settings.general.gameDir.description')}
             error={!isValidGamePath}
-            fullWidth={true}
             helperText={
               isValidGamePath ? null : t('settings.general.gameDir.error')
             }
             label={t('settings.general.gameDir.label')}
-            onChange={(event) => setRawGamePath(event.target.value)}
+            onChange={setRawGamePath}
+            selectingLabel={t('settings.action.selecting')}
             value={rawGamePath}
-            variant="filled"
           />
           <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
           <Typography color="text.secondary" variant="subtitle2">
@@ -471,23 +643,19 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
           {dataSource === 'directory' ? (
             <>
               <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
-              <Typography color="text.secondary" variant="subtitle2">
-                {t('settings.general.dataDir.description')}
-              </Typography>
-              <TextField
+              <DirectoryField
+                browseLabel={t('settings.action.browse')}
+                description={t('settings.general.dataDir.description')}
                 error={!isValidPreExtractedDataPath}
-                fullWidth={true}
                 helperText={
                   isValidPreExtractedDataPath
                     ? null
                     : t('settings.general.dataDir.error')
                 }
                 label={t('settings.general.dataDir.label')}
-                onChange={(event) =>
-                  setPreExtractedDataPath(event.target.value)
-                }
+                onChange={setPreExtractedDataPath}
+                selectingLabel={t('settings.action.selecting')}
                 value={preExtractedDataPath}
-                variant="filled"
               />
               {isIdenticalInputAndOutput ? (
                 <Alert severity="error">
@@ -521,20 +689,19 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
             </Alert>
           ) : null}
           <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
-          <Typography color="text.secondary" variant="subtitle2">
-            {t('settings.general.savesPath.description')}
-          </Typography>
-          <TextField
-            fullWidth={true}
+          <DirectoryField
+            browseFrom={finalSavesPath}
+            browseLabel={t('settings.action.browse')}
+            description={t('settings.general.savesPath.description')}
             label={t('settings.general.savesPath.label')}
             onBlur={onSavesPathBlur}
-            onChange={(event) => setSavesPath(event.target.value)}
+            onChange={setSavesPath}
             onFocus={onSavesPathFocus}
             placeholder={defaultSavesPath}
+            selectingLabel={t('settings.action.selecting')}
             value={isSavesPathFocused ? savesPath : finalSavesPath}
-            variant="filled"
           />
-          {!finalSavesPath.startsWith(baseSavesPath) ? (
+          {isSavesPathOutsideBase ? (
             <Alert severity="warning">
               <Typography>
                 {t('settings.general.savesPath.outsideBase', {
@@ -542,15 +709,15 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
                 })}{' '}
                 <Link
                   href="#"
-                  onClick={() => {
+                  onClick={(event) => {
+                    event.preventDefault();
                     ShellAPI.showItemInFolder(baseSavesPath).catch(
                       console.error,
                     );
                   }}
                 >
-                  {baseSavesPath}\
+                  {t('settings.general.savesPath.openDefault')}
                 </Link>
-                &rdquo;. Are you sure this is right?
               </Typography>
             </Alert>
           ) : null}
@@ -613,15 +780,14 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
         </StyledAccordionDetails>
       </StyledAccordion>
       <StyledAccordion
-        defaultExpanded={false}
         disableGutters={true}
         elevation={0}
+        expanded={true}
+        hidden={activeSection !== 'launcher'}
         square={true}
-        sx={{ order: 3 }}
       >
         <StyledAccordionSummary
           aria-controls="launcher-content"
-          expandIcon={<ExpandMore />}
           id="launcher-header"
         >
           <Typography sx={{ marginLeft: 1 }}>
@@ -643,7 +809,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
             value={normalizedExtraArgs.join(' ')}
             variant="filled"
           />
-          {LAUNCH_ARG_OPTIONS.map(({ arg, label }) => (
+          {LAUNCH_ARG_OPTIONS.map(({ arg, description, label }) => (
             <ListItemButton
               key={arg}
               onClick={() => {
@@ -666,7 +832,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
               <ListItemText
                 id={`launcher-arg-${arg}`}
                 primary={t(label)}
-                secondary={arg}
+                secondary={`${t(description)} · ${arg}`}
               />
             </ListItemButton>
           ))}
@@ -694,7 +860,9 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
             <ListItemText
               id="launcher-arg-seed"
               primary={t('settings.launcher.arg.seed')}
-              secondary={SEED_ARG}
+              secondary={`${t(
+                'settings.launcher.arg.seed.description',
+              )} · ${SEED_ARG}`}
             />
           </ListItemButton>
           <TextField
@@ -714,15 +882,14 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
         </StyledAccordionDetails>
       </StyledAccordion>
       <StyledAccordion
-        defaultExpanded={useRef(d2rLoaderSettings.useD2RLoader).current}
         disableGutters={true}
         elevation={0}
+        expanded={true}
+        hidden={activeSection !== 'd2rLoader'}
         square={true}
-        sx={{ order: 1 }}
       >
         <StyledAccordionSummary
           aria-controls="d2r-loader-content"
-          expandIcon={<ExpandMore />}
           id="d2r-loader-header"
         >
           <Typography sx={{ marginLeft: 1 }}>
@@ -772,18 +939,46 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
               </Typography>
             ) : (
               <>
-                {d2rLoaderTomlSections.map(
-                  ({ section, settings }, sectionIndex) => (
-                    <Box key={section} sx={{ marginTop: sectionIndex ? 2 : 1 }}>
-                      {sectionIndex === 0 ? null : (
-                        <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
-                      )}
-                      <Typography color="text.secondary" variant="subtitle2">
-                        {section}
-                      </Typography>
-                      {settings.map(renderD2RLoaderTomlSetting)}
-                    </Box>
-                  ),
+                <TextField
+                  fullWidth={true}
+                  helperText={t('settings.d2rLoader.search.helper')}
+                  label={t('settings.d2rLoader.search.label')}
+                  onChange={(event) => setD2RLoaderSearch(event.target.value)}
+                  sx={{ marginTop: 2 }}
+                  value={d2rLoaderSearch}
+                  variant="outlined"
+                />
+                {filteredD2RLoaderTomlSections.length === 0 ? (
+                  <Alert severity="info" sx={{ marginTop: 2 }}>
+                    {t('settings.d2rLoader.search.noResults', {
+                      query: d2rLoaderSearch.trim(),
+                    })}
+                  </Alert>
+                ) : (
+                  filteredD2RLoaderTomlSections.map(
+                    ({ section, settings }, sectionIndex) => (
+                      <Box key={section} sx={{ marginTop: sectionIndex ? 2 : 1 }}>
+                        {sectionIndex === 0 ? null : (
+                          <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
+                        )}
+                        <Stack alignItems="center" direction="row" spacing={1}>
+                          <Typography
+                            color="text.secondary"
+                            fontWeight={700}
+                            variant="subtitle2"
+                          >
+                            {section}
+                          </Typography>
+                          <Chip
+                            label={settings.length}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </Stack>
+                        {settings.map(renderD2RLoaderTomlSetting)}
+                      </Box>
+                    ),
+                  )
                 )}
               </>
             )
@@ -791,15 +986,14 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
         </StyledAccordionDetails>
       </StyledAccordion>
       <StyledAccordion
-        defaultExpanded={false}
         disableGutters={true}
         elevation={0}
+        expanded={true}
+        hidden={activeSection !== 'display'}
         square={true}
-        sx={{ order: 4 }}
       >
         <StyledAccordionSummary
           aria-controls="display-content"
-          expandIcon={<ExpandMore />}
           id="display-header"
         >
           <Typography sx={{ marginLeft: 1 }}>
@@ -826,15 +1020,14 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
         </StyledAccordionDetails>
       </StyledAccordion>
       <StyledAccordion
-        defaultExpanded={false}
         disableGutters={true}
         elevation={0}
+        expanded={true}
+        hidden={activeSection !== 'nexus'}
         square={true}
-        sx={{ order: 5 }}
       >
         <StyledAccordionSummary
           aria-controls="nexus-content"
-          expandIcon={<ExpandMore />}
           id="nexus-header"
         >
           <Typography sx={{ marginLeft: 1 }}>
@@ -944,7 +1137,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
           </Stack>
         </StyledAccordionDetails>
       </StyledAccordion>
-    </List>
+    </SettingsWorkspace>
   );
 }
 
@@ -962,13 +1155,18 @@ function NexusRequestLimit({
   const { t } = useTranslation();
   const remainingInt = parseInt(remaining, 10);
   const limitInt = parseInt(limit, 10);
-  const usedPercent = (remainingInt / limitInt) * 100;
+  const remainingPercent =
+    Number.isFinite(remainingInt) &&
+    Number.isFinite(limitInt) &&
+    limitInt > 0
+      ? Math.max(0, Math.min(100, (remainingInt / limitInt) * 100))
+      : 0;
   const resetStringForCurrentLocale = new Date(reset).toLocaleString();
   return (
     <Box sx={{ marginTop: 1 }}>
       <LinearProgress
         style={{ height: 10 }}
-        value={usedPercent}
+        value={remainingPercent}
         variant="determinate"
       />
       <Box sx={{ alignItems: 'center', display: 'flex', flexDirection: 'row' }}>

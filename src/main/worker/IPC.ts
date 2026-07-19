@@ -65,7 +65,7 @@ function sendToMain(message: IPCMessage): Promise<void> {
       return;
     }
     try {
-      process.send(message, (error) => {
+      process.send(message, (error: Error | null) => {
         if (error != null) {
           reject(error);
         } else {

@@ -56,7 +56,7 @@ export default function useInstallMods(): () => Promise<boolean> {
       showToast({
         severity: 'warning',
         title: hasUnsavedEdits
-          ? 'Save or cancel D2RLoader JSON edits before installing.'
+          ? 'Save or cancel D2RLoader file edits before installing.'
           : 'Refresh the D2RLoader plugin list before installing.',
       });
       setTab('plugins');

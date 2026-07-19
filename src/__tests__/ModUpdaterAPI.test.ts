@@ -13,10 +13,12 @@ import {
 import os from 'os';
 import path from 'path';
 import {
+  createModInstallTempDirectory,
   findModInfo,
   getValidatedModInstallPath,
   normalizeZipDirectoryEntry,
   replaceModDirectoryAtomically,
+  withModInstallLock,
 } from '../main/worker/ModUpdaterAPI';
 
 function hashDirectory(rootPath: string): string {
@@ -217,6 +219,118 @@ describe('ModUpdaterAPI ZIP mod ID validation', () => {
     expect(() =>
       getValidatedModInstallPath(fakeAppRoot, 'parent/child'),
     ).toThrow(/invalid mod id/i);
+  });
+});
+
+describe('ModUpdaterAPI concurrent mod installation isolation', () => {
+  let tempRoot: string;
+  let fakeAppRoot: string;
+
+  beforeEach(() => {
+    tempRoot = mkdtempSync(path.join(os.tmpdir(), 'd2rmm-mod-lock-'));
+    fakeAppRoot = path.join(tempRoot, 'app');
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { force: true, recursive: true });
+  });
+
+  it('creates a unique temp tree for every install invocation', () => {
+    const firstPath = createModInstallTempDirectory(tempRoot);
+    const secondPath = createModInstallTempDirectory(tempRoot);
+
+    expect(firstPath).not.toBe(secondPath);
+    expect(path.dirname(firstPath)).toBe(
+      path.join(tempRoot, 'D2RMM', 'ModInstall'),
+    );
+    expect(path.dirname(secondPath)).toBe(path.dirname(firstPath));
+
+    writeFileSync(path.join(firstPath, 'first.txt'), 'first install');
+    writeFileSync(path.join(secondPath, 'second.txt'), 'second install');
+    rmSync(firstPath, { force: true, recursive: true });
+
+    expect(existsSync(firstPath)).toBe(false);
+    expect(readFileSync(path.join(secondPath, 'second.txt'), 'utf8')).toBe(
+      'second install',
+    );
+  });
+
+  it('serializes the complete install operation for the same mod ID', async () => {
+    const events: string[] = [];
+    let signalFirstStarted!: () => void;
+    let releaseFirst!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      signalFirstStarted = resolve;
+    });
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    const first = withModInstallLock(fakeAppRoot, 'Reimagined', async () => {
+      events.push('first:start');
+      signalFirstStarted();
+      await firstGate;
+      events.push('first:end');
+    });
+    await firstStarted;
+
+    const second = withModInstallLock(fakeAppRoot, 'Reimagined', async () => {
+      events.push('second:start');
+      events.push('second:end');
+    });
+
+    try {
+      await Promise.resolve();
+      expect(events).toEqual(['first:start']);
+    } finally {
+      releaseFirst();
+    }
+
+    await Promise.all([first, second]);
+    expect(events).toEqual([
+      'first:start',
+      'first:end',
+      'second:start',
+      'second:end',
+    ]);
+  });
+
+  it('does not block installation of a different mod ID', async () => {
+    let signalFirstStarted!: () => void;
+    let releaseFirst!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      signalFirstStarted = resolve;
+    });
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    const first = withModInstallLock(fakeAppRoot, 'Reimagined', async () => {
+      signalFirstStarted();
+      await firstGate;
+    });
+    await firstStarted;
+
+    try {
+      await expect(
+        withModInstallLock(fakeAppRoot, 'AnotherMod', async () => 'installed'),
+      ).resolves.toBe('installed');
+    } finally {
+      releaseFirst();
+    }
+    await first;
+  });
+
+  it('releases a same-mod install lock after a failed operation', async () => {
+    await expect(
+      withModInstallLock(fakeAppRoot, 'Reimagined', async () => {
+        throw new Error('injected install failure');
+      }),
+    ).rejects.toThrow('injected install failure');
+
+    await expect(
+      withModInstallLock(fakeAppRoot, 'Reimagined', async () => 'recovered'),
+    ).resolves.toBe('recovered');
   });
 });
 

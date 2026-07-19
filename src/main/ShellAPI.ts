@@ -1,5 +1,5 @@
 import { IShellAPI } from 'bridge/ShellAPI';
-import { shell } from 'electron';
+import { dialog, shell } from 'electron';
 import { provideAPI } from './IPC';
 
 type WebContents = Electron.BrowserWindow['webContents'];
@@ -31,6 +31,16 @@ function getAllowedExternalURL(url: string): URL {
 export async function openExternalURL(url: string): Promise<void> {
   const parsed = getAllowedExternalURL(url);
   await shell.openExternal(parsed.href);
+}
+
+export async function selectDirectory(
+  defaultPath?: string,
+): Promise<string | null> {
+  const result = await dialog.showOpenDialog({
+    ...(defaultPath?.trim() ? { defaultPath } : {}),
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  return result.canceled ? null : (result.filePaths[0] ?? null);
 }
 
 function getDocumentIdentity(url: string): string | null {
@@ -77,6 +87,7 @@ export async function initShellAPI(): Promise<void> {
     openExternal: async (url) => {
       return openExternalURL(url);
     },
+    selectDirectory,
     showItemInFolder: async (path) => {
       return shell.showItemInFolder(path);
     },

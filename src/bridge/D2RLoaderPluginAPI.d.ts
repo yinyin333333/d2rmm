@@ -1,6 +1,23 @@
 export type D2RLoaderPluginSourceType = 'managed' | 'mod';
 
+export type D2RLoaderPluginCategory = 'config' | 'patches' | 'plugins';
+
+export type D2RLoaderPluginEditableSource =
+  | {
+      packageName: string;
+      sourcePath: string;
+      sourceType: 'managed';
+    }
+  | {
+      category: D2RLoaderPluginCategory;
+      loaderRootPath: string;
+      modID: string;
+      sourcePath: string;
+      sourceType: 'mod';
+    };
+
 export type D2RLoaderPluginInventoryItem = {
+  editableSource: D2RLoaderPluginEditableSource | null;
   editableSourcePath: string | null;
   id: string;
   name: string;
@@ -22,7 +39,9 @@ export type D2RLoaderPluginPackageSummary = {
 };
 
 export type D2RLoaderPluginInventory = {
+  configs: D2RLoaderPluginInventoryItem[];
   conflicts: string[];
+  deploymentSignature: string;
   managedSignature: string;
   managedRoot: string;
   packages: D2RLoaderPluginPackageSummary[];
@@ -38,8 +57,9 @@ export type D2RLoaderPluginImportResult = {
 
 export type D2RLoaderPluginEditableJSON = {
   contents: string;
-  packageName: string;
-  role: 'patch' | 'plugin';
+  format: 'json' | 'toml';
+  packageName: string | null;
+  role: 'config' | 'patch' | 'plugin';
   sha256: string;
   sourcePath: string;
   targetPath: string;
@@ -56,13 +76,11 @@ export type ID2RLoaderPluginAPI = {
     sourcePaths: string[],
   ) => Promise<D2RLoaderPluginImportResult>;
   readEditableJSON: (
-    packageName: string,
-    sourcePath: string,
+    source: D2RLoaderPluginEditableSource,
   ) => Promise<D2RLoaderPluginEditableJSON>;
   readInventory: (modIDs: string[]) => Promise<D2RLoaderPluginInventory>;
   saveEditableJSON: (
-    packageName: string,
-    sourcePath: string,
+    source: D2RLoaderPluginEditableSource,
     expectedSha256: string,
     contents: string,
   ) => Promise<D2RLoaderPluginEditResult>;

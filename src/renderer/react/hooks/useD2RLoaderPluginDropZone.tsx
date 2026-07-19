@@ -15,6 +15,7 @@ export type D2RLoaderPluginDropZoneHandlers = {
 const SUPPORTED_LOOSE_EXTENSIONS = new Set([
   '.dll',
   '.json',
+  '.jsonc',
   '.toml',
   '.txt',
   '.zip',
@@ -63,7 +64,7 @@ export default function useD2RLoaderPluginDropZone(): D2RLoaderPluginDropZoneHan
           duration: 4000,
           severity: 'info',
           title: hasUnsavedEdits
-            ? 'Save or cancel JSON edits before importing packages'
+            ? 'Save or cancel file edits before importing packages'
             : isInstalling
               ? 'Wait for Install Mods to finish before importing packages'
               : 'Wait for the current package change to finish',

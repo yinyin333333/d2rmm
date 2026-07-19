@@ -88,6 +88,7 @@ describe('D2RLoaderPluginContext deployment state', () => {
     mockReadEditableJSON.mockReset();
     mockSaveEditableJSON.mockReset();
     mockReadInventory.mockResolvedValue({
+      configs: [],
       conflicts: [],
       managedRoot: 'C:\\FakeApp\\d2rloader',
       managedSignature: 'same-package-signature',
@@ -146,8 +147,11 @@ describe('D2RLoaderPluginContext deployment state', () => {
     );
     await expect(
       pluginManager!.saveEditableJSON(
-        'Package',
-        'settings.json',
+        {
+          packageName: 'Package',
+          sourcePath: 'settings.json',
+          sourceType: 'managed',
+        },
         'a'.repeat(64),
         '{}',
       ),
@@ -186,6 +190,7 @@ describe('D2RLoaderPluginContext deployment state', () => {
   it('loads and saves editable JSON through the shared package mutation boundary', async () => {
     const document = {
       contents: '{"enabled":true}',
+      format: 'json' as const,
       packageName: 'Editable',
       role: 'plugin' as const,
       sha256: 'a'.repeat(64),
@@ -205,24 +210,37 @@ describe('D2RLoaderPluginContext deployment state', () => {
     await waitFor(() => expect(pluginManager?.isLoading).toBe(false));
 
     await expect(
-      pluginManager!.readEditableJSON('Editable', 'settings.json'),
+      pluginManager!.readEditableJSON({
+        packageName: 'Editable',
+        sourcePath: 'settings.json',
+        sourceType: 'managed',
+      }),
     ).resolves.toEqual(document);
     await act(async () => {
       await pluginManager!.saveEditableJSON(
-        'Editable',
-        'settings.json',
+        {
+          packageName: 'Editable',
+          sourcePath: 'settings.json',
+          sourceType: 'managed',
+        },
         document.sha256,
         '{"enabled":false}',
       );
     });
 
     expect(mockReadEditableJSON).toHaveBeenCalledWith(
-      'Editable',
-      'settings.json',
+      {
+        packageName: 'Editable',
+        sourcePath: 'settings.json',
+        sourceType: 'managed',
+      },
     );
     expect(mockSaveEditableJSON).toHaveBeenCalledWith(
-      'Editable',
-      'settings.json',
+      {
+        packageName: 'Editable',
+        sourcePath: 'settings.json',
+        sourceType: 'managed',
+      },
       document.sha256,
       '{"enabled":false}',
     );

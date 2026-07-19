@@ -1,5 +1,6 @@
 import type {
   D2RLoaderPluginEditableJSON,
+  D2RLoaderPluginEditableSource,
   D2RLoaderPluginEditResult,
   D2RLoaderPluginImportResult,
   D2RLoaderPluginInventory,
@@ -19,7 +20,9 @@ import React, {
 } from 'react';
 
 const EMPTY_INVENTORY: D2RLoaderPluginInventory = {
+  configs: [],
   conflicts: [],
+  deploymentSignature: '',
   managedSignature: '',
   managedRoot: '',
   packages: [],
@@ -44,13 +47,11 @@ type D2RLoaderPluginContextValue = {
   markDeploymentOutdated: () => void;
   markOutputModeInstalled: () => void;
   readEditableJSON: (
-    packageName: string,
-    sourcePath: string,
+    source: D2RLoaderPluginEditableSource,
   ) => Promise<D2RLoaderPluginEditableJSON>;
   refresh: () => Promise<D2RLoaderPluginInventory>;
   saveEditableJSON: (
-    packageName: string,
-    sourcePath: string,
+    source: D2RLoaderPluginEditableSource,
     expectedSha256: string,
     contents: string,
   ) => Promise<D2RLoaderPluginEditResult>;
@@ -155,7 +156,7 @@ export function D2RLoaderPluginContextProvider({
       if (dirtyEditors.current.size > 0) {
         return Promise.reject(
           new Error(
-            'Save or cancel all D2RLoader JSON edits before importing packages.',
+            'Save or cancel all D2RLoader file edits before importing packages.',
           ),
         );
       }
@@ -174,7 +175,7 @@ export function D2RLoaderPluginContextProvider({
       if (dirtyEditors.current.size > 0) {
         return Promise.reject(
           new Error(
-            'Save or cancel all D2RLoader JSON edits before deleting packages.',
+            'Save or cancel all D2RLoader file edits before deleting packages.',
           ),
         );
       }
@@ -189,24 +190,21 @@ export function D2RLoaderPluginContextProvider({
 
   const readEditableJSON = useCallback(
     (
-      packageName: string,
-      sourcePath: string,
+      source: D2RLoaderPluginEditableSource,
     ): Promise<D2RLoaderPluginEditableJSON> =>
-      D2RLoaderPluginAPI.readEditableJSON(packageName, sourcePath),
+      D2RLoaderPluginAPI.readEditableJSON(source),
     [],
   );
 
   const saveEditableJSON = useCallback(
     (
-      packageName: string,
-      sourcePath: string,
+      source: D2RLoaderPluginEditableSource,
       expectedSha256: string,
       contents: string,
     ): Promise<D2RLoaderPluginEditResult> =>
       runMutation(async () => {
         const result = await D2RLoaderPluginAPI.saveEditableJSON(
-          packageName,
-          sourcePath,
+          source,
           expectedSha256,
           contents,
         );
@@ -217,13 +215,15 @@ export function D2RLoaderPluginContextProvider({
     [refresh, runMutation],
   );
 
+  const deploymentSignature =
+    inventory.deploymentSignature ?? inventory.managedSignature;
   const markDeploymentInstalled = useCallback(() => {
     setInstalledManagedSignature(
-      inventory.managedSignature === ''
+      deploymentSignature === ''
         ? ''
-        : `${inventory.managedSignature}\0${outputPath}`,
+        : `${deploymentSignature}\0${outputPath}`,
     );
-  }, [inventory.managedSignature, outputPath, setInstalledManagedSignature]);
+  }, [deploymentSignature, outputPath, setInstalledManagedSignature]);
 
   const setEditableJSONDirty = useCallback(
     (editorID: string, dirty: boolean): void => {
@@ -246,13 +246,12 @@ export function D2RLoaderPluginContextProvider({
     setInstalledOutputMode(currentOutputMode);
   }, [currentOutputMode, setInstalledOutputMode]);
 
-  const currentManagedDeployment =
-    inventory.managedSignature === ''
+  const currentDeployment =
+    deploymentSignature === ''
       ? ''
-      : `${inventory.managedSignature}\0${outputPath}`;
+      : `${deploymentSignature}\0${outputPath}`;
   const isDeploymentChanged =
-    hasUnrefreshedMutation ||
-    currentManagedDeployment !== installedManagedSignature;
+    hasUnrefreshedMutation || currentDeployment !== installedManagedSignature;
   const isInventoryCurrent = !hasUnrefreshedMutation;
   const isOutputModeChanged = currentOutputMode !== installedOutputMode;
 

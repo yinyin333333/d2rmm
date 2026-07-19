@@ -54,7 +54,7 @@ function sendWorkerLifecycleMessage(
       reject(new Error('Worker IPC transport is disconnected.'));
       return;
     }
-    process.send(message, (error) => {
+    process.send(message, (error: Error | null) => {
       if (error != null) {
         reject(error);
       } else {

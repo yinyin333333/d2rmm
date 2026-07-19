@@ -13,6 +13,8 @@ import {
 } from 'fs';
 import os from 'os';
 import path from 'path';
+import { isD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
+import { setImmediate as nodeSetImmediate } from 'timers';
 import {
   D2R_LOADER_LEGACY_PACKAGES_DIRECTORY,
   D2R_LOADER_PACKAGE_MANIFEST,
@@ -22,8 +24,11 @@ import {
   getManagedD2RLoaderDeployment,
   importD2RLoaderPluginSources,
   readD2RLoaderPluginPackageJSON,
+  readD2RLoaderPluginSourceJSON,
   readD2RLoaderPluginInventory,
   saveD2RLoaderPluginPackageJSON,
+  saveD2RLoaderPluginSourceJSON,
+  synchronizeD2RLoaderPluginDirectory,
   type D2RLoaderPackageManifest,
 } from '../main/worker/D2RLoaderPluginAPI';
 
@@ -34,6 +39,15 @@ jest.mock('main/worker/CascLib', () => ({
 function writeFile(filePath: string, data: string | Buffer): void {
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, data);
+}
+
+function captureError(operation: () => void): unknown {
+  try {
+    operation();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('Expected operation to throw.');
 }
 
 function fakePluginDLL(
@@ -50,10 +64,19 @@ function fakePluginDLL(
 }
 
 describe('D2RLoader plugin package manager', () => {
+  const originalSetImmediate = global.setImmediate;
   let tempRoot: string;
   let appRoot: string;
   let incomingRoot: string;
   let sentinelPath: string;
+
+  beforeAll(() => {
+    global.setImmediate = nodeSetImmediate;
+  });
+
+  afterAll(() => {
+    global.setImmediate = originalSetImmediate;
+  });
 
   beforeEach(() => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), 'd2rmm-plugins-'));
@@ -72,6 +95,19 @@ describe('D2RLoader plugin package manager', () => {
     expect(readFileSync(sentinelPath, 'utf8')).toBe('outside sentinel');
   }
 
+  it('creates d2rloader before any plugin is imported', () => {
+    const packagesRoot = path.join(
+      appRoot,
+      D2R_LOADER_PACKAGES_DIRECTORY,
+    );
+    expect(existsSync(packagesRoot)).toBe(false);
+
+    const inventory = readD2RLoaderPluginInventory(appRoot, []);
+
+    expect(inventory.managedRoot).toBe(packagesRoot);
+    expect(existsSync(packagesRoot)).toBe(true);
+  });
+
   it('rescans mod-scoped loader folders and preserves duplicate origins', () => {
     writeFile(
       path.join(appRoot, 'mods', 'Mod A', 'd2rloader', 'plugins', 'same.dll'),
@@ -84,6 +120,28 @@ describe('D2RLoader plugin package manager', () => {
     writeFile(
       path.join(appRoot, 'mods', 'Mod B', 'D2RLoader', 'Patches', 'fix.json'),
       '{}',
+    );
+    writeFile(
+      path.join(
+        appRoot,
+        'mods',
+        'Mod B',
+        'D2RLoader',
+        'Config',
+        'settings.toml',
+      ),
+      'enabled = true',
+    );
+    writeFile(
+      path.join(
+        appRoot,
+        'mods',
+        'Mod B',
+        'D2RLoader',
+        'Config',
+        'd2rloader.toml',
+      ),
+      'global = true',
     );
     writeFile(path.join(appRoot, 'mods', 'Mod A', 'ordinary.txt'), 'ignore');
     writeFile(
@@ -128,6 +186,20 @@ describe('D2RLoader plugin package manager', () => {
         relativePath: 'fix.json',
       }),
     ]);
+    expect(first.configs).toEqual([
+      expect.objectContaining({
+        editableSource: {
+          category: 'config',
+          loaderRootPath: 'D2RLoader',
+          modID: 'Mod B',
+          sourcePath: 'settings.toml',
+          sourceType: 'mod',
+        },
+        editableSourcePath: 'settings.toml',
+        sourceName: 'Mod B',
+        relativePath: 'settings.toml',
+      }),
+    ]);
 
     rmSync(path.join(appRoot, 'mods', 'Mod A', 'd2rloader'), {
       recursive: true,
@@ -140,6 +212,75 @@ describe('D2RLoader plugin package manager', () => {
     expect(refreshed.plugins).toHaveLength(2);
     expect(refreshed.plugins[0].sourceName).toBe('Mod B');
     expectSentinelUnchanged();
+  });
+
+  it('reads and atomically edits JSON supplied by a mod', () => {
+    const modID = 'Editable Mod';
+    const filePath = path.join(
+      appRoot,
+      'mods',
+      modID,
+      'd2rloader',
+      'plugins',
+      'settings.json',
+    );
+    const original = '{"enabled":true}';
+    const edited = '{"enabled":false}';
+    writeFile(filePath, original);
+
+    const beforeInventory = readD2RLoaderPluginInventory(appRoot, [modID]);
+    const editableSource = beforeInventory.plugins.find(
+      ({ name }) => name === 'settings.json',
+    )?.editableSource;
+    if (editableSource == null || editableSource.sourceType !== 'mod') {
+      throw new Error('Expected an editable mod source.');
+    }
+
+    const opened = readD2RLoaderPluginSourceJSON(appRoot, editableSource);
+    expect(opened).toMatchObject({
+      contents: original,
+      format: 'json',
+      packageName: null,
+      role: 'plugin',
+      sourcePath: 'settings.json',
+      targetPath: path.join('plugins', 'settings.json'),
+    });
+
+    const saved = saveD2RLoaderPluginSourceJSON(
+      appRoot,
+      editableSource,
+      opened.sha256,
+      edited,
+    );
+    const afterInventory = readD2RLoaderPluginInventory(appRoot, [modID]);
+
+    expect(saved.warnings).toEqual([]);
+    expect(readFileSync(filePath, 'utf8')).toBe(edited);
+    expect(afterInventory.deploymentSignature).not.toBe(
+      beforeInventory.deploymentSignature,
+    );
+    expect(afterInventory.managedSignature).toBe(
+      beforeInventory.managedSignature,
+    );
+    const staleModEditError = captureError(() =>
+      saveD2RLoaderPluginSourceJSON(
+        appRoot,
+        editableSource,
+        opened.sha256,
+        edited,
+      ),
+    );
+    expect(isD2RLoaderPluginEditConflictError(staleModEditError)).toBe(true);
+    expect(staleModEditError).toEqual(
+      expect.objectContaining({ message: expect.stringMatching(/changed since/i) }),
+    );
+    expect(() =>
+      readD2RLoaderPluginSourceJSON(appRoot, {
+        ...editableSource,
+        sourcePath: path.join('..', 'outside.json'),
+      }),
+    ).toThrow(/invalid mod plugin source path/i);
+    expect(readFileSync(sentinelPath, 'utf8')).toBe('outside sentinel');
   });
 
   it('keeps a folder as one named package and classifies plugin assets by content', async () => {
@@ -383,6 +524,7 @@ describe('D2RLoader plugin package manager', () => {
     );
     expect(opened).toMatchObject({
       contents: originalJSON,
+      format: 'json',
       packageName: 'Editable Plugin',
       role: 'plugin',
       sourcePath: 'D2RPlugins.json',
@@ -423,6 +565,121 @@ describe('D2RLoader plugin package manager', () => {
     expectSentinelUnchanged();
   });
 
+  it('reads and atomically edits managed TOML config', async () => {
+    const source = path.join(incomingRoot, 'Editable TOML');
+    const originalTOML = 'enabled = true\r\n[feature]\r\nmode = "old"\r\n';
+    const editedTOML = 'enabled = false\n[feature]\nmode = "safe"\n';
+    writeFile(path.join(source, 'Editable.dll'), fakePluginDLL());
+    writeFile(path.join(source, 'settings.toml'), originalTOML);
+    await importD2RLoaderPluginSources(appRoot, [source]);
+
+    const beforeInventory = readD2RLoaderPluginInventory(appRoot, []);
+    const editableItem = beforeInventory.configs.find(
+      ({ name }) => name === 'settings.toml',
+    );
+    expect(editableItem?.editableSourcePath).toBe('settings.toml');
+
+    const opened = readD2RLoaderPluginPackageJSON(
+      appRoot,
+      'Editable TOML',
+      'settings.toml',
+    );
+    expect(opened).toMatchObject({
+      contents: originalTOML,
+      format: 'toml',
+      packageName: 'Editable TOML',
+      role: 'config',
+      sourcePath: 'settings.toml',
+      targetPath: path.join('config', 'settings.toml'),
+    });
+
+    const saved = saveD2RLoaderPluginPackageJSON(
+      appRoot,
+      'Editable TOML',
+      'settings.toml',
+      opened.sha256,
+      editedTOML,
+    );
+    const reopened = readD2RLoaderPluginPackageJSON(
+      appRoot,
+      'Editable TOML',
+      'settings.toml',
+    );
+    const afterInventory = readD2RLoaderPluginInventory(appRoot, []);
+    const deployment = getManagedD2RLoaderDeployment(appRoot);
+
+    expect(saved.warnings).toEqual([]);
+    expect(reopened).toMatchObject({
+      contents: editedTOML,
+      format: 'toml',
+      role: 'config',
+      sha256: saved.sha256,
+    });
+    expect(afterInventory.managedSignature).not.toBe(
+      beforeInventory.managedSignature,
+    );
+    expect(
+      deployment.find(
+        ({ targetPath }) =>
+          targetPath === path.join('config', 'settings.toml'),
+      )?.data,
+    ).toEqual(Buffer.from(editedTOML));
+    expectSentinelUnchanged();
+  });
+
+  it('keeps d2rloader.toml outside plugin TOML editing and deployment', async () => {
+    const source = path.join(incomingRoot, 'TOML Boundary');
+    writeFile(path.join(source, 'Boundary.dll'), fakePluginDLL());
+    writeFile(path.join(source, 'plugin-settings.toml'), 'enabled = true\n');
+    writeFile(path.join(source, 'd2rloader.toml'), 'loader = true\n');
+
+    await importD2RLoaderPluginSources(appRoot, [source]);
+
+    const packagePath = path.join(appRoot, 'd2rloader', 'TOML Boundary');
+    const manifest = JSON.parse(
+      readFileSync(
+        path.join(packagePath, D2R_LOADER_PACKAGE_MANIFEST),
+        'utf8',
+      ),
+    ) as D2RLoaderPackageManifest;
+    expect(
+      manifest.files.find(({ sourcePath }) => sourcePath === 'plugin-settings.toml'),
+    ).toEqual(
+      expect.objectContaining({
+        role: 'config',
+        targetPath: path.join('config', 'plugin-settings.toml'),
+        targetRoot: 'd2rloader',
+      }),
+    );
+    expect(
+      manifest.files.find(({ sourcePath }) => sourcePath === 'd2rloader.toml'),
+    ).toEqual(
+      expect.objectContaining({
+        role: 'support',
+        targetPath: null,
+        targetRoot: null,
+      }),
+    );
+
+    const inventory = readD2RLoaderPluginInventory(appRoot, []);
+    expect(inventory.configs.map(({ name }) => name)).toEqual([
+      'plugin-settings.toml',
+    ]);
+    expect(() =>
+      readD2RLoaderPluginPackageJSON(
+        appRoot,
+        'TOML Boundary',
+        'd2rloader.toml',
+      ),
+    ).toThrow(/not an editable.*plugin TOML/i);
+    expect(
+      getManagedD2RLoaderDeployment(appRoot).some(
+        ({ targetPath }) => path.basename(targetPath) === 'd2rloader.toml',
+      ),
+    ).toBe(false);
+    expectSentinelUnchanged();
+  });
+
   it('rejects stale, invalid, or reclassified JSON edits without changing the package', async () => {
     const source = path.join(incomingRoot, 'Protected Editor');
     writeFile(path.join(source, 'Protected.dll'), fakePluginDLL());
@@ -439,7 +696,7 @@ describe('D2RLoader plugin package manager', () => {
     const originalSource = readFileSync(sourcePath);
     const originalManifest = readFileSync(manifestPath);
 
-    expect(() =>
+    const stalePackageEditError = captureError(() =>
       saveD2RLoaderPluginPackageJSON(
         appRoot,
         'Protected Editor',
@@ -447,7 +704,15 @@ describe('D2RLoader plugin package manager', () => {
         '0'.repeat(64),
         '{"enabled":false}',
       ),
-    ).toThrow(/changed since the editor was opened/i);
+    );
+    expect(isD2RLoaderPluginEditConflictError(stalePackageEditError)).toBe(
+      true,
+    );
+    expect(stalePackageEditError).toEqual(
+      expect.objectContaining({
+        message: expect.stringMatching(/changed since the editor was opened/i),
+      }),
+    );
     expect(() =>
       saveD2RLoaderPluginPackageJSON(
         appRoot,
@@ -628,6 +893,10 @@ describe('D2RLoader plugin package manager', () => {
       path.join(supportPackagePath, D2R_LOADER_PACKAGE_MANIFEST),
     );
     renameSync(currentRoot, legacyRoot);
+    writeFile(
+      path.join(currentRoot, 'D2RMM-PLUGINS-README.txt'),
+      'D2RLoader plugin package directory',
+    );
 
     const inventory = readD2RLoaderPluginInventory(appRoot, []);
     const deployment = getManagedD2RLoaderDeployment(appRoot);
@@ -665,11 +934,13 @@ describe('D2RLoader plugin package manager', () => {
     expectSentinelUnchanged();
   });
 
-  it('refuses ambiguous or real-loader storage roots without changing them', async () => {
+  it('refuses ambiguous roots and adopts a plugin folder copied into d2rloader', async () => {
     const currentRoot = path.join(appRoot, D2R_LOADER_PACKAGES_DIRECTORY);
     const legacyRoot = path.join(appRoot, D2R_LOADER_LEGACY_PACKAGES_DIRECTORY);
     mkdirSync(currentRoot, { recursive: true });
     mkdirSync(legacyRoot, { recursive: true });
+    writeFile(path.join(currentRoot, 'pending.zip'), 'pending');
+    writeFile(path.join(legacyRoot, 'legacy-entry'), 'legacy');
 
     expect(() => readD2RLoaderPluginInventory(appRoot, [])).toThrow(
       /both current and legacy/i,
@@ -678,20 +949,100 @@ describe('D2RLoader plugin package manager', () => {
     expect(existsSync(legacyRoot)).toBe(true);
 
     rmSync(legacyRoot, { recursive: true });
-    const existingLoaderFile = path.join(
-      currentRoot,
-      'plugins',
-      'existing.dll',
+    rmSync(path.join(currentRoot, 'pending.zip'));
+    const manualFolder = path.join(currentRoot, 'plugins');
+    writeFile(
+      path.join(manualFolder, 'existing.dll'),
+      fakePluginDLL('/settings.toml'),
     );
-    writeFile(existingLoaderFile, 'real loader sentinel');
-    const source = path.join(incomingRoot, 'Do Not Import');
-    writeFile(path.join(source, 'Blocked.dll'), fakePluginDLL());
+    writeFile(path.join(manualFolder, 'settings.toml'), 'enabled = true\n');
+
+    const synchronized =
+      await synchronizeD2RLoaderPluginDirectory(appRoot);
+    const inventory = readD2RLoaderPluginInventory(appRoot, []);
+
+    expect(synchronized.packages).toEqual(['plugins']);
+    expect(
+      existsSync(path.join(manualFolder, D2R_LOADER_PACKAGE_MANIFEST)),
+    ).toBe(true);
+    expect(
+      existsSync(path.join(manualFolder, 'source', 'existing.dll')),
+    ).toBe(true);
+    expect(inventory.plugins).toEqual([
+      expect.objectContaining({
+        relativePath: 'existing.dll',
+        sourceName: 'plugins',
+        sourceType: 'managed',
+      }),
+    ]);
+    expect(inventory.configs).toEqual([
+      expect.objectContaining({
+        editableSourcePath: 'settings.toml',
+        relativePath: 'settings.toml',
+        sourceName: 'plugins',
+        sourceType: 'managed',
+      }),
+    ]);
+    expectSentinelUnchanged();
+  });
+
+  it('imports a ZIP copied directly into the pre-created d2rloader folder', async () => {
+    const currentRoot = path.join(appRoot, D2R_LOADER_PACKAGES_DIRECTORY);
+    const zipPath = path.join(currentRoot, 'Manual.zip');
+    const readmePath = path.join(currentRoot, 'D2RMM-PLUGINS-README.txt');
+    mkdirSync(currentRoot, { recursive: true });
+    writeFile(readmePath, 'plugin package directory');
+    writeFile(
+      zipPath,
+      Buffer.from(
+        zipSync({
+          'Manual/Manual.dll': new Uint8Array(fakePluginDLL()),
+          'Manual/settings.toml': Uint8Array.from(
+            Buffer.from('enabled = true\n'),
+          ),
+        }),
+      ),
+    );
+
+    const synchronized =
+      await synchronizeD2RLoaderPluginDirectory(appRoot);
+    const inventory = readD2RLoaderPluginInventory(appRoot, []);
+
+    expect(synchronized.packages).toEqual(['Manual']);
+    expect(existsSync(readmePath)).toBe(true);
+    expect(existsSync(zipPath)).toBe(false);
+    expect(
+      existsSync(
+        path.join(currentRoot, 'Manual', D2R_LOADER_PACKAGE_MANIFEST),
+      ),
+    ).toBe(true);
+    expect(inventory.plugins).toEqual([
+      expect.objectContaining({
+        relativePath: 'Manual.dll',
+        sourceName: 'Manual',
+      }),
+    ]);
+    expect(inventory.configs).toEqual([
+      expect.objectContaining({
+        editableSourcePath: path.join('Manual', 'settings.toml'),
+        relativePath: 'settings.toml',
+        sourceName: 'Manual',
+      }),
+    ]);
+    expectSentinelUnchanged();
+  });
+
+  it('rejects loader-wide d2rloader.toml from the plugin input directory', async () => {
+    const currentRoot = path.join(appRoot, D2R_LOADER_PACKAGES_DIRECTORY);
+    const globalConfigPath = path.join(currentRoot, 'd2rloader.toml');
+    mkdirSync(currentRoot, { recursive: true });
+    writeFile(globalConfigPath, 'default_mod = "D2RMM"\n');
 
     await expect(
-      importD2RLoaderPluginSources(appRoot, [source]),
-    ).rejects.toThrow(/not a D2RMM package/i);
-    expect(readFileSync(existingLoaderFile, 'utf8')).toBe(
-      'real loader sentinel',
+      synchronizeD2RLoaderPluginDirectory(appRoot),
+    ).rejects.toThrow(/loader-wide configuration.*Settings/i);
+    expect(readFileSync(globalConfigPath, 'utf8')).toBe(
+      'default_mod = "D2RMM"\n',
     );
     expectSentinelUnchanged();
   });
@@ -841,7 +1192,7 @@ describe('D2RLoader plugin package manager', () => {
           /plugins[\\/]D2RPlugins\.json.*Package A.*Package B/i,
         ),
         expect.stringMatching(
-          /d2rloader[\\/]config[\\/]shared\.toml.*Package A.*Package B/i,
+          /config[\\/]shared\.toml.*Package A.*Package B/i,
         ),
         expect.stringMatching(
           /data[\\/]global[\\/]excel[\\/]shared\.txt.*Package A.*Package B/i,
@@ -1254,7 +1605,7 @@ describe('D2RLoader plugin package manager', () => {
     expect(existsSync(path.join(appRoot, 'd2rloader', 'Delete Me'))).toBe(
       false,
     );
-    expect(existsSync(path.join(appRoot, 'd2rloader'))).toBe(false);
+    expect(existsSync(path.join(appRoot, 'd2rloader'))).toBe(true);
     expect(() => deleteD2RLoaderPluginPackage(appRoot, '../outside')).toThrow(
       /invalid/i,
     );

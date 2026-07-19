@@ -94,7 +94,7 @@ jobs:
         run: npm install
 
       - name: Clone CascLib source
-        run: git clone https://github.com/ladislav-zezula/CascLib.git node_modules/CascLib
+        run: git clone https://github.com/olegbl/CascLib.git node_modules/CascLib
 
       - name: Run quality checks
         run: npm run verify
@@ -128,7 +128,7 @@ jobs:
         run: npm install
 
       - name: Clone CascLib source
-        run: git clone https://github.com/ladislav-zezula/CascLib.git node_modules/CascLib
+        run: git clone https://github.com/olegbl/CascLib.git node_modules/CascLib
 
       - name: Run quality checks
         run: npm run verify
@@ -162,7 +162,7 @@ jobs:
         run: npm install
 
       - name: Clone CascLib source
-        run: git clone https://github.com/ladislav-zezula/CascLib.git node_modules/CascLib
+        run: git clone https://github.com/olegbl/CascLib.git node_modules/CascLib
 
       - name: Run quality checks
         run: npm run verify

@@ -18,6 +18,7 @@ let mockIsInventoryCurrent = true;
 let mockIsOutputModeChanged = false;
 let mockManagedSignature = '';
 let mockUseD2RLoader = false;
+let consoleError: jest.SpyInstance;
 
 jest.mock('renderer/BridgeAPI', () => ({
   __esModule: true,
@@ -150,7 +151,7 @@ describe('useInstallMods installation results', () => {
     mockSetTab.mockReset();
     mockShowToast.mockReset();
     jest.spyOn(console, 'debug').mockImplementation(() => {});
-    jest.spyOn(console, 'error').mockImplementation(() => {});
+    consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -183,14 +184,19 @@ describe('useInstallMods installation results', () => {
     mockModsToInstall = [makeMod('A'), makeMod('B')];
     mockInstallMods.mockResolvedValue([]);
 
-    const result = await invokeInstallMods(renderUseInstallMods());
+    const installMods = renderUseInstallMods();
+    const consoleErrorCallsBeforeInstall = consoleError.mock.calls.length;
+    const result = await invokeInstallMods(installMods);
 
     expect(result).toBe(false);
     expect(mockSetInstalledMods).not.toHaveBeenCalled();
     expect(mockShowToast).toHaveBeenCalledWith(
       expect.objectContaining({ severity: 'error' }),
     );
-    expect(console.error).toHaveBeenCalledTimes(1);
+    expect(consoleError.mock.calls).toHaveLength(
+      consoleErrorCallsBeforeInstall + 1,
+    );
+    expect(consoleError).toHaveBeenLastCalledWith(expect.any(Error));
     expect(mockSetTab).toHaveBeenCalledWith('logs');
     expectInstallingRestored();
   });
