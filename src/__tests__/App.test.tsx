@@ -157,6 +157,32 @@ describe('App', () => {
     );
   });
 
+  it('should compare Windows save paths by directory boundary and casing', async () => {
+    localStorage.setItem(
+      'saves-path',
+      'c:\\users\\TEST\\saved games\\diablo ii resurrected\\mods\\D2RMM',
+    );
+    const firstView = render(<App />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    await screen.findByLabelText('Save Data Path');
+    expect(
+      screen.queryByText(/Your save path is not within/i),
+    ).not.toBeInTheDocument();
+
+    firstView.unmount();
+    localStorage.setItem(
+      'saves-path',
+      'C:\\Users\\test\\Saved Games\\Diablo II Resurrected2',
+    );
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    expect(
+      await screen.findByText(/Your save path is not within/i),
+    ).toBeInTheDocument();
+  });
+
   it('should render dynamic D2RLoader TOML settings', async () => {
     localStorage.setItem(
       'd2r-loader-settings',

@@ -196,6 +196,34 @@ function isEditableD2RLoaderTomlSetting(
   );
 }
 
+function normalizeDirectoryPath(filePath: string): string {
+  const normalized = filePath
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/');
+  return normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
+}
+
+function isWindowsStylePath(filePath: string): boolean {
+  const trimmed = filePath.trim();
+  return /^[a-z]:[\\/]/i.test(trimmed) || /^\\\\/.test(trimmed);
+}
+
+function isSameOrDescendantPath(
+  candidatePath: string,
+  rootPath: string,
+): boolean {
+  let candidate = normalizeDirectoryPath(candidatePath);
+  let root = normalizeDirectoryPath(rootPath);
+  if (isWindowsStylePath(candidatePath) && isWindowsStylePath(rootPath)) {
+    candidate = candidate.toLowerCase();
+    root = root.toLowerCase();
+  }
+  if (root === '') return false;
+  const rootPrefix = root.endsWith('/') ? root : `${root}/`;
+  return candidate === root || candidate.startsWith(rootPrefix);
+}
+
 export default function ModManagerSettings(_props: Props): JSX.Element {
   const { t } = useTranslation();
   const [extraArgs, setExtraArgs] = useExtraGameLaunchArgs();
@@ -376,6 +404,10 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
 
   const isIdenticalInputAndOutput =
     preExtractedDataPath.toLowerCase() === outputPath.toLowerCase();
+  const isSavesPathOutsideBase = !isSameOrDescendantPath(
+    finalSavesPath,
+    baseSavesPath,
+  );
 
   const {
     nexusApiState,
@@ -387,11 +419,12 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
     unregisterAsNxmProtocolHandler,
   } = useNexusAuthState();
 
-  const generalNeedsAttention =
+  const generalHasError =
     !isValidGamePath ||
     outputModName.trim() === '' ||
     (dataSource === 'directory' &&
       (!isValidPreExtractedDataPath || isIdenticalInputAndOutput));
+  const generalNeedsAttention = generalHasError || isSavesPathOutsideBase;
   const d2rLoaderSectionStatus: Pick<
     SettingsSection,
     'status' | 'tone'
@@ -414,7 +447,11 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
           : 'settings.status.ready',
       ),
       title: t('settings.general.title'),
-      tone: generalNeedsAttention ? 'error' : 'success',
+      tone: generalHasError
+        ? 'error'
+        : isSavesPathOutsideBase
+          ? 'warning'
+          : 'success',
     },
     {
       description: t('settings.d2rLoader.summary'),
@@ -664,7 +701,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
             selectingLabel={t('settings.action.selecting')}
             value={isSavesPathFocused ? savesPath : finalSavesPath}
           />
-          {!finalSavesPath.startsWith(baseSavesPath) ? (
+          {isSavesPathOutsideBase ? (
             <Alert severity="warning">
               <Typography>
                 {t('settings.general.savesPath.outsideBase', {
@@ -672,15 +709,15 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
                 })}{' '}
                 <Link
                   href="#"
-                  onClick={() => {
+                  onClick={(event) => {
+                    event.preventDefault();
                     ShellAPI.showItemInFolder(baseSavesPath).catch(
                       console.error,
                     );
                   }}
                 >
-                  {baseSavesPath}\
+                  {t('settings.general.savesPath.openDefault')}
                 </Link>
-                &rdquo;. Are you sure this is right?
               </Typography>
             </Alert>
           ) : null}
@@ -1118,13 +1155,18 @@ function NexusRequestLimit({
   const { t } = useTranslation();
   const remainingInt = parseInt(remaining, 10);
   const limitInt = parseInt(limit, 10);
-  const usedPercent = (remainingInt / limitInt) * 100;
+  const remainingPercent =
+    Number.isFinite(remainingInt) &&
+    Number.isFinite(limitInt) &&
+    limitInt > 0
+      ? Math.max(0, Math.min(100, (remainingInt / limitInt) * 100))
+      : 0;
   const resetStringForCurrentLocale = new Date(reset).toLocaleString();
   return (
     <Box sx={{ marginTop: 1 }}>
       <LinearProgress
         style={{ height: 10 }}
-        value={usedPercent}
+        value={remainingPercent}
         variant="determinate"
       />
       <Box sx={{ alignItems: 'center', display: 'flex', flexDirection: 'row' }}>

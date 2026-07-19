@@ -12,6 +12,7 @@ import {
 } from 'renderer/react/context/DialogContext';
 import { useIsInstalling } from 'renderer/react/context/InstallContext';
 import useToast from 'renderer/react/hooks/useToast';
+import { isD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import {
   DeleteOutline,
@@ -248,11 +249,7 @@ function EditableInventoryFile({
       const nextError =
         caught instanceof Error ? caught : new Error(String(caught));
       setError(nextError);
-      if (
-        /changed (?:since|while|before)|revision|re-import/i.test(
-          nextError.message,
-        )
-      ) {
+      if (isD2RLoaderPluginEditConflictError(nextError)) {
         setIsStale(true);
       }
     } finally {
@@ -272,47 +269,69 @@ function EditableInventoryFile({
     <Box>
       <ListItem
         component="div"
-        secondaryAction={
-          <Stack alignItems="center" direction="row" spacing={1}>
-            <Chip
-              color={isEditable ? 'primary' : 'default'}
-              label={fileFormat}
-              size="small"
-              variant="outlined"
-            />
-            {isEditable ? (
-              <Button
-                aria-controls={editorID}
-                aria-expanded={isExpanded}
-                aria-label={`Edit ${editorLabel}`}
-                disabled={disabled || isLoading || isSaving}
-                endIcon={
-                  <ExpandMore
-                    sx={{
-                      transform: isExpanded
-                        ? 'rotate(180deg)'
-                        : 'rotate(0deg)',
-                      transition: (theme) =>
-                        theme.transitions.create('transform'),
-                    }}
-                  />
-                }
-                onClick={() => onToggle().catch(console.error)}
-                size="small"
-                startIcon={<EditOutlined />}
-              >
-                Edit
-              </Button>
-            ) : null}
-          </Stack>
-        }
+        sx={{
+          alignItems: { sm: 'center', xs: 'stretch' },
+          flexDirection: { sm: 'row', xs: 'column' },
+          gap: 1,
+          paddingX: 1.5,
+          paddingY: 1,
+        }}
       >
         <ListItemText
           primary={item.name}
           secondary={
             item.relativePath === item.name ? undefined : item.relativePath
           }
+          sx={{
+            flex: 1,
+            margin: 0,
+            minWidth: 0,
+            '& .MuiListItemText-primary, & .MuiListItemText-secondary': {
+              overflowWrap: 'anywhere',
+            },
+          }}
         />
+        <Stack
+          alignItems="center"
+          direction="row"
+          justifyContent="flex-end"
+          spacing={1}
+          sx={{
+            alignSelf: { sm: 'center', xs: 'stretch' },
+            flexShrink: 0,
+          }}
+        >
+          <Chip
+            color={isEditable ? 'primary' : 'default'}
+            label={fileFormat}
+            size="small"
+            variant="outlined"
+          />
+          {isEditable ? (
+            <Button
+              aria-controls={editorID}
+              aria-expanded={isExpanded}
+              aria-label={`Edit ${editorLabel}`}
+              disabled={disabled || isLoading || isSaving}
+              endIcon={
+                <ExpandMore
+                  sx={{
+                    transform: isExpanded
+                      ? 'rotate(180deg)'
+                      : 'rotate(0deg)',
+                    transition: (theme) =>
+                      theme.transitions.create('transform'),
+                  }}
+                />
+              }
+              onClick={() => onToggle().catch(console.error)}
+              size="small"
+              startIcon={<EditOutlined />}
+            >
+              Edit
+            </Button>
+          ) : null}
+        </Stack>
       </ListItem>
       {isEditable ? (
         <Collapse in={isExpanded} timeout="auto" unmountOnExit={true}>
@@ -901,14 +920,19 @@ export default function ModManagerPlugins(): JSX.Element {
               >
                 Import, inspect, and safely edit D2RLoader files from one
                 focused workspace. D2RMM-managed packages and files supplied by
-                enabled mods are always identified separately.
+                mods in your mod list are always identified separately.
               </Typography>
             </Box>
-            <Stack direction="row" spacing={1}>
+            <Stack
+              direction={{ sm: 'row', xs: 'column' }}
+              spacing={1}
+              sx={{ flexShrink: 0, width: { md: 'auto', xs: '100%' } }}
+            >
               <Button
                 disabled={inventory.managedRoot === '' || isMutating}
                 onClick={() => onOpenManagedRoot().catch(console.error)}
                 startIcon={<FolderOpen />}
+                sx={{ width: { sm: 'auto', xs: '100%' } }}
                 variant="outlined"
               >
                 Open package storage
@@ -918,6 +942,7 @@ export default function ModManagerPlugins(): JSX.Element {
                 loading={isLoading || isMutating}
                 onClick={() => refresh().catch(console.error)}
                 startIcon={<Refresh />}
+                sx={{ width: { sm: 'auto', xs: '100%' } }}
                 variant="contained"
               >
                 Refresh inventory

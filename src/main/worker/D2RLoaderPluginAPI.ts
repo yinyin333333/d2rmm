@@ -30,6 +30,7 @@ import {
 import type { Stats } from 'fs';
 import os from 'os';
 import path from 'path';
+import { createD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
 import { getAppPath } from './AppInfoAPI';
 import { inspectZipArchive } from './ArchiveResourceGuard';
 import { D2R_LOADER_CONFIG_FILE } from './D2RLoader';
@@ -1651,7 +1652,7 @@ function assertPackageRevisionUnchanged(
   try {
     latestManifest = readPackageManifest(packagePath);
   } catch (error) {
-    throw new Error(
+    throw createD2RLoaderPluginEditConflictError(
       `Managed package changed before the ${formatLabel} edit could be committed. Refresh and reopen "${editedSourcePath}". ${
         error instanceof Error ? error.message : String(error)
       }`,
@@ -1674,7 +1675,7 @@ function assertPackageRevisionUnchanged(
       );
     })
   ) {
-    throw new Error(
+    throw createD2RLoaderPluginEditConflictError(
       `Managed package changed before the ${formatLabel} edit could be committed. Refresh and reopen "${editedSourcePath}".`,
     );
   }
@@ -1825,7 +1826,7 @@ export function saveD2RLoaderPluginPackageJSON(
   assertEditableTextSize(lstatSync(currentSourcePath).size);
   const currentData = readBoundedFile(currentSourcePath);
   if (hashBuffer(currentData).toLowerCase() !== expectedSha256.toLowerCase()) {
-    throw new Error(
+    throw createD2RLoaderPluginEditConflictError(
       `Managed package ${formatLabel} changed since the editor was opened: "${sourcePath}". Refresh and reopen it.`,
     );
   }
@@ -1864,7 +1865,7 @@ export function saveD2RLoaderPluginPackageJSON(
       hashFile(stagedFilePath).toLowerCase() !==
       currentFile.sha256.toLowerCase()
     ) {
-      throw new Error(
+      throw createD2RLoaderPluginEditConflictError(
         `Managed package ${formatLabel} changed while staging the edit: "${sourcePath}". Refresh and reopen it.`,
       );
     }
@@ -1902,7 +1903,7 @@ export function saveD2RLoaderPluginPackageJSON(
       updatedManifest.files.length !== currentManifest.files.length ||
       changedCompanion != null
     ) {
-      throw new Error(
+      throw createD2RLoaderPluginEditConflictError(
         `Managed package changed while staging the ${formatLabel} edit. Refresh and reopen "${sourcePath}".`,
       );
     }
@@ -2121,14 +2122,14 @@ function replaceModSourceFile(
   });
   try {
     if (hashFile(filePath).toLowerCase() !== expectedSha256.toLowerCase()) {
-      throw new Error(
+      throw createD2RLoaderPluginEditConflictError(
         'The mod file changed immediately before the edit was committed. Refresh and reopen it.',
       );
     }
     renameSync(filePath, backupPath);
     originalMoved = true;
     if (hashFile(backupPath).toLowerCase() !== expectedSha256.toLowerCase()) {
-      throw new Error(
+      throw createD2RLoaderPluginEditConflictError(
         'The mod file changed while the edit was being committed. Refresh and reopen it.',
       );
     }
@@ -2209,7 +2210,7 @@ function saveD2RLoaderModPluginJSON(
   assertEditableTextSize(lstatSync(resolved.filePath).size);
   const currentData = readBoundedFile(resolved.filePath);
   if (hashBuffer(currentData).toLowerCase() !== expectedSha256.toLowerCase()) {
-    throw new Error(
+    throw createD2RLoaderPluginEditConflictError(
       `Mod ${resolved.formatLabel} changed since the editor was opened: "${source.sourcePath}". Refresh and reopen it.`,
     );
   }

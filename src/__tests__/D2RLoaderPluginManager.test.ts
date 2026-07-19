@@ -13,6 +13,7 @@ import {
 } from 'fs';
 import os from 'os';
 import path from 'path';
+import { isD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
 import { setImmediate as nodeSetImmediate } from 'timers';
 import {
   D2R_LOADER_LEGACY_PACKAGES_DIRECTORY,
@@ -23,8 +24,10 @@ import {
   getManagedD2RLoaderDeployment,
   importD2RLoaderPluginSources,
   readD2RLoaderPluginPackageJSON,
+  readD2RLoaderPluginSourceJSON,
   readD2RLoaderPluginInventory,
   saveD2RLoaderPluginPackageJSON,
+  saveD2RLoaderPluginSourceJSON,
   synchronizeD2RLoaderPluginDirectory,
   type D2RLoaderPackageManifest,
 } from '../main/worker/D2RLoaderPluginAPI';
@@ -36,6 +39,15 @@ jest.mock('main/worker/CascLib', () => ({
 function writeFile(filePath: string, data: string | Buffer): void {
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, data);
+}
+
+function captureError(operation: () => void): unknown {
+  try {
+    operation();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('Expected operation to throw.');
 }
 
 function fakePluginDLL(
@@ -200,6 +212,75 @@ describe('D2RLoader plugin package manager', () => {
     expect(refreshed.plugins).toHaveLength(2);
     expect(refreshed.plugins[0].sourceName).toBe('Mod B');
     expectSentinelUnchanged();
+  });
+
+  it('reads and atomically edits JSON supplied by a mod', () => {
+    const modID = 'Editable Mod';
+    const filePath = path.join(
+      appRoot,
+      'mods',
+      modID,
+      'd2rloader',
+      'plugins',
+      'settings.json',
+    );
+    const original = '{"enabled":true}';
+    const edited = '{"enabled":false}';
+    writeFile(filePath, original);
+
+    const beforeInventory = readD2RLoaderPluginInventory(appRoot, [modID]);
+    const editableSource = beforeInventory.plugins.find(
+      ({ name }) => name === 'settings.json',
+    )?.editableSource;
+    if (editableSource == null || editableSource.sourceType !== 'mod') {
+      throw new Error('Expected an editable mod source.');
+    }
+
+    const opened = readD2RLoaderPluginSourceJSON(appRoot, editableSource);
+    expect(opened).toMatchObject({
+      contents: original,
+      format: 'json',
+      packageName: null,
+      role: 'plugin',
+      sourcePath: 'settings.json',
+      targetPath: path.join('plugins', 'settings.json'),
+    });
+
+    const saved = saveD2RLoaderPluginSourceJSON(
+      appRoot,
+      editableSource,
+      opened.sha256,
+      edited,
+    );
+    const afterInventory = readD2RLoaderPluginInventory(appRoot, [modID]);
+
+    expect(saved.warnings).toEqual([]);
+    expect(readFileSync(filePath, 'utf8')).toBe(edited);
+    expect(afterInventory.deploymentSignature).not.toBe(
+      beforeInventory.deploymentSignature,
+    );
+    expect(afterInventory.managedSignature).toBe(
+      beforeInventory.managedSignature,
+    );
+    const staleModEditError = captureError(() =>
+      saveD2RLoaderPluginSourceJSON(
+        appRoot,
+        editableSource,
+        opened.sha256,
+        edited,
+      ),
+    );
+    expect(isD2RLoaderPluginEditConflictError(staleModEditError)).toBe(true);
+    expect(staleModEditError).toEqual(
+      expect.objectContaining({ message: expect.stringMatching(/changed since/i) }),
+    );
+    expect(() =>
+      readD2RLoaderPluginSourceJSON(appRoot, {
+        ...editableSource,
+        sourcePath: path.join('..', 'outside.json'),
+      }),
+    ).toThrow(/invalid mod plugin source path/i);
+    expect(readFileSync(sentinelPath, 'utf8')).toBe('outside sentinel');
   });
 
   it('keeps a folder as one named package and classifies plugin assets by content', async () => {
@@ -615,7 +696,7 @@ describe('D2RLoader plugin package manager', () => {
     const originalSource = readFileSync(sourcePath);
     const originalManifest = readFileSync(manifestPath);
 
-    expect(() =>
+    const stalePackageEditError = captureError(() =>
       saveD2RLoaderPluginPackageJSON(
         appRoot,
         'Protected Editor',
@@ -623,7 +704,15 @@ describe('D2RLoader plugin package manager', () => {
         '0'.repeat(64),
         '{"enabled":false}',
       ),
-    ).toThrow(/changed since the editor was opened/i);
+    );
+    expect(isD2RLoaderPluginEditConflictError(stalePackageEditError)).toBe(
+      true,
+    );
+    expect(stalePackageEditError).toEqual(
+      expect.objectContaining({
+        message: expect.stringMatching(/changed since the editor was opened/i),
+      }),
+    );
     expect(() =>
       saveD2RLoaderPluginPackageJSON(
         appRoot,

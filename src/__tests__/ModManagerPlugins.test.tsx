@@ -3,6 +3,7 @@ import {
   DialogManagerContextProvider,
   DialogRenderer,
 } from 'renderer/react/context/DialogContext';
+import { createD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
@@ -342,7 +343,9 @@ describe('ModManagerPlugins', () => {
 
   it('offers an explicit reload after a stale revision save error', async () => {
     mockSaveEditableJSON.mockRejectedValueOnce(
-      new Error('Managed package JSON changed since the editor was opened.'),
+      createD2RLoaderPluginEditConflictError(
+        'Managed package JSON changed since the editor was opened.',
+      ),
     );
     mockReadEditableJSON
       .mockResolvedValueOnce({
@@ -387,6 +390,59 @@ describe('ModManagerPlugins', () => {
     expect(
       await screen.findByRole('textbox', {
         name: 'JSON editor for D2RPlugins.json from D2RMM package eezstreet-plugin-pack-2.0',
+      }),
+    ).toHaveValue('{"value":"external"}');
+  });
+
+  it('offers reload when a mod edit detects a last-moment external change', async () => {
+    mockSaveEditableJSON.mockRejectedValueOnce(
+      createD2RLoaderPluginEditConflictError(
+        'The mod file changed immediately before the edit was committed. Refresh and reopen it.',
+      ),
+    );
+    mockReadEditableJSON
+      .mockResolvedValueOnce({
+        contents: '{"value":"old"}',
+        format: 'json',
+        packageName: null,
+        role: 'plugin',
+        sha256: 'd'.repeat(64),
+        sourcePath: 'mod-settings.json',
+        targetPath: 'plugins\\mod-settings.json',
+      })
+      .mockResolvedValueOnce({
+        contents: '{"value":"external"}',
+        format: 'json',
+        packageName: null,
+        role: 'plugin',
+        sha256: 'e'.repeat(64),
+        sourcePath: 'mod-settings.json',
+        targetPath: 'plugins\\mod-settings.json',
+      });
+    renderPlugins();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Edit mod-settings.json from mod Example Mod',
+      }),
+    );
+    const editor = await screen.findByRole('textbox', {
+      name: 'JSON editor for mod-settings.json from mod Example Mod',
+    });
+    fireEvent.change(editor, { target: { value: '{"value":"draft"}' } });
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Save mod-settings.json from mod Example Mod',
+      }),
+    );
+
+    const reload = await screen.findByRole('button', {
+      name: 'Reload mod-settings.json from mod Example Mod',
+    });
+    fireEvent.click(reload);
+    await waitFor(() => expect(mockReadEditableJSON).toHaveBeenCalledTimes(2));
+    expect(
+      await screen.findByRole('textbox', {
+        name: 'JSON editor for mod-settings.json from mod Example Mod',
       }),
     ).toHaveValue('{"value":"external"}');
   });
