@@ -7,7 +7,10 @@ import { getBaseSavesPath } from 'renderer/AppInfoAPI';
 import BridgeAPI from 'renderer/BridgeAPI';
 import ShellAPI from 'renderer/ShellAPI';
 import type { D2RLoaderSettingsState } from 'renderer/react/context/D2RLoaderSettingsContext';
-import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
+import {
+  useD2RLoaderConfigRefresh,
+  useD2RLoaderSettings,
+} from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useExtraGameLaunchArgs } from 'renderer/react/context/ExtraGameLaunchArgsContext';
 import {
   useGamePath,
@@ -241,6 +244,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
   const [normalizeOutputCRLF, setNormalizeOutputCRLF] =
     useNormalizeCRLFOnInstall();
   const [d2rLoaderSettings, setD2RLoaderSettings] = useD2RLoaderSettings();
+  const [d2rLoaderConfigRevision] = useD2RLoaderConfigRefresh();
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(() =>
     d2rLoaderSettings.useD2RLoader ? 'd2rLoader' : 'general',
   );
@@ -339,7 +343,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
     return () => {
       isMounted = false;
     };
-  }, [gamePath, setD2RLoaderSettings]);
+  }, [d2rLoaderConfigRevision, gamePath, setD2RLoaderSettings]);
 
   const d2rLoaderTomlSections = useMemo(() => {
     if (d2rLoaderConfig?.format !== 'toml') {

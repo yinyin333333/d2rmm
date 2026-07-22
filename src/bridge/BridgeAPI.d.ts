@@ -51,6 +51,11 @@ export type D2RLoaderConfig = {
   settings: D2RLoaderTomlSetting[];
 };
 
+export type D2RLoaderInstallResult = {
+  status: 'already-current' | 'installed';
+  version: string | null;
+};
+
 export type Mod = {
   id: string;
   info: ModConfig;
@@ -93,6 +98,7 @@ export type IBridgeAPI = {
     modsToInstall: Mod[],
     options: IInstallModsOptions,
   ) => Promise<string[]>;
+  installD2RLoader: (gamePath: string) => Promise<D2RLoaderInstallResult>;
   openStorage: (gamePath: string, forceOnline?: boolean) => Promise<boolean>;
   readD2RLoaderConfig: (gamePath: string) => Promise<D2RLoaderConfig | null>;
   prepareD2RLoaderLaunch: (
