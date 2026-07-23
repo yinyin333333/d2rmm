@@ -10,6 +10,7 @@ import {
 
 const mockState = {
   importPluginSources: jest.fn(),
+  installD2RLoader: jest.fn(),
   installMods: jest.fn(),
   installModFromZip: jest.fn(),
   openExternal: jest.fn(),
@@ -37,6 +38,9 @@ jest.mock('renderer/IPC', () => ({
             }
             if (api === 'installMods') {
               return mockState.installMods(...args);
+            }
+            if (api === 'installD2RLoader') {
+              return mockState.installD2RLoader(...args);
             }
             if (api === 'installModFromZip') {
               return mockState.installModFromZip(...args);
@@ -87,6 +91,10 @@ describe('App', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     localStorage.clear();
+    mockState.installD2RLoader.mockResolvedValue({
+      status: 'installed',
+      version: '1.0.1.0',
+    });
     mockState.installMods.mockResolvedValue(undefined);
     mockState.installModFromZip.mockResolvedValue(undefined);
     mockState.importPluginSources.mockResolvedValue({
@@ -413,6 +421,72 @@ describe('App', () => {
 
     expect(mockState.openExternal).toHaveBeenCalledWith(
       'https://discord.gg/eEHT2kcBMf',
+    );
+  });
+
+  it('should install and enable D2RLoader from the top download button', async () => {
+    render(<App />);
+
+    const downloadButton = screen.getByRole('button', {
+      name: 'Download D2RLoader',
+    });
+    fireEvent.mouseOver(downloadButton);
+    expect(
+      await screen.findByText(
+        'Existing plugins may be incompatible after a D2RLoader update. Please contact their authors.',
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(downloadButton);
+
+    await waitFor(() =>
+      expect(mockState.installD2RLoader).toHaveBeenCalledWith(
+        'C:\\Diablo II Resurrected',
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        JSON.parse(localStorage.getItem('d2r-loader-settings') ?? '{}'),
+      ).toMatchObject({ useD2RLoader: true }),
+    );
+    expect(await screen.findByText('D2RLoader installed')).toBeInTheDocument();
+  });
+
+  it('should leave D2RLoader disabled when installation fails', async () => {
+    mockState.installD2RLoader.mockRejectedValueOnce(
+      new Error('Download failed.'),
+    );
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download D2RLoader' }));
+
+    expect(
+      await screen.findByText('Failed to install D2RLoader'),
+    ).toBeInTheDocument();
+    expect(
+      JSON.parse(localStorage.getItem('d2r-loader-settings') ?? '{}'),
+    ).not.toMatchObject({ useD2RLoader: true });
+  });
+
+  it('should report an already-current D2RLoader and still enable it', async () => {
+    mockState.installD2RLoader.mockResolvedValueOnce({
+      status: 'already-current',
+      version: '1.0.1.0',
+    });
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download D2RLoader' }));
+
+    expect(
+      await screen.findByText('D2RLoader is already up to date'),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText('Installed version: 1.0.1.0'),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        JSON.parse(localStorage.getItem('d2r-loader-settings') ?? '{}'),
+      ).toMatchObject({ useD2RLoader: true }),
     );
   });
 });

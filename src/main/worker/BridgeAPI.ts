@@ -48,6 +48,7 @@ import {
   createD2RLoaderConfig,
   updateD2RLoaderConfig,
 } from './D2RLoader';
+import { downloadAndInstallD2RLoader } from './D2RLoaderInstaller';
 import { applyManagedD2RLoaderPackages } from './D2RLoaderPluginAPI';
 import {
   applyD2RLoaderPrerequisites,
@@ -404,6 +405,16 @@ export const BridgeAPI: IBridgeAPI = {
     console.debug('BridgeAPI.getAppPath');
 
     return getAppPath();
+  },
+
+  installD2RLoader: async (gamePath: string) => {
+    console.debug('BridgeAPI.installD2RLoader', { gamePath });
+    const lease = acquireRuntimeOperation('installD2RLoader');
+    try {
+      return await downloadAndInstallD2RLoader(gamePath);
+    } finally {
+      lease.release();
+    }
   },
 
   getGamePath: async () => {

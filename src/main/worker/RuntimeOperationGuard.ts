@@ -1,4 +1,5 @@
 export type RuntimeOperationName =
+  | 'installD2RLoader'
   | 'installMods'
   | 'readD2SData'
   | 'writeSaveFile';
