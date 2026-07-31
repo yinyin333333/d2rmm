@@ -36,7 +36,8 @@ jest.mock('renderer/react/modlist/ModListItem', () => ({
   ),
 }));
 jest.mock('renderer/react/modlist/ModListSectionHeader', () => () => null);
-jest.mock('renderer/react/modlist/OverflowActionsButton', () => () => null);
+jest.mock('renderer/react/modlist/AddSectionHeaderButton', () => () => null);
+jest.mock('renderer/react/modlist/RefreshModListButton', () => () => null);
 jest.mock('renderer/react/modlist/RunGameButton', () => () => null);
 jest.mock('renderer/react/settings/ModSettingsDrawer', () => () => null);
 jest.mock('renderer/utils/resolvePath', () => ({

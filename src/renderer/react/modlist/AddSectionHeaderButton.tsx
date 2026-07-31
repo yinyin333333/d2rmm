@@ -2,25 +2,19 @@ import { useAddSectionHeader } from 'renderer/react/context/ModsContext';
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Add } from '@mui/icons-material';
-import { MenuItem } from '@mui/material';
+import { Button } from '@mui/material';
 
-export default function AddSectionHeaderMenuItem({
-  onHideMenu,
-}: {
-  onHideMenu: () => void;
-}): JSX.Element {
+export default function AddSectionHeaderButton(): JSX.Element {
   const { t } = useTranslation();
   const addSectionHeader = useAddSectionHeader();
   const onAddSectionHeader = useCallback(() => {
-    onHideMenu();
     addSectionHeader();
     // TODO: scroll list to end
-  }, [addSectionHeader, onHideMenu]);
+  }, [addSectionHeader]);
 
   return (
-    <MenuItem disableRipple={true} onClick={onAddSectionHeader}>
-      <Add sx={{ marginRight: 1 }} />
+    <Button onClick={onAddSectionHeader} startIcon={<Add />} variant="outlined">
       {t('modlist.menu.addSection')}
-    </MenuItem>
+    </Button>
   );
 }
