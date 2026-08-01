@@ -76,6 +76,7 @@ export type IBridgeAPI = {
     isDryRun?: boolean,
     outCopiedFiles?: CopiedFile[],
   ) => Promise<number>;
+  createSaveBackup: (savesPath: string) => Promise<string>;
   createDirectory: (filePath: string) => Promise<boolean>;
   deleteFile: (filePath: string, relative: Relative) => Promise<number>;
   execute: (executablePath: string, args?: string[]) => Promise<number>;

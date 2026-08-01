@@ -73,6 +73,7 @@ import {
   RuntimeOperationLease,
   RuntimeOperationName,
 } from './RuntimeOperationGuard';
+import { createSaveBackupSnapshot } from './SaveBackup';
 import { parseSprite } from './SpriteParser';
 import { encodeTsv, parseTsv } from './TSVParser';
 import './asar';
@@ -697,6 +698,16 @@ export const BridgeAPI: IBridgeAPI = {
     }
 
     return false;
+  },
+
+  createSaveBackup: async (savesPath: string): Promise<string> => {
+    console.debug('BridgeAPI.createSaveBackup', { savesPath });
+
+    try {
+      return createSaveBackupSnapshot(savesPath);
+    } catch (error) {
+      throw te('worker.bridgeapi.createSaveBackup.failed', null, error);
+    }
   },
 
   readDirectory: async (filePath: string) => {
