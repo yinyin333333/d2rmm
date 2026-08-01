@@ -1,12 +1,11 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
-
-jest.mock('electron', () => ({ app: {} }));
-jest.mock('main/IPC', () => ({ provideAPI: jest.fn() }));
-
 import { getDefaultBaseSavesPath } from '../main/AppInfoAPI';
 import { resolveFileHtmlPath } from '../main/util';
 import { getFileManagerPathIdentity } from '../main/worker/FileManager';
+
+jest.mock('electron', () => ({ app: {} }));
+jest.mock('main/IPC', () => ({ provideAPI: jest.fn() }));
 
 describe('platform path policies', () => {
   it('preserves the existing case-insensitive Windows FileManager identity', () => {
@@ -22,14 +21,8 @@ describe('platform path policies', () => {
   });
 
   it('keeps case-sensitive paths distinct and preserves output casing', () => {
-    const upper = getFileManagerPathIdentity(
-      'Global\\Excel\\Foo.TXT',
-      'linux',
-    );
-    const lower = getFileManagerPathIdentity(
-      'global/excel/foo.txt',
-      'linux',
-    );
+    const upper = getFileManagerPathIdentity('Global\\Excel\\Foo.TXT', 'linux');
+    const lower = getFileManagerPathIdentity('global/excel/foo.txt', 'linux');
 
     expect(upper).toEqual({
       filePath: 'Global/Excel/Foo.TXT',

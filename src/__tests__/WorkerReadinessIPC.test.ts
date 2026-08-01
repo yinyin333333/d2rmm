@@ -1,4 +1,12 @@
 import type { IPCMessageRequest } from 'bridge/IPC';
+// Import after the Electron mock so the IPC module registers against the fake.
+import {
+  initIPC,
+  markWorkerReady,
+  provideAPI,
+  registerWorker,
+  unregisterWorker,
+} from 'main/IPC';
 import type { ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 
@@ -117,12 +125,3 @@ describe('main IPC worker readiness', () => {
     unregisterWorker(child);
   });
 });
-
-// Import after the Electron mock so the IPC module registers against the fake.
-import {
-  initIPC,
-  markWorkerReady,
-  provideAPI,
-  registerWorker,
-  unregisterWorker,
-} from 'main/IPC';

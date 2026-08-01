@@ -1,21 +1,26 @@
-import * as Material from '@mui/material';
 import ToastContext, {
   IToastContext,
   ToastContextProvider,
 } from 'renderer/react/context/ToastContext';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useContext } from 'react';
+import * as Material from '@mui/material';
 
 jest.mock('@mui/material', () => {
   const React = jest.requireActual('react') as typeof import('react');
   const snackbarMounts = jest.fn();
   return {
     __snackbarMounts: snackbarMounts,
-    Alert: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    Alert: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
     AlertTitle: ({ children }: { children: React.ReactNode }) => (
       <strong>{children}</strong>
     ),
-    Button: ({ children, onClick }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    Button: ({
+      children,
+      onClick,
+    }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
       <button onClick={onClick}>{children}</button>
     ),
     Snackbar: ({

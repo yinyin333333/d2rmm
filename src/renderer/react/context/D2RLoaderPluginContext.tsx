@@ -219,9 +219,7 @@ export function D2RLoaderPluginContextProvider({
     inventory.deploymentSignature ?? inventory.managedSignature;
   const markDeploymentInstalled = useCallback(() => {
     setInstalledManagedSignature(
-      deploymentSignature === ''
-        ? ''
-        : `${deploymentSignature}\0${outputPath}`,
+      deploymentSignature === '' ? '' : `${deploymentSignature}\0${outputPath}`,
     );
   }, [deploymentSignature, outputPath, setInstalledManagedSignature]);
 
@@ -247,9 +245,7 @@ export function D2RLoaderPluginContextProvider({
   }, [currentOutputMode, setInstalledOutputMode]);
 
   const currentDeployment =
-    deploymentSignature === ''
-      ? ''
-      : `${deploymentSignature}\0${outputPath}`;
+    deploymentSignature === '' ? '' : `${deploymentSignature}\0${outputPath}`;
   const isDeploymentChanged =
     hasUnrefreshedMutation || currentDeployment !== installedManagedSignature;
   const isInventoryCurrent = !hasUnrefreshedMutation;

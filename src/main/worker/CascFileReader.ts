@@ -1,5 +1,5 @@
-import type { ICascLib } from './CascLib';
 import { constants as bufferConstants } from 'buffer';
+import type { ICascLib } from './CascLib';
 
 export const MAX_CASC_SINGLE_READ_SIZE = Math.min(
   bufferConstants.MAX_LENGTH,
@@ -41,10 +41,7 @@ export function normalizeCascFileSize(fileSize: unknown): number {
   let normalizedSize: bigint;
   if (typeof fileSize === 'bigint') {
     normalizedSize = fileSize;
-  } else if (
-    typeof fileSize === 'number' &&
-    Number.isSafeInteger(fileSize)
-  ) {
+  } else if (typeof fileSize === 'number' && Number.isSafeInteger(fileSize)) {
     normalizedSize = BigInt(fileSize);
   } else {
     throw new CascFileReadError('invalidSize', null, fileSize);
@@ -60,16 +57,10 @@ export function normalizeCascFileSize(fileSize: unknown): number {
   return Number(normalizedSize);
 }
 
-function readCascFileContent(
-  cascLib: ICascLib,
-  file: unknown,
-): Buffer {
+function readCascFileContent(cascLib: ICascLib, file: unknown): Buffer {
   const fileSizeOut: (bigint | number)[] = [0];
   if (!cascLib.CascGetFileSize64(file, fileSizeOut)) {
-    throw new CascFileReadError(
-      'sizeQueryFailed',
-      cascLib.GetCascError(),
-    );
+    throw new CascFileReadError('sizeQueryFailed', cascLib.GetCascError());
   }
 
   const fileSize = normalizeCascFileSize(fileSizeOut[0]);
@@ -95,14 +86,9 @@ function readCascFileContent(
   return buffer;
 }
 
-type ReadOutcome =
-  | { ok: true; value: Buffer }
-  | { error: unknown; ok: false };
+type ReadOutcome = { ok: true; value: Buffer } | { error: unknown; ok: false };
 
-export function readCascFileToBuffer(
-  cascLib: ICascLib,
-  file: unknown,
-): Buffer {
+export function readCascFileToBuffer(cascLib: ICascLib, file: unknown): Buffer {
   let readOutcome: ReadOutcome;
   try {
     readOutcome = { ok: true, value: readCascFileContent(cascLib, file) };
@@ -115,10 +101,7 @@ export function readCascFileToBuffer(
     closeOutcome = cascLib.CascCloseFile(file)
       ? { ok: true }
       : {
-          error: new CascFileReadError(
-            'closeFailed',
-            cascLib.GetCascError(),
-          ),
+          error: new CascFileReadError('closeFailed', cascLib.GetCascError()),
           ok: false,
         };
   } catch (error) {

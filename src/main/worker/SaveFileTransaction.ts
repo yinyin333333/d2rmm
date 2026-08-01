@@ -10,9 +10,7 @@ export type PendingSaveWrite = {
 };
 
 function cloneWrites(writes: Map<string, number[]>): Map<string, number[]> {
-  return new Map(
-    [...writes].map(([filePath, data]) => [filePath, [...data]]),
-  );
+  return new Map([...writes].map(([filePath, data]) => [filePath, [...data]]));
 }
 
 function asError(error: unknown): Error {

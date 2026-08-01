@@ -31,13 +31,10 @@ jest.mock('renderer/react/context/hooks/useNexusAuthState', () => ({
   }),
 }));
 
-jest.mock(
-  'renderer/react/context/utils/useCheckModForUpdates',
-  () => ({
-    __esModule: true,
-    default: () => mockCheckModForUpdates,
-  }),
-);
+jest.mock('renderer/react/context/utils/useCheckModForUpdates', () => ({
+  __esModule: true,
+  default: () => mockCheckModForUpdates,
+}));
 
 jest.mock('renderer/react/hooks/useAsyncCallback', () => ({
   __esModule: true,

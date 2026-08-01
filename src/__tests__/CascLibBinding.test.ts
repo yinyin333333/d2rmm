@@ -1,3 +1,5 @@
+import { getCascLib, initCascLib } from '../main/worker/CascLib';
+
 const mockBoundFunctions = new Map<string, jest.Mock>();
 const mockFunc = jest.fn((signature: string) => {
   const boundFunction = jest.fn();
@@ -18,8 +20,6 @@ jest.mock('koffi', () => ({
 jest.mock('main/worker/AppInfoAPI', () => ({
   getAppPath: () => 'C:\\D2RMM-F18-FAKE\\app',
 }));
-
-import { getCascLib, initCascLib } from '../main/worker/CascLib';
 
 describe('CascLib native bindings', () => {
   beforeEach(() => {

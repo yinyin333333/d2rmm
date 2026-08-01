@@ -44,13 +44,11 @@ describe('legacy non-direct output ownership manifest cleanup', () => {
       removed: false,
       skipped: false,
     });
-    expect(
-      existsSync(path.join(outputRoot, OUTPUT_OWNERSHIP_MANIFEST)),
-    ).toBe(false);
-    expect(readFileSync(current, 'utf8')).toBe('current');
-    expect(readFileSync(outsideSentinel, 'utf8')).toBe(
-      'outside-must-survive',
+    expect(existsSync(path.join(outputRoot, OUTPUT_OWNERSHIP_MANIFEST))).toBe(
+      false,
     );
+    expect(readFileSync(current, 'utf8')).toBe('current');
+    expect(readFileSync(outsideSentinel, 'utf8')).toBe('outside-must-survive');
   });
 
   it('removes an existing legacy manifest without deleting listed files', () => {
@@ -74,9 +72,7 @@ describe('legacy non-direct output ownership manifest cleanup', () => {
     expect(existsSync(manifestPath)).toBe(false);
     expect(readFileSync(stale, 'utf8')).toBe('stale');
     expect(readFileSync(user, 'utf8')).toBe('user');
-    expect(readFileSync(outsideSentinel, 'utf8')).toBe(
-      'outside-must-survive',
-    );
+    expect(readFileSync(outsideSentinel, 'utf8')).toBe('outside-must-survive');
   });
 
   it('does not replace or remove a directory with the legacy name', () => {
@@ -88,8 +84,6 @@ describe('legacy non-direct output ownership manifest cleanup', () => {
       skipped: true,
     });
     expect(existsSync(manifestPath)).toBe(true);
-    expect(readFileSync(outsideSentinel, 'utf8')).toBe(
-      'outside-must-survive',
-    );
+    expect(readFileSync(outsideSentinel, 'utf8')).toBe('outside-must-survive');
   });
 });

@@ -1,8 +1,8 @@
 import type { Mod } from 'bridge/BridgeAPI';
 import type { ModConfigFieldColor } from 'bridge/ModConfig';
 import type { ModConfigValue } from 'bridge/ModConfigValue';
-import ModSettingsField from 'renderer/react/settings/ModSettingsField';
 import { ModSettingsContextProvider } from 'renderer/react/settings/ModSettingsContext';
+import ModSettingsField from 'renderer/react/settings/ModSettingsField';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 const mockSetModConfig = jest.fn();
@@ -22,17 +22,13 @@ jest.mock('mui-color-input', () => ({
     <div>
       <output data-testid="color-value">{value}</output>
       <button
-        onClick={() =>
-          onChange('#0a141e80', { rgb: 'rgba(10, 20, 30, 0.5)' })
-        }
+        onClick={() => onChange('#0a141e80', { rgb: 'rgba(10, 20, 30, 0.5)' })}
         type="button"
       >
         Pick first color
       </button>
       <button
-        onClick={() =>
-          onChange('#28323cff', { rgb: 'rgba(40, 50, 60, 1)' })
-        }
+        onClick={() => onChange('#28323cff', { rgb: 'rgba(40, 50, 60, 1)' })}
         type="button"
       >
         Pick latest color
@@ -86,10 +82,7 @@ describe('mod settings color autosave', () => {
     };
     const writes: ModConfigValue[] = [];
     mockSetModConfig.mockImplementation(
-      (
-        _id: string,
-        update: React.SetStateAction<ModConfigValue>,
-      ): void => {
+      (_id: string, update: React.SetStateAction<ModConfigValue>): void => {
         currentConfig =
           typeof update === 'function' ? update(currentConfig) : update;
         writes.push(currentConfig);
@@ -97,9 +90,7 @@ describe('mod settings color autosave', () => {
     );
 
     const view = render(renderColorField(makeMod('mod-a', currentConfig)));
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Pick first color' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Pick first color' }));
 
     mockSetModConfig('mod-a', (config: ModConfigValue) => ({
       ...config,
@@ -120,25 +111,18 @@ describe('mod settings color autosave', () => {
   it('cancels the previous color timeout when a newer color is chosen', () => {
     let currentConfig: ModConfigValue = { color: [1, 2, 3, 1] };
     mockSetModConfig.mockImplementation(
-      (
-        _id: string,
-        update: React.SetStateAction<ModConfigValue>,
-      ): void => {
+      (_id: string, update: React.SetStateAction<ModConfigValue>): void => {
         currentConfig =
           typeof update === 'function' ? update(currentConfig) : update;
       },
     );
     render(renderColorField(makeMod('mod-a', currentConfig)));
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Pick first color' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Pick first color' }));
     act(() => {
       jest.advanceTimersByTime(500);
     });
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Pick latest color' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Pick latest color' }));
     act(() => {
       jest.advanceTimersByTime(1000);
     });
@@ -151,13 +135,9 @@ describe('mod settings color autosave', () => {
     const view = render(
       renderColorField(makeMod('mod-a', { color: [1, 2, 3, 1] })),
     );
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Pick first color' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Pick first color' }));
 
-    view.rerender(
-      renderColorField(makeMod('mod-b', { color: [4, 5, 6, 1] })),
-    );
+    view.rerender(renderColorField(makeMod('mod-b', { color: [4, 5, 6, 1] })));
     act(() => {
       jest.advanceTimersByTime(1000);
     });
@@ -169,9 +149,7 @@ describe('mod settings color autosave', () => {
     const view = render(
       renderColorField(makeMod('mod-a', { color: [1, 2, 3, 1] })),
     );
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Pick first color' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Pick first color' }));
 
     view.unmount();
     act(() => {

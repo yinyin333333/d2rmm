@@ -1,8 +1,5 @@
 import type { IShellAPI } from 'bridge/ShellAPI';
-import {
-  configureWebContentsSecurity,
-  initShellAPI,
-} from 'main/ShellAPI';
+import { configureWebContentsSecurity, initShellAPI } from 'main/ShellAPI';
 import { EventEmitter } from 'events';
 
 const mockOpenExternal = jest.fn();
@@ -57,13 +54,13 @@ describe('external URL and navigation security', () => {
     jest.restoreAllMocks();
   });
 
-  it.each([
-    'http://example.com/mod',
-    'https://example.com/mod?file=1#details',
-  ])('allows ShellAPI to open external web URL %s', async (url) => {
-    await expect(getShellAPI().openExternal(url)).resolves.toBeUndefined();
-    expect(mockOpenExternal).toHaveBeenCalledWith(url);
-  });
+  it.each(['http://example.com/mod', 'https://example.com/mod?file=1#details'])(
+    'allows ShellAPI to open external web URL %s',
+    async (url) => {
+      await expect(getShellAPI().openExternal(url)).resolves.toBeUndefined();
+      expect(mockOpenExternal).toHaveBeenCalledWith(url);
+    },
+  );
 
   it.each([
     'file:///C:/Users/test/secret.txt',

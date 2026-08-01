@@ -53,11 +53,8 @@ jest.mock('renderer/react/hooks/useToast', () => ({
 
 jest.mock('shared/startupProfiler', () => ({
   startupMark: jest.fn(),
-  startupMeasure: (
-    _process: string,
-    _label: string,
-    callback: () => unknown,
-  ) => callback(),
+  startupMeasure: (_process: string, _label: string, callback: () => unknown) =>
+    callback(),
 }));
 
 function deferred<T>(): Deferred<T> {
@@ -125,8 +122,7 @@ describe('useCheckModsForUpdates per-mod settlement', () => {
     ];
     mockUpdates = new Map();
     mockSetUpdates.mockImplementation((update) => {
-      mockUpdates =
-        typeof update === 'function' ? update(mockUpdates) : update;
+      mockUpdates = typeof update === 'function' ? update(mockUpdates) : update;
     });
     jest.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -191,9 +187,7 @@ describe('useCheckModsForUpdates per-mod settlement', () => {
 
   it('preserves normal results when every request succeeds', async () => {
     mockGetDownloadsViaNexus.mockImplementation(
-      async (_apiKey: string, nexusModID: string) => [
-        makeDownload(nexusModID),
-      ],
+      async (_apiKey: string, nexusModID: string) => [makeDownload(nexusModID)],
     );
 
     await renderUseCheckModsForUpdates()();

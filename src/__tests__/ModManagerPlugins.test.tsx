@@ -3,8 +3,8 @@ import {
   DialogManagerContextProvider,
   DialogRenderer,
 } from 'renderer/react/context/DialogContext';
-import { createD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
 import '@testing-library/jest-dom';
+import { createD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const mockDeletePackage = jest.fn();
@@ -258,13 +258,11 @@ describe('ModManagerPlugins', () => {
       name: 'JSON editor for D2RPlugins.json from D2RMM package eezstreet-plugin-pack-2.0',
     });
     expect(editButton).toHaveAttribute('aria-expanded', 'true');
-    expect(mockReadEditableJSON).toHaveBeenCalledWith(
-      {
-        packageName: 'eezstreet-plugin-pack-2.0',
-        sourcePath: 'D2RPlugins.json',
-        sourceType: 'managed',
-      },
-    );
+    expect(mockReadEditableJSON).toHaveBeenCalledWith({
+      packageName: 'eezstreet-plugin-pack-2.0',
+      sourcePath: 'D2RPlugins.json',
+      sourceType: 'managed',
+    });
 
     const edited = '{\n  "enabled": false\n}\n';
     fireEvent.change(editor, { target: { value: edited } });
@@ -307,13 +305,11 @@ describe('ModManagerPlugins', () => {
     const editor = await screen.findByRole('textbox', {
       name: 'TOML editor for settings.toml from D2RMM package eezstreet-plugin-pack-2.0',
     });
-    expect(mockReadEditableJSON).toHaveBeenCalledWith(
-      {
-        packageName: 'eezstreet-plugin-pack-2.0',
-        sourcePath: 'settings.toml',
-        sourceType: 'managed',
-      },
-    );
+    expect(mockReadEditableJSON).toHaveBeenCalledWith({
+      packageName: 'eezstreet-plugin-pack-2.0',
+      sourcePath: 'settings.toml',
+      sourceType: 'managed',
+    });
 
     const edited = 'enabled = false\n[feature]\nmode = "safe"\n';
     fireEvent.change(editor, { target: { value: edited } });
@@ -500,9 +496,7 @@ describe('ModManagerPlugins', () => {
   it('uses the same Material dialog style for package deletion', async () => {
     const confirmSpy = jest.spyOn(window, 'confirm');
     renderPlugins();
-    fireEvent.click(
-      screen.getByRole('tab', { name: 'Managed packages (2)' }),
-    );
+    fireEvent.click(screen.getByRole('tab', { name: 'Managed packages (2)' }));
 
     fireEvent.click(
       screen.getByRole('button', {

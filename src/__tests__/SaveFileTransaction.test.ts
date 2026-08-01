@@ -43,7 +43,10 @@ function createOperations(initial: Record<string, number[]>) {
           failWrite = null;
           throw new Error(`write failed: ${filePath}`);
         }
-        if (filePath === failRollback && writes.filter((x) => x === filePath).length > 1) {
+        if (
+          filePath === failRollback &&
+          writes.filter((x) => x === filePath).length > 1
+        ) {
           throw new Error(`rollback write failed: ${filePath}`);
         }
         files.set(filePath, [...data]);

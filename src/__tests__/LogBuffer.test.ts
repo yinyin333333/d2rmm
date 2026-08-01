@@ -1,8 +1,8 @@
-import type { ILog } from '../renderer/react/context/LogContext';
 import {
   MAX_RENDERER_LOGS,
   appendBoundedLogs,
 } from '../renderer/react/context/LogBuffer';
+import type { ILog } from '../renderer/react/context/LogContext';
 
 function makeLog(id: number): ILog {
   return { data: [id], id, level: 'debug', timestamp: id };

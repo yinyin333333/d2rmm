@@ -1,7 +1,4 @@
-import type {
-  IPCMessage,
-  IPCTransportClosedMessage,
-} from 'bridge/IPC';
+import type { IPCMessage, IPCTransportClosedMessage } from 'bridge/IPC';
 import type { RendererIPCBridge } from 'bridge/RendererIPCBridge';
 
 type RendererIPCModule = typeof import('renderer/IPC');
@@ -42,7 +39,9 @@ function createBridge(): {
   };
 }
 
-async function loadRendererIPC(bridge: RendererIPCBridge): Promise<RendererIPCModule> {
+async function loadRendererIPC(
+  bridge: RendererIPCBridge,
+): Promise<RendererIPCModule> {
   Object.defineProperty(window, 'IPCBridge', {
     configurable: true,
     value: bridge,
@@ -116,15 +115,12 @@ describe('renderer IPC deterministic lifecycle', () => {
     async (api) => {
       const { bridge, getListener, send } = createBridge();
       const ipc = await loadRendererIPC(bridge);
-      ipc.provideAPI(
-        'UnsafeRendererDispatchTestAPI',
-        {
-          notCallable: 'not a function',
-          syncThrow: () => {
-            throw new Error('renderer synchronous failure');
-          },
-        } as never,
-      );
+      ipc.provideAPI('UnsafeRendererDispatchTestAPI', {
+        notCallable: 'not a function',
+        syncThrow: () => {
+          throw new Error('renderer synchronous failure');
+        },
+      } as never);
 
       expect(() =>
         getListener()({} as Electron.IpcRendererEvent, {
@@ -140,8 +136,7 @@ describe('renderer IPC deterministic lifecycle', () => {
         expect.objectContaining({
           id: `main:${api}`,
           error: expect.objectContaining({
-            name:
-              api === 'syncThrow' ? 'Error' : 'IPCUnknownMethodError',
+            name: api === 'syncThrow' ? 'Error' : 'IPCUnknownMethodError',
           }),
         }),
       );

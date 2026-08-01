@@ -1,4 +1,5 @@
 import type { ConsoleArg, ILogLevel } from 'bridge/ConsoleAPI';
+import { appendBoundedLogs } from 'renderer/react/context/LogBuffer';
 import useConsoleListener from 'renderer/react/hooks/useConsoleListener';
 import React, {
   useCallback,
@@ -9,7 +10,6 @@ import React, {
   useState,
   useTransition,
 } from 'react';
-import { appendBoundedLogs } from 'renderer/react/context/LogBuffer';
 
 export type ILog = {
   id: number;
@@ -98,17 +98,20 @@ export function LogsProvider({ children }: Props): JSX.Element {
     });
   }, [startTransition]);
 
-  const add = useCallback((level: ILogLevel, args: ConsoleArg[]): void => {
-    pendingLogs.current.push({
-      id: LOG_ID++,
-      level,
-      timestamp: Date.now(),
-      data: args,
-    });
-    if (flushTimer.current == null) {
-      flushTimer.current = setTimeout(flush);
-    }
-  }, [flush]);
+  const add = useCallback(
+    (level: ILogLevel, args: ConsoleArg[]): void => {
+      pendingLogs.current.push({
+        id: LOG_ID++,
+        level,
+        timestamp: Date.now(),
+        data: args,
+      });
+      if (flushTimer.current == null) {
+        flushTimer.current = setTimeout(flush);
+      }
+    },
+    [flush],
+  );
 
   useEffect(
     () => () => {

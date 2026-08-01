@@ -11,7 +11,9 @@ describe('launchDetachedProcess', () => {
   const executablePath = path.join('fake-game', 'D2R.exe');
   const args = ['-mod', 'D2RMM', '-txt'];
 
-  function createSpawnProcess(child: FakeChildProcess): jest.MockedFunction<SpawnProcess> {
+  function createSpawnProcess(
+    child: FakeChildProcess,
+  ): jest.MockedFunction<SpawnProcess> {
     return jest.fn<ReturnType<SpawnProcess>, Parameters<SpawnProcess>>(
       () => child,
     );

@@ -39,10 +39,7 @@ jest.mock('renderer/react/context/hooks/useModsContextConfigOverrides', () => ({
 
 jest.mock('renderer/react/hooks/useSavedState', () => ({
   __esModule: true,
-  default: function useMockSavedState(
-    _key: string,
-    initialValue: unknown,
-  ) {
+  default: function useMockSavedState(_key: string, initialValue: unknown) {
     const React = require('react') as typeof import('react');
     return React.useState(initialValue);
   },

@@ -499,7 +499,8 @@ function hasManagedPackageLayout(packagePath: string): boolean {
 
 function hasManagedPackageMarker(packagePath: string): boolean {
   return (
-    lstatIfPresent(path.join(packagePath, D2R_LOADER_PACKAGE_MANIFEST)) != null ||
+    lstatIfPresent(path.join(packagePath, D2R_LOADER_PACKAGE_MANIFEST)) !=
+      null ||
     lstatIfPresent(path.join(packagePath, PACKAGE_SOURCE_DIRECTORY)) != null
   );
 }
@@ -573,24 +574,15 @@ function validateManagedPackagesRoot(
     }
     if (isDirectory && hasManagedPackageMarker(packagePath)) {
       if (
-        lstatIfPresent(
-          path.join(packagePath, D2R_LOADER_PACKAGE_MANIFEST),
-        ) != null
+        lstatIfPresent(path.join(packagePath, D2R_LOADER_PACKAGE_MANIFEST)) !=
+        null
       ) {
-        resolveManagedEntry(
-          packagePath,
-          D2R_LOADER_PACKAGE_MANIFEST,
-          'file',
-        );
+        resolveManagedEntry(packagePath, D2R_LOADER_PACKAGE_MANIFEST, 'file');
       }
       if (
         lstatIfPresent(path.join(packagePath, PACKAGE_SOURCE_DIRECTORY)) != null
       ) {
-        resolveManagedEntry(
-          packagePath,
-          PACKAGE_SOURCE_DIRECTORY,
-          'directory',
-        );
+        resolveManagedEntry(packagePath, PACKAGE_SOURCE_DIRECTORY, 'directory');
       }
       throw new Error(
         `Managed D2RLoader package root contains a damaged or incomplete D2RMM package: "${packagePath}".`,
@@ -1711,9 +1703,7 @@ function getEditableManifestFile(
     /\.jsonc?$/i.test(file.sourcePath) &&
     (file.role === 'patch' || file.role === 'plugin');
   const isEditableTOML =
-    file != null &&
-    isPluginTOMLPath(file.sourcePath) &&
-    file.role === 'config';
+    file != null && isPluginTOMLPath(file.sourcePath) && file.role === 'config';
   if (
     file == null ||
     (!isEditableJSON && !isEditableTOML) ||
@@ -2655,9 +2645,7 @@ export function readD2RLoaderPluginInventory(
         const targetKey = `${file.targetRoot}:${pathKey(file.targetPath)}`;
         const inventoryVisible =
           file.targetRoot === 'd2rloader' &&
-          (file.role === 'plugin' ||
-            file.role === 'patch' ||
-            isPluginTOML);
+          (file.role === 'plugin' || file.role === 'patch' || isPluginTOML);
         const existing = managedTargets.get(targetKey);
         if (
           existing != null &&
@@ -2686,9 +2674,7 @@ export function readD2RLoaderPluginInventory(
       if (
         file.targetRoot !== 'd2rloader' ||
         file.targetPath == null ||
-        (file.role !== 'plugin' &&
-          file.role !== 'patch' &&
-          !isPluginTOML)
+        (file.role !== 'plugin' && file.role !== 'patch' && !isPluginTOML)
       ) {
         continue;
       }

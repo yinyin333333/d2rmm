@@ -1,5 +1,5 @@
-import { selectDirectory } from '../main/ShellAPI';
 import { dialog } from 'electron';
+import { selectDirectory } from '../main/ShellAPI';
 
 jest.mock('electron', () => ({
   dialog: {

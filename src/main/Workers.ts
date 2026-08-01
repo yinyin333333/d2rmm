@@ -1,16 +1,9 @@
-import type {
-  IPCSerializedError,
-  WorkerLifecycleIPCMessage,
-} from 'bridge/IPC';
+import type { IPCSerializedError, WorkerLifecycleIPCMessage } from 'bridge/IPC';
 import { ChildProcess, fork } from 'child_process';
 import { app } from 'electron';
 import path from 'path';
 import { tl } from '../shared/i18n';
-import {
-  markWorkerReady,
-  registerWorker,
-  unregisterWorker,
-} from './IPC';
+import { markWorkerReady, registerWorker, unregisterWorker } from './IPC';
 
 const workers: Set<ChildProcess> = new Set();
 
@@ -32,7 +25,11 @@ export function getWorkers(): Set<ChildProcess> {
 function isWorkerLifecycleIPCMessage(
   message: unknown,
 ): message is WorkerLifecycleIPCMessage {
-  if (typeof message !== 'object' || message == null || !('control' in message)) {
+  if (
+    typeof message !== 'object' ||
+    message == null ||
+    !('control' in message)
+  ) {
     return false;
   }
   const control = (message as { control?: unknown }).control;
@@ -241,9 +238,7 @@ export function spawnNewWorker(
 
     readyTimeout = setTimeout(() => {
       failInitialization(
-        new Error(
-          `Worker initialization timed out after ${readyTimeoutMs}ms.`,
-        ),
+        new Error(`Worker initialization timed out after ${readyTimeoutMs}ms.`),
         true,
       );
     }, readyTimeoutMs);

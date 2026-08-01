@@ -50,9 +50,12 @@ describe.each(comparators)('%s version comparison', (_name, compare) => {
     '1.2.3.4.5',
     '1.2.3-',
     '1.2.3-alpha..1',
-  ])('rejects invalid version %j instead of treating it as equal', (invalid) => {
-    expect(() => compare(invalid, invalid)).toThrow(/Invalid version/);
-  });
+  ])(
+    'rejects invalid version %j instead of treating it as equal',
+    (invalid) => {
+      expect(() => compare(invalid, invalid)).toThrow(/Invalid version/);
+    },
+  );
 });
 
 describe('shared version caller semantics', () => {
@@ -62,9 +65,11 @@ describe('shared version caller semantics', () => {
   });
 
   it('sorts newest versions first for the update UI', () => {
-    expect(
-      ['1.2.3', '1.3.0', '1.2.4'].sort(compareRendererVersions),
-    ).toEqual(['1.3.0', '1.2.4', '1.2.3']);
+    expect(['1.2.3', '1.3.0', '1.2.4'].sort(compareRendererVersions)).toEqual([
+      '1.3.0',
+      '1.2.4',
+      '1.2.3',
+    ]);
   });
 
   it('selects only downloads newer than the current version', () => {

@@ -427,9 +427,7 @@ function hasMessageID(
   message: unknown,
 ): message is Record<string, unknown> & { id: string } {
   return (
-    isRecord(message) &&
-    typeof message.id === 'string' &&
-    message.id.length > 0
+    isRecord(message) && typeof message.id === 'string' && message.id.length > 0
   );
 }
 
@@ -439,8 +437,7 @@ function isSerializedIPCError(value: unknown): boolean {
     typeof value.name === 'string' &&
     typeof value.message === 'string' &&
     (value.stack == null || typeof value.stack === 'string') &&
-    (value.__d2rmm_i18n_list == null ||
-      Array.isArray(value.__d2rmm_i18n_list))
+    (value.__d2rmm_i18n_list == null || Array.isArray(value.__d2rmm_i18n_list))
   );
 }
 
@@ -473,8 +470,7 @@ function isRendererIPCResponse(
   const hasResult = hasOwn(message, 'result');
   const hasError = hasOwn(message, 'error');
   return (
-    hasResult !== hasError &&
-    (!hasError || isSerializedIPCError(message.error))
+    hasResult !== hasError && (!hasError || isSerializedIPCError(message.error))
   );
 }
 

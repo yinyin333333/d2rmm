@@ -52,9 +52,7 @@ export function copySourceTreeBounded(
     return { paths: [], usage: budget.usage };
   }
 
-  const pending: PendingSource[] = [
-    { depth: 1, destinationPath, sourcePath },
-  ];
+  const pending: PendingSource[] = [{ depth: 1, destinationPath, sourcePath }];
   const filesToCopy: FileToCopy[] = [];
 
   // Complete the metadata walk before reading or publishing any file data.

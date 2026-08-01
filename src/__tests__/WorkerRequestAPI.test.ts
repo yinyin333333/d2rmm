@@ -40,26 +40,32 @@ function makeDependencies(
 
 describe('worker RequestAPI cleanup', () => {
   it.each([
-    ['success', jest.fn().mockResolvedValue({ filePath: '/virtual/file', headers: {} })],
+    [
+      'success',
+      jest.fn().mockResolvedValue({ filePath: '/virtual/file', headers: {} }),
+    ],
     ['failure', jest.fn().mockRejectedValue(new Error('network failed'))],
-  ])('removes its progress listener in finally after download %s', async (_label, download) => {
-    const state = makeDependencies(download);
-    const api = createWorkerRequestAPI(state.dependencies);
-    const onProgress: OnProgress = jest.fn().mockResolvedValue(undefined);
+  ])(
+    'removes its progress listener in finally after download %s',
+    async (_label, download) => {
+      const state = makeDependencies(download);
+      const api = createWorkerRequestAPI(state.dependencies);
+      const onProgress: OnProgress = jest.fn().mockResolvedValue(undefined);
 
-    await api
-      .downloadToFile('https://invalid.test/payload', { onProgress })
-      .catch(() => undefined);
+      await api
+        .downloadToFile('https://invalid.test/payload', { onProgress })
+        .catch(() => undefined);
 
-    expect(state.addProgressListener).toHaveBeenCalledWith(
-      'progress-event-id',
-      onProgress,
-    );
-    expect(state.removeProgressListener).toHaveBeenCalledWith(
-      'progress-event-id',
-      onProgress,
-    );
-  });
+      expect(state.addProgressListener).toHaveBeenCalledWith(
+        'progress-event-id',
+        onProgress,
+      );
+      expect(state.removeProgressListener).toHaveBeenCalledWith(
+        'progress-event-id',
+        onProgress,
+      );
+    },
+  );
 
   it('does not register a progress listener when no callback is supplied', async () => {
     const state = makeDependencies();

@@ -1,9 +1,9 @@
-import '@testing-library/jest-dom';
 import {
   SavesPathContextProvider,
   useDefaultSavesPath,
   useFinalSavesPath,
 } from 'renderer/react/context/SavesPathContext';
+import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 
 jest.mock('renderer/AppInfoAPI', () => ({

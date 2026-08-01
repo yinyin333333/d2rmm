@@ -144,8 +144,6 @@ describe('Nexus API key validation generation', () => {
       validation.resolve({ ...valid('invalid'), isValid: false }),
     );
 
-    await waitFor(() =>
-      expect(screen.getByText(/"apiKey":null/)).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText(/"apiKey":null/)).toBeTruthy());
   });
 });

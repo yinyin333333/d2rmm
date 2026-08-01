@@ -13,9 +13,7 @@ describe('D2RLoader plugin edit conflict errors', () => {
     const serialized = serializeIPCError(original);
     const restored = deserializeIPCError(serialized);
 
-    expect(serialized.name).toBe(
-      D2R_LOADER_PLUGIN_EDIT_CONFLICT_ERROR_NAME,
-    );
+    expect(serialized.name).toBe(D2R_LOADER_PLUGIN_EDIT_CONFLICT_ERROR_NAME);
     expect(isD2RLoaderPluginEditConflictError(restored)).toBe(true);
     expect(restored.message).toBe(original.message);
   });

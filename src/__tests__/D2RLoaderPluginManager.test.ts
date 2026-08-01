@@ -96,10 +96,7 @@ describe('D2RLoader plugin package manager', () => {
   }
 
   it('creates d2rloader before any plugin is imported', () => {
-    const packagesRoot = path.join(
-      appRoot,
-      D2R_LOADER_PACKAGES_DIRECTORY,
-    );
+    const packagesRoot = path.join(appRoot, D2R_LOADER_PACKAGES_DIRECTORY);
     expect(existsSync(packagesRoot)).toBe(false);
 
     const inventory = readD2RLoaderPluginInventory(appRoot, []);
@@ -272,7 +269,9 @@ describe('D2RLoader plugin package manager', () => {
     );
     expect(isD2RLoaderPluginEditConflictError(staleModEditError)).toBe(true);
     expect(staleModEditError).toEqual(
-      expect.objectContaining({ message: expect.stringMatching(/changed since/i) }),
+      expect.objectContaining({
+        message: expect.stringMatching(/changed since/i),
+      }),
     );
     expect(() =>
       readD2RLoaderPluginSourceJSON(appRoot, {
@@ -620,8 +619,7 @@ describe('D2RLoader plugin package manager', () => {
     );
     expect(
       deployment.find(
-        ({ targetPath }) =>
-          targetPath === path.join('config', 'settings.toml'),
+        ({ targetPath }) => targetPath === path.join('config', 'settings.toml'),
       )?.data,
     ).toEqual(Buffer.from(editedTOML));
     expectSentinelUnchanged();
@@ -637,13 +635,12 @@ describe('D2RLoader plugin package manager', () => {
 
     const packagePath = path.join(appRoot, 'd2rloader', 'TOML Boundary');
     const manifest = JSON.parse(
-      readFileSync(
-        path.join(packagePath, D2R_LOADER_PACKAGE_MANIFEST),
-        'utf8',
-      ),
+      readFileSync(path.join(packagePath, D2R_LOADER_PACKAGE_MANIFEST), 'utf8'),
     ) as D2RLoaderPackageManifest;
     expect(
-      manifest.files.find(({ sourcePath }) => sourcePath === 'plugin-settings.toml'),
+      manifest.files.find(
+        ({ sourcePath }) => sourcePath === 'plugin-settings.toml',
+      ),
     ).toEqual(
       expect.objectContaining({
         role: 'config',
@@ -957,17 +954,16 @@ describe('D2RLoader plugin package manager', () => {
     );
     writeFile(path.join(manualFolder, 'settings.toml'), 'enabled = true\n');
 
-    const synchronized =
-      await synchronizeD2RLoaderPluginDirectory(appRoot);
+    const synchronized = await synchronizeD2RLoaderPluginDirectory(appRoot);
     const inventory = readD2RLoaderPluginInventory(appRoot, []);
 
     expect(synchronized.packages).toEqual(['plugins']);
     expect(
       existsSync(path.join(manualFolder, D2R_LOADER_PACKAGE_MANIFEST)),
     ).toBe(true);
-    expect(
-      existsSync(path.join(manualFolder, 'source', 'existing.dll')),
-    ).toBe(true);
+    expect(existsSync(path.join(manualFolder, 'source', 'existing.dll'))).toBe(
+      true,
+    );
     expect(inventory.plugins).toEqual([
       expect.objectContaining({
         relativePath: 'existing.dll',
@@ -1004,17 +1000,14 @@ describe('D2RLoader plugin package manager', () => {
       ),
     );
 
-    const synchronized =
-      await synchronizeD2RLoaderPluginDirectory(appRoot);
+    const synchronized = await synchronizeD2RLoaderPluginDirectory(appRoot);
     const inventory = readD2RLoaderPluginInventory(appRoot, []);
 
     expect(synchronized.packages).toEqual(['Manual']);
     expect(existsSync(readmePath)).toBe(true);
     expect(existsSync(zipPath)).toBe(false);
     expect(
-      existsSync(
-        path.join(currentRoot, 'Manual', D2R_LOADER_PACKAGE_MANIFEST),
-      ),
+      existsSync(path.join(currentRoot, 'Manual', D2R_LOADER_PACKAGE_MANIFEST)),
     ).toBe(true);
     expect(inventory.plugins).toEqual([
       expect.objectContaining({
@@ -1038,9 +1031,9 @@ describe('D2RLoader plugin package manager', () => {
     mkdirSync(currentRoot, { recursive: true });
     writeFile(globalConfigPath, 'default_mod = "D2RMM"\n');
 
-    await expect(
-      synchronizeD2RLoaderPluginDirectory(appRoot),
-    ).rejects.toThrow(/loader-wide configuration.*Settings/i);
+    await expect(synchronizeD2RLoaderPluginDirectory(appRoot)).rejects.toThrow(
+      /loader-wide configuration.*Settings/i,
+    );
     expect(readFileSync(globalConfigPath, 'utf8')).toBe(
       'default_mod = "D2RMM"\n',
     );
@@ -1191,9 +1184,7 @@ describe('D2RLoader plugin package manager', () => {
         expect.stringMatching(
           /plugins[\\/]D2RPlugins\.json.*Package A.*Package B/i,
         ),
-        expect.stringMatching(
-          /config[\\/]shared\.toml.*Package A.*Package B/i,
-        ),
+        expect.stringMatching(/config[\\/]shared\.toml.*Package A.*Package B/i),
         expect.stringMatching(
           /data[\\/]global[\\/]excel[\\/]shared\.txt.*Package A.*Package B/i,
         ),

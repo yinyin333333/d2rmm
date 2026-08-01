@@ -1,5 +1,5 @@
-import type decompress from 'decompress';
 import { createHash } from 'crypto';
+import type decompress from 'decompress';
 import {
   existsSync,
   mkdtempSync,
@@ -134,9 +134,9 @@ describe('ModUpdaterAPI atomic mod directory replacement', () => {
 
       expect(hashDirectory(sourceRoot)).toBe(sourceHash);
       expect(hashDirectory(destinationRoot)).toBe(destinationHash);
-      expect(readFileSync(path.join(destinationRoot, 'config.json'), 'utf8')).toBe(
-        'old config',
-      );
+      expect(
+        readFileSync(path.join(destinationRoot, 'config.json'), 'utf8'),
+      ).toBe('old config');
       expectNoReplacementArtifacts();
       expectSentinelUnchanged();
     },
@@ -149,9 +149,9 @@ describe('ModUpdaterAPI atomic mod directory replacement', () => {
     expect(readFileSync(path.join(destinationRoot, 'new.txt'), 'utf8')).toBe(
       'new tree',
     );
-    expect(readFileSync(path.join(destinationRoot, 'config.json'), 'utf8')).toBe(
-      'old config',
-    );
+    expect(
+      readFileSync(path.join(destinationRoot, 'config.json'), 'utf8'),
+    ).toBe('old config');
     expect(existsSync(sourceRoot)).toBe(true);
     expectNoReplacementArtifacts();
     expectSentinelUnchanged();
@@ -347,7 +347,9 @@ describe('ModUpdaterAPI.findModInfo', () => {
 
   it('keeps a data mod wrapper when d2rloader is next to the mpq folder', () => {
     const modRoot = path.join(tempDir, 'Reimagined');
-    mkdirSync(path.join(modRoot, 'Reimagined.mpq', 'data'), { recursive: true });
+    mkdirSync(path.join(modRoot, 'Reimagined.mpq', 'data'), {
+      recursive: true,
+    });
     mkdirSync(path.join(modRoot, 'd2rloader', 'plugins'), { recursive: true });
     writeFileSync(path.join(modRoot, 'Reimagined.mpq', 'modinfo.json'), '{}');
 
@@ -366,7 +368,9 @@ describe('ModUpdaterAPI.findModInfo', () => {
   it('finds a nested data mod wrapper', () => {
     const outerRoot = path.join(tempDir, 'outer');
     const modRoot = path.join(outerRoot, 'Reimagined');
-    mkdirSync(path.join(modRoot, 'Reimagined.mpq', 'data'), { recursive: true });
+    mkdirSync(path.join(modRoot, 'Reimagined.mpq', 'data'), {
+      recursive: true,
+    });
     mkdirSync(path.join(modRoot, 'd2rloader'), { recursive: true });
     writeFileSync(path.join(modRoot, 'Reimagined.mpq', 'modinfo.json'), '{}');
 

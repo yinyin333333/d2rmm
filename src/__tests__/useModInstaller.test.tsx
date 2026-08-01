@@ -13,8 +13,7 @@ const mockUpdateModVersion = jest.fn();
 jest.mock('renderer/ModUpdaterAPI', () => ({
   __esModule: true,
   default: {
-    installModViaNexus: (...args: unknown[]) =>
-      mockInstallModViaNexus(...args),
+    installModViaNexus: (...args: unknown[]) => mockInstallModViaNexus(...args),
   },
 }));
 
@@ -22,25 +21,19 @@ jest.mock('renderer/react/context/ModsContext', () => ({
   useMods: () => [[], mockRefreshMods],
 }));
 
-jest.mock(
-  'renderer/react/context/hooks/useModConfigOverrides',
-  () => ({
-    __esModule: true,
-    default: () => [{}, mockSetModConfigOverrides],
-  }),
-);
+jest.mock('renderer/react/context/hooks/useModConfigOverrides', () => ({
+  __esModule: true,
+  default: () => [{}, mockSetModConfigOverrides],
+}));
 
 jest.mock('renderer/react/context/hooks/useUpdateModVersion', () => ({
   useUpdateModVersion: () => mockUpdateModVersion,
 }));
 
-jest.mock(
-  'renderer/react/context/utils/useCheckModForUpdates',
-  () => ({
-    __esModule: true,
-    default: () => mockCheckModForUpdates,
-  }),
-);
+jest.mock('renderer/react/context/utils/useCheckModForUpdates', () => ({
+  __esModule: true,
+  default: () => mockCheckModForUpdates,
+}));
 
 jest.mock('renderer/react/hooks/useToast', () => ({
   __esModule: true,

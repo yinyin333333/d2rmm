@@ -20,7 +20,11 @@ describe('explicit QuickJS memory resource configuration seam', () => {
     const failure = new Error('synthetic limit failure');
     const context = {
       dispose: jest.fn(),
-      runtime: { setMemoryLimit: jest.fn(() => { throw failure; }) },
+      runtime: {
+        setMemoryLimit: jest.fn(() => {
+          throw failure;
+        }),
+      },
     };
     const module = { newContext: jest.fn(() => context) };
 

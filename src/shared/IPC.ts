@@ -2,10 +2,7 @@ import type {
   AnyAsyncSerializableAPIMethod,
   AsyncSerializableAPI,
 } from 'bridge/API';
-import type {
-  IPCMessageErrorResponse,
-  IPCSerializedError,
-} from 'bridge/IPC';
+import type { IPCMessageErrorResponse, IPCSerializedError } from 'bridge/IPC';
 import type { SerializableType } from 'bridge/Serializable';
 import { isI18nError } from './i18n';
 

@@ -1,3 +1,5 @@
+// Import after the mocks so the module uses the fake process and IPC transports.
+import { getWorkers, spawnNewWorker } from 'main/Workers';
 import type { ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 
@@ -144,6 +146,3 @@ describe('spawnNewWorker', () => {
     expect(getWorkers()).not.toContain(asChildProcess(worker));
   });
 });
-
-// Import after the mocks so the module uses the fake process and IPC transports.
-import { getWorkers, spawnNewWorker } from 'main/Workers';
