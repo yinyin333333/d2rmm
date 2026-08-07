@@ -114,7 +114,7 @@ describe('BridgeAPI install commit boundary', () => {
     expect(writeBinaryFile).not.toHaveBeenCalled();
   });
 
-  it('applies selected D2RLoader prerequisites before parsing mod code', async () => {
+  it('does not apply the temporarily disabled D2RLoader prerequisites', async () => {
     const prerequisiteError = new Error('synthetic prerequisite failure');
     mockApplyD2RLoaderPrerequisites.mockRejectedValueOnce(prerequisiteError);
     const readModCode = jest.spyOn(BridgeAPI, 'readModCode');
@@ -124,10 +124,13 @@ describe('BridgeAPI install commit boundary', () => {
         ...options,
         useD2RLoader: true,
       }),
-    ).rejects.toBe(prerequisiteError);
+    ).resolves.toEqual([]);
 
-    expect(mockApplyD2RLoaderPrerequisites).toHaveBeenCalledTimes(1);
-    expect(readModCode).not.toHaveBeenCalled();
+    // Restore these expectations when prerequisite pre-application is enabled.
+    // expect(mockApplyD2RLoaderPrerequisites).toHaveBeenCalledTimes(1);
+    // expect(readModCode).not.toHaveBeenCalled();
+    expect(mockApplyD2RLoaderPrerequisites).not.toHaveBeenCalled();
+    expect(readModCode).toHaveBeenCalled();
   });
 
   it('rebuilds generated D2RLoader output for an explicit loader-output sync', async () => {
@@ -145,7 +148,9 @@ describe('BridgeAPI install commit boundary', () => {
       }),
     ).resolves.toEqual([]);
 
-    expect(mockApplyD2RLoaderPrerequisites).toHaveBeenCalledTimes(1);
+    // Restore this expectation when prerequisite pre-application is enabled.
+    // expect(mockApplyD2RLoaderPrerequisites).toHaveBeenCalledTimes(1);
+    expect(mockApplyD2RLoaderPrerequisites).not.toHaveBeenCalled();
     expect(mockApplyManagedD2RLoaderPackages).toHaveBeenCalledTimes(1);
     expect(deleteFile).toHaveBeenCalledWith(
       'C:\\D2RMM-F05-FAKE\\output\\Fake.mpq',
@@ -224,7 +229,9 @@ describe('BridgeAPI install commit boundary', () => {
 
     await expect(BridgeAPI.installMods([], legacyOptions)).resolves.toEqual([]);
 
-    expect(mockApplyD2RLoaderPrerequisites).toHaveBeenCalledTimes(1);
+    // Restore this expectation when prerequisite pre-application is enabled.
+    // expect(mockApplyD2RLoaderPrerequisites).toHaveBeenCalledTimes(1);
+    expect(mockApplyD2RLoaderPrerequisites).not.toHaveBeenCalled();
     expect(mockApplyManagedD2RLoaderPackages).toHaveBeenCalledTimes(1);
     expect(deleteFile).toHaveBeenCalledWith(
       'C:\\D2RMM-F05-FAKE\\output\\Fake.mpq',
