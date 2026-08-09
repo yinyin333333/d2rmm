@@ -293,8 +293,8 @@ describe('App', () => {
     render(<App />);
 
     const actions = [
-      screen.getByRole('button', { name: 'Add Section Header' }),
-      screen.getByRole('button', { name: 'Refresh Mod List' }),
+      screen.getByRole('button', { name: 'Add Section' }),
+      screen.getByRole('button', { name: 'Refresh List' }),
       screen.getByRole('button', { name: 'Install Mods' }),
       screen.getByRole('button', { name: 'Run D2R' }),
     ];
@@ -399,7 +399,7 @@ describe('App', () => {
     );
   });
 
-  it('rescans plugin origins after Refresh Mod List removes a mod', async () => {
+  it('rescans plugin origins after Refresh List removes a mod', async () => {
     mockState.readModDirectory.mockResolvedValueOnce(['With Loader']);
     render(<App />);
 
@@ -409,14 +409,14 @@ describe('App', () => {
       ]),
     );
     mockState.readModDirectory.mockResolvedValue([]);
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh Mod List' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh List' }));
 
     await waitFor(() =>
       expect(mockState.readPluginInventory).toHaveBeenLastCalledWith([]),
     );
   });
 
-  it('rescans loader files when Refresh Mod List keeps the same mod IDs', async () => {
+  it('rescans loader files when Refresh List keeps the same mod IDs', async () => {
     mockState.readModDirectory.mockResolvedValue(['With Loader']);
     render(<App />);
 
@@ -426,7 +426,7 @@ describe('App', () => {
       ]),
     );
     const previousScanCount = mockState.readPluginInventory.mock.calls.length;
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh Mod List' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh List' }));
 
     await waitFor(() =>
       expect(mockState.readPluginInventory.mock.calls.length).toBeGreaterThan(

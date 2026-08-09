@@ -282,8 +282,10 @@ export default function ModList(): JSX.Element {
             display: 'flex',
             flex: '0 1 auto',
             flexWrap: 'wrap',
-            gap: 1,
+            gap: 0.5,
             justifyContent: 'flex-end',
+            '& .MuiButton-root': { px: 1.5, whiteSpace: 'nowrap' },
+            '& > span > .MuiButton-root': { px: 4 },
           }}
         >
           <AddSectionHeaderButton />
