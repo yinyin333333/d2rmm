@@ -22,11 +22,6 @@ import { useOutputModName } from 'renderer/react/context/OutputModNameContext';
 import { useOutputPath } from 'renderer/react/context/OutputPathContext';
 import { usePreExtractedDataPath } from 'renderer/react/context/PreExtractedDataPathContext';
 import {
-  normalizeSaveBackupIntervalMinutes,
-  parseSaveBackupIntervalMinutes,
-  useSaveBackupSettings,
-} from 'renderer/react/context/SaveBackupSettingsContext';
-import {
   useDefaultSavesPath,
   useFinalSavesPath,
   useSavesPath,
@@ -63,7 +58,6 @@ import {
   Checkbox,
   Chip,
   Divider,
-  FormControlLabel,
   LinearProgress,
   Link,
   ListItemButton,
@@ -265,25 +259,12 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
   const finalSavesPath = useFinalSavesPath();
   const [isSavesPathFocused, onSavesPathFocus, onSavesPathBlur] =
     useIsFocused();
-  const [saveBackupSettings, setSaveBackupSettings] = useSaveBackupSettings();
-  const [saveBackupIntervalInput, setSaveBackupIntervalInput] = useState(() =>
-    String(saveBackupSettings.intervalMinutes),
-  );
-
-  useEffect(() => {
-    setSaveBackupIntervalInput(String(saveBackupSettings.intervalMinutes));
-  }, [saveBackupSettings.intervalMinutes]);
-
   const [themeMode, setThemeMode] = useThemeMode();
 
   const dataSource = isPreExtractedData ? 'directory' : 'casc';
   const normalizedExtraArgs = normalizeLaunchArgs(extraArgs);
   const seedValue = getSeedValue(extraArgs);
   const isSeedInputEnabled = isSeedEditorEnabled || seedValue !== '';
-  const parsedSaveBackupInterval = parseSaveBackupIntervalMinutes(
-    saveBackupIntervalInput,
-  );
-  const isSaveBackupIntervalInvalid = parsedSaveBackupInterval == null;
 
   const setD2RLoaderSetting = useCallback(
     <TKey extends keyof D2RLoaderSettingsState>(
@@ -786,60 +767,6 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
             </Typography>
           </Alert>
           <InstallBeforeRunSettings />
-          <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
-          <Typography color="text.secondary" variant="subtitle2">
-            {t('settings.general.saveBackup.description')}
-          </Typography>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={saveBackupSettings.enabled}
-                onChange={(_event, checked) =>
-                  setSaveBackupSettings((settings) => ({
-                    ...settings,
-                    enabled: checked,
-                  }))
-                }
-              />
-            }
-            label={t('settings.general.saveBackup.enabled')}
-          />
-          <TextField
-            disabled={!saveBackupSettings.enabled}
-            error={isSaveBackupIntervalInvalid}
-            fullWidth={true}
-            helperText={t(
-              isSaveBackupIntervalInvalid
-                ? 'settings.general.saveBackup.interval.invalid'
-                : 'settings.general.saveBackup.interval.helper',
-            )}
-            inputProps={{ min: 1, step: 1 }}
-            label={t('settings.general.saveBackup.interval.label')}
-            onBlur={() => {
-              const normalizedInterval =
-                parsedSaveBackupInterval ??
-                normalizeSaveBackupIntervalMinutes(saveBackupIntervalInput);
-              setSaveBackupSettings((settings) => ({
-                ...settings,
-                intervalMinutes: normalizedInterval,
-              }));
-              setSaveBackupIntervalInput(String(normalizedInterval));
-            }}
-            onChange={(event) => {
-              const nextInput = event.target.value;
-              setSaveBackupIntervalInput(nextInput);
-              const parsedInterval = parseSaveBackupIntervalMinutes(nextInput);
-              if (parsedInterval != null) {
-                setSaveBackupSettings((settings) => ({
-                  ...settings,
-                  intervalMinutes: parsedInterval,
-                }));
-              }
-            }}
-            type="number"
-            value={saveBackupIntervalInput}
-            variant="filled"
-          />
           <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
           <Typography color="text.secondary" variant="subtitle2">
             {t('settings.general.normalizeCRLFOnInstall.description')}

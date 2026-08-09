@@ -24,7 +24,6 @@ import { NormalizeCRLFOnInstallContextProvider } from 'renderer/react/context/No
 import { OutputModNameContextProvider } from 'renderer/react/context/OutputModNameContext';
 import { OutputPathContextProvider } from 'renderer/react/context/OutputPathContext';
 import { PreExtractedDataPathContextProvider } from 'renderer/react/context/PreExtractedDataPathContext';
-import { SaveBackupSettingsContextProvider } from 'renderer/react/context/SaveBackupSettingsContext';
 import { SavesPathContextProvider } from 'renderer/react/context/SavesPathContext';
 import { SessionContextProvider } from 'renderer/react/context/SessionContext';
 import {
@@ -36,7 +35,6 @@ import { ToastContextProvider } from 'renderer/react/context/ToastContext';
 import { UpdatesContextProvider } from 'renderer/react/context/UpdatesContext';
 import useD2RLoaderPluginDropZone from 'renderer/react/hooks/useD2RLoaderPluginDropZone';
 import useModDropZone from 'renderer/react/hooks/useModDropZone';
-import { SaveBackupScheduler } from 'renderer/react/hooks/useSaveBackupScheduler';
 import ModList from 'renderer/react/modlist/ModList';
 import { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -202,7 +200,6 @@ function RootRoute() {
 function Content() {
   return (
     <>
-      <SaveBackupScheduler />
       <Router>
         <Routes>
           <Route element={<RootRoute />} path="/" />
@@ -229,7 +226,6 @@ const CONTEXT_PROVIDERS = [
   NormalizeCRLFOnInstallContextProvider,
   InstallBeforeRunContextProvider,
   SavesPathContextProvider,
-  SaveBackupSettingsContextProvider,
   OutputPathContextProvider,
   ExtraGameLaunchArgsContextProvider,
   OutputModNameContextProvider,

@@ -165,34 +165,6 @@ describe('App', () => {
     );
   });
 
-  it('renders and validates automatic save backup settings', async () => {
-    render(<App />);
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
-    const enabledSwitch = await screen.findByLabelText(
-      'Enable automatic save backups',
-    );
-    const intervalInput = screen.getByLabelText('Backup interval (minutes)');
-
-    expect(enabledSwitch).not.toBeChecked();
-    expect(intervalInput).toHaveValue(60);
-    expect(intervalInput).toBeDisabled();
-
-    fireEvent.click(enabledSwitch);
-    expect(intervalInput).not.toBeDisabled();
-    fireEvent.change(intervalInput, { target: { value: '15' } });
-    await waitFor(() =>
-      expect(
-        JSON.parse(localStorage.getItem('save-backup-settings') ?? '{}'),
-      ).toMatchObject({ enabled: true, intervalMinutes: 15 }),
-    );
-
-    fireEvent.change(intervalInput, { target: { value: '1.5' } });
-    expect(intervalInput).toHaveAttribute('aria-invalid', 'true');
-    fireEvent.blur(intervalInput);
-    await waitFor(() => expect(intervalInput).toHaveValue(60));
-  });
-
   it('should compare Windows save paths by directory boundary and casing', async () => {
     localStorage.setItem(
       'saves-path',
