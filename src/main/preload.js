@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('IPCBridge', {
 });
 
 contextBridge.exposeInMainWorld('env', {
+  locale:
+    process.argv.find((arg) => arg.startsWith('--locale='))?.split('=')[1] ??
+    null,
   platform: process.platform,
   profileStartup: process.env.D2RMM_PROFILE_STARTUP === '1',
 });

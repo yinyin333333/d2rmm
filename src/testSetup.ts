@@ -1,6 +1,7 @@
 Object.defineProperty(window, 'env', {
   configurable: true,
   value: {
+    locale: null,
     platform: 'win32',
     profileStartup: false,
   },

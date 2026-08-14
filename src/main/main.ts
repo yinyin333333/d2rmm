@@ -9,6 +9,7 @@ import { initAppInfoAPI } from './AppInfoAPI';
 import { initConsoleAPI } from './ConsoleAPI';
 import { initEventAPI } from './EventAPI';
 import { initIPC } from './IPC';
+import { initLocaleAPI } from './LocaleAPI';
 import { createMainLifecycleCoordinator } from './MainLifecycle';
 import {
   captureNxmProtocolEvents,
@@ -19,7 +20,7 @@ import { RendererIPCAPI } from './RendererIPCAPI';
 import { initRequestAPI } from './RequestAPI';
 import { configureWebContentsSecurity, initShellAPI } from './ShellAPI';
 import { getWorkers, spawnNewWorker } from './Workers';
-import { initI18n } from './i18n';
+import { getInitialLocale, initI18n } from './i18n';
 import { initPreferences } from './preferences';
 import { resolveHtmlPath } from './util';
 import { CURRENT_VERSION } from './version';
@@ -98,6 +99,10 @@ import { CURRENT_VERSION } from './version';
       console.debug('[main] Initializing AppInfoAPI...');
       await startupMeasure('main', 'initAppInfoAPI', initAppInfoAPI);
     },
+    initLocaleAPI: async () => {
+      console.debug('[main] Initializing LocaleAPI...');
+      await startupMeasure('main', 'initLocaleAPI', initLocaleAPI);
+    },
     initShellAPI: async () => {
       console.debug('[main] Initializing ShellAPI...');
       await startupMeasure('main', 'initShellAPI', initShellAPI);
@@ -147,6 +152,7 @@ import { CURRENT_VERSION } from './version';
       height: 728,
       icon: getAssetPath('icon.png'),
       webPreferences: {
+        additionalArguments: [`--locale=${getInitialLocale()}`],
         preload: preloadPath,
         contextIsolation: true,
       },
@@ -240,13 +246,14 @@ import { CURRENT_VERSION } from './version';
   startupMark('main', 'initPreferences completed');
 
   console.debug('[main] Initializing i18n...');
-  startupMeasure('main', 'initI18n', initI18n).catch(console.error);
+  const i18nInitialization = startupMeasure('main', 'initI18n', initI18n);
 
   app
     .whenReady()
-    .then(() => {
+    .then(async () => {
+      await i18nInitialization;
       startupMark('main', 'app.whenReady resolved');
-      createWindow().catch(console.error);
+      await createWindow();
       app.on('activate', () => {
         // On macOS it's common to re-create a window in the app when the
         // dock icon is clicked and there are no other windows open.

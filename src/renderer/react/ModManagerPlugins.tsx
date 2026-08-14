@@ -12,8 +12,10 @@ import {
 } from 'renderer/react/context/DialogContext';
 import { useIsInstalling } from 'renderer/react/context/InstallContext';
 import useToast from 'renderer/react/hooks/useToast';
+import { type TFunction } from 'i18next';
 import { isD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DeleteOutline,
   EditOutlined,
@@ -87,6 +89,7 @@ function EditableInventoryFile({
   disabled: boolean;
   item: D2RLoaderPluginInventoryItem;
 }): JSX.Element {
+  const { t } = useTranslation();
   const editorID = useId();
   const showToast = useToast();
   const { readEditableJSON, saveEditableJSON, setEditableJSONDirty } =
@@ -105,11 +108,15 @@ function EditableInventoryFile({
   const [isStale, setIsStale] = useState(false);
   const editableSource = item.editableSource;
   const isEditable = editableSource != null;
-  const editorLabel = `${item.name} from ${
+  const editorLabel = t(
     item.sourceType === 'managed'
-      ? `D2RMM package ${item.packageName ?? item.sourceName}`
-      : `mod ${item.sourceName}`
-  }`;
+      ? 'plugins.editor.source.managed'
+      : 'plugins.editor.source.mod',
+    {
+      file: item.name,
+      source: item.packageName ?? item.sourceName,
+    },
+  );
   const editorFormat =
     document?.format === 'toml' ||
     (document == null && /\.toml$/i.test(item.editableSourcePath ?? ''))
@@ -167,11 +174,7 @@ function EditableInventoryFile({
     }
     if (draft !== document.contents) {
       setIsStale(true);
-      setError(
-        new Error(
-          'This file changed on disk while you were editing it. Reload to discard this draft and open the latest version.',
-        ),
-      );
+      setError(new Error(t('plugins.editor.changedOnDisk')));
       return;
     }
     setDocument(null);
@@ -188,6 +191,7 @@ function EditableInventoryFile({
     item.sha256,
     loadDocument,
     loadedInventorySha,
+    t,
   ]);
 
   const onToggle = useCallback(async () => {
@@ -237,12 +241,12 @@ function EditableInventoryFile({
       showToast({
         duration: 4000,
         severity: result.warnings.length === 0 ? 'success' : 'warning',
-        title: `${item.name} saved`,
+        title: t('plugins.editor.saved', { file: item.name }),
         description:
           result.warnings.length === 0
             ? item.sourceType === 'managed'
-              ? 'D2RMM package storage was updated. Run Install Mods to deploy this change.'
-              : 'The source file in the mod folder was updated. Run Install Mods to rebuild the output.'
+              ? t('plugins.editor.savedDescription.managed')
+              : t('plugins.editor.savedDescription.mod')
             : result.warnings.join(' '),
       });
     } catch (caught) {
@@ -263,6 +267,7 @@ function EditableInventoryFile({
     item.sourceType,
     saveEditableJSON,
     showToast,
+    t,
   ]);
 
   return (
@@ -311,7 +316,7 @@ function EditableInventoryFile({
             <Button
               aria-controls={editorID}
               aria-expanded={isExpanded}
-              aria-label={`Edit ${editorLabel}`}
+              aria-label={t('plugins.editor.editAria', { target: editorLabel })}
               disabled={disabled || isLoading || isSaving}
               endIcon={
                 <ExpandMore
@@ -326,7 +331,7 @@ function EditableInventoryFile({
               size="small"
               startIcon={<EditOutlined />}
             >
-              Edit
+              {t('plugins.editor.edit')}
             </Button>
           ) : null}
         </Stack>
@@ -353,9 +358,7 @@ function EditableInventoryFile({
             </Typography>
             {item.sourceType === 'mod' ? (
               <Alert severity="info" sx={{ mb: 1 }}>
-                This edits the source file inside the mod folder directly. A mod
-                update can overwrite the change; keep a backup of important
-                customizations.
+                {t('plugins.editor.modWarning')}
               </Alert>
             ) : null}
             {error != null ? (
@@ -363,12 +366,14 @@ function EditableInventoryFile({
                 action={
                   isStale ? (
                     <Button
-                      aria-label={`Reload ${editorLabel}`}
+                      aria-label={t('plugins.editor.reloadAria', {
+                        target: editorLabel,
+                      })}
                       color="inherit"
                       onClick={() => onReload().catch(console.error)}
                       size="small"
                     >
-                      Reload
+                      {t('plugins.editor.reload')}
                     </Button>
                   ) : undefined
                 }
@@ -379,17 +384,22 @@ function EditableInventoryFile({
               </Alert>
             ) : null}
             {isLoading ? (
-              <LoadingButton loading={true}>Loading</LoadingButton>
+              <LoadingButton loading={true}>
+                {t('plugins.editor.loading')}
+              </LoadingButton>
             ) : document == null ? (
               <Button onClick={() => loadDocument().catch(console.error)}>
-                Retry
+                {t('plugins.editor.retry')}
               </Button>
             ) : (
               <>
                 <TextField
                   fullWidth={true}
                   inputProps={{
-                    'aria-label': `${editorFormat} editor for ${editorLabel}`,
+                    'aria-label': t('plugins.editor.editorAria', {
+                      format: editorFormat,
+                      target: editorLabel,
+                    }),
                     spellCheck: false,
                   }}
                   maxRows={24}
@@ -418,18 +428,22 @@ function EditableInventoryFile({
                     variant="caption"
                   >
                     {item.sourceType === 'managed'
-                      ? 'Saving updates D2RMM package storage. Install Mods deploys it.'
-                      : 'Saving updates the mod source. Install Mods rebuilds the generated output.'}
+                      ? t('plugins.editor.saveHint.managed')
+                      : t('plugins.editor.saveHint.mod')}
                   </Typography>
                   <Button
-                    aria-label={`Cancel editing ${editorLabel}`}
+                    aria-label={t('plugins.editor.cancelAria', {
+                      target: editorLabel,
+                    })}
                     disabled={isSaving}
                     onClick={onCancel}
                   >
-                    Cancel
+                    {t('plugins.action.cancel')}
                   </Button>
                   <LoadingButton
-                    aria-label={`Save ${editorLabel}`}
+                    aria-label={t('plugins.editor.saveAria', {
+                      target: editorLabel,
+                    })}
                     disabled={
                       disabled ||
                       isSaving ||
@@ -440,7 +454,7 @@ function EditableInventoryFile({
                     onClick={() => onSave().catch(console.error)}
                     variant="contained"
                   >
-                    Save
+                    {t('plugins.editor.save')}
                   </LoadingButton>
                 </Stack>
               </>
@@ -461,13 +475,14 @@ function InventoryGroupCard({
   disabled: boolean;
   group: InventoryGroup;
 }): JSX.Element {
+  const { t } = useTranslation();
   const filesID = useId();
   const { hasUnsavedEdits } = useD2RLoaderPluginManager();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const sourceLabel =
     group.sourceType === 'managed'
-      ? `D2RMM package: ${group.sourceName}`
-      : `Mod: ${group.sourceName}`;
+      ? t('plugins.group.managed', { source: group.sourceName })
+      : t('plugins.group.mod', { source: group.sourceName });
   return (
     <Paper
       sx={{
@@ -487,7 +502,7 @@ function InventoryGroupCard({
           {sourceLabel}
         </Typography>
         <Chip
-          label={`${group.items.length} file(s)`}
+          label={t('plugins.group.fileCount', { count: group.items.length })}
           size="small"
           variant="outlined"
         />
@@ -500,7 +515,10 @@ function InventoryGroupCard({
         <Button
           aria-controls={filesID}
           aria-expanded={isExpanded}
-          aria-label={`${isExpanded ? 'Hide' : 'Show'} files for ${sourceLabel}`}
+          aria-label={t(
+            isExpanded ? 'plugins.group.hideAria' : 'plugins.group.showAria',
+            { source: sourceLabel },
+          )}
           disabled={isExpanded && hasUnsavedEdits}
           endIcon={
             <ExpandMore
@@ -513,11 +531,15 @@ function InventoryGroupCard({
           onClick={() => setIsExpanded((expanded) => !expanded)}
           size="small"
         >
-          {isExpanded ? 'Hide' : 'Show'}
+          {t(isExpanded ? 'plugins.action.hide' : 'plugins.action.show')}
         </Button>
       </Stack>
       <Collapse in={isExpanded} timeout="auto" unmountOnExit={true}>
-        <Box aria-label={`Files for ${sourceLabel}`} id={filesID} role="region">
+        <Box
+          aria-label={t('plugins.group.filesAria', { source: sourceLabel })}
+          id={filesID}
+          role="region"
+        >
           <Divider />
           <List dense={true} disablePadding={true}>
             {group.items.map((item, index) => (
@@ -580,19 +602,36 @@ function InventorySection({
   );
 }
 
-function packageDetails(packageInfo: D2RLoaderPluginPackageSummary): string {
+function packageDetails(
+  packageInfo: D2RLoaderPluginPackageSummary,
+  t: TFunction,
+): string {
   const details = [
-    `${packageInfo.pluginFiles.length} plugin file(s)`,
-    `${packageInfo.patchFiles.length} patch file(s)`,
+    t('plugins.package.count.plugins', {
+      count: packageInfo.pluginFiles.length,
+    }),
+    t('plugins.package.count.patches', {
+      count: packageInfo.patchFiles.length,
+    }),
   ];
   if (packageInfo.configFiles.length > 0) {
-    details.push(`${packageInfo.configFiles.length} config file(s)`);
+    details.push(
+      t('plugins.package.count.configs', {
+        count: packageInfo.configFiles.length,
+      }),
+    );
   }
   if (packageInfo.dataFiles.length > 0) {
-    details.push(`${packageInfo.dataFiles.length} mod data file(s)`);
+    details.push(
+      t('plugins.package.count.data', { count: packageInfo.dataFiles.length }),
+    );
   }
   if (packageInfo.unmappedFiles.length > 0) {
-    details.push(`${packageInfo.unmappedFiles.length} preserved only`);
+    details.push(
+      t('plugins.package.count.preserved', {
+        count: packageInfo.unmappedFiles.length,
+      }),
+    );
   }
   return details.join(' • ');
 }
@@ -602,12 +641,13 @@ function PackageTargets({
 }: {
   packageInfo: D2RLoaderPluginPackageSummary;
 }): JSX.Element {
+  const { t } = useTranslation();
   const groups = [
-    ['Plugins', 'd2rloader', packageInfo.pluginFiles],
-    ['Patches', 'd2rloader', packageInfo.patchFiles],
-    ['Config', 'd2rloader', packageInfo.configFiles],
-    ['Mod data', 'MPQ data', packageInfo.dataFiles],
-    ['Preserved only', 'storage', packageInfo.unmappedFiles],
+    ['plugins.category.plugins', 'd2rloader', packageInfo.pluginFiles],
+    ['plugins.category.patches', 'd2rloader', packageInfo.patchFiles],
+    ['plugins.category.configs', 'd2rloader', packageInfo.configFiles],
+    ['plugins.package.target.modData', 'MPQ data', packageInfo.dataFiles],
+    ['plugins.package.target.preserved', 'storage', packageInfo.unmappedFiles],
   ] as const;
   return (
     <Stack spacing={0.5}>
@@ -616,12 +656,14 @@ function PackageTargets({
           <Typography
             key={label}
             color={
-              label === 'Preserved only' ? 'warning.main' : 'text.secondary'
+              label === 'plugins.package.target.preserved'
+                ? 'warning.main'
+                : 'text.secondary'
             }
             sx={{ overflowWrap: 'anywhere' }}
             variant="caption"
           >
-            {label}: {files.map((file) => `${root}/${file}`).join(', ')}
+            {t(label)}: {files.map((file) => `${root}/${file}`).join(', ')}
           </Typography>
         ),
       )}
@@ -636,6 +678,7 @@ function PackageDeleteDialog({
   onDelete: (packageName: string) => Promise<void>;
   packageName: string;
 }): JSX.Element {
+  const { t } = useTranslation();
   const { close, isOpen } = useDialogContext();
   const dialogTitleID = useId();
   const onConfirm = useCallback(() => {
@@ -651,18 +694,17 @@ function PackageDeleteDialog({
     >
       <DialogContent>
         <DialogContentText id={dialogTitleID}>
-          Are you sure you want to delete &quot;{packageName}&quot;?
+          {t('plugins.package.delete.confirm', { package: packageName })}
         </DialogContentText>
         <br />
         <DialogContentText>
-          This will permanently remove the managed plugin package from D2RMM
-          storage. Run Install Mods afterward to update the game mod output.
+          {t('plugins.package.delete.description')}
         </DialogContentText>
       </DialogContent>
       <DialogActions>
-        <Button onClick={close}>Cancel</Button>
+        <Button onClick={close}>{t('plugins.action.cancel')}</Button>
         <Button color="error" onClick={onConfirm} variant="contained">
-          Delete
+          {t('plugins.action.delete')}
         </Button>
       </DialogActions>
     </Dialog>
@@ -678,14 +720,19 @@ function PackageDeleteAction({
   onDelete: (packageName: string) => Promise<void>;
   packageName: string;
 }): JSX.Element {
+  const { t } = useTranslation();
   const [openDialog] = useDialog(
     <PackageDeleteDialog onDelete={onDelete} packageName={packageName} />,
   );
   return (
-    <Tooltip title={`Delete ${packageName}`}>
+    <Tooltip
+      title={t('plugins.package.delete.tooltip', { package: packageName })}
+    >
       <span>
         <IconButton
-          aria-label={`Delete ${packageName}`}
+          aria-label={t('plugins.package.delete.tooltip', {
+            package: packageName,
+          })}
           disabled={disabled}
           onClick={openDialog}
         >
@@ -705,6 +752,7 @@ function ManagedPackageCard({
   onDelete: (packageName: string) => Promise<void>;
   packageInfo: D2RLoaderPluginPackageSummary;
 }): JSX.Element {
+  const { t } = useTranslation();
   const [showDetails, setShowDetails] = useState(false);
   const detailsID = useId();
   return (
@@ -722,13 +770,18 @@ function ManagedPackageCard({
             {packageInfo.name}
           </Typography>
           <Typography color="text.secondary" variant="body2">
-            {packageDetails(packageInfo)}
+            {packageDetails(packageInfo, t)}
           </Typography>
         </Box>
         <Button
           aria-controls={detailsID}
           aria-expanded={showDetails}
-          aria-label={`${showDetails ? 'Hide' : 'Show'} details for ${packageInfo.name}`}
+          aria-label={t(
+            showDetails
+              ? 'plugins.package.details.hideAria'
+              : 'plugins.package.details.showAria',
+            { package: packageInfo.name },
+          )}
           endIcon={
             <ExpandMore
               sx={{
@@ -740,7 +793,7 @@ function ManagedPackageCard({
           onClick={() => setShowDetails((visible) => !visible)}
           size="small"
         >
-          Details
+          {t('plugins.package.details.action')}
         </Button>
         <PackageDeleteAction
           disabled={disabled}
@@ -756,7 +809,9 @@ function ManagedPackageCard({
       <Collapse in={showDetails} timeout="auto" unmountOnExit={true}>
         <Divider />
         <Box
-          aria-label={`Deployment targets for ${packageInfo.name}`}
+          aria-label={t('plugins.package.targetsAria', {
+            package: packageInfo.name,
+          })}
           id={detailsID}
           role="region"
           sx={{ p: 1.5 }}
@@ -769,6 +824,7 @@ function ManagedPackageCard({
 }
 
 export default function ModManagerPlugins(): JSX.Element {
+  const { t } = useTranslation();
   const showToast = useToast();
   const [isInstalling] = useIsInstalling();
   const {
@@ -799,11 +855,11 @@ export default function ModManagerPlugins(): JSX.Element {
     } catch (caught) {
       showToast({
         severity: 'error',
-        title: 'Failed to open D2RLoader package storage',
+        title: t('plugins.toast.openStorageFailed'),
         description: caught instanceof Error ? caught.message : String(caught),
       });
     }
-  }, [inventory.managedRoot, showToast]);
+  }, [inventory.managedRoot, showToast, t]);
 
   const onDeletePackage = useCallback(
     async (packageName: string) => {
@@ -812,18 +868,18 @@ export default function ModManagerPlugins(): JSX.Element {
         showToast({
           duration: 4000,
           severity: 'success',
-          title: `${packageName} deleted`,
+          title: t('plugins.toast.deleted', { package: packageName }),
         });
       } catch (caught) {
         showToast({
           severity: 'error',
-          title: `Failed to delete ${packageName}`,
+          title: t('plugins.toast.deleteFailed', { package: packageName }),
           description:
             caught instanceof Error ? caught.message : String(caught),
         });
       }
     },
-    [deletePackage, showToast],
+    [deletePackage, showToast, t],
   );
 
   const categoryItems = inventory[fileCategory];
@@ -855,30 +911,33 @@ export default function ModManagerPlugins(): JSX.Element {
   ).size;
   const categoryTitle =
     fileCategory === 'plugins'
-      ? 'Plugins'
+      ? t('plugins.category.plugins')
       : fileCategory === 'patches'
-        ? 'Patches'
-        : 'Plugin Configs';
+        ? t('plugins.category.patches')
+        : t('plugins.category.configs');
   const categoryEmptyText =
     normalizedSearch !== '' || sourceFilter !== 'all'
-      ? 'No files match the current search and source filters.'
+      ? t('plugins.empty.filtered')
       : fileCategory === 'plugins'
-        ? 'No plugin DLL or companion files were found.'
+        ? t('plugins.empty.plugins')
         : fileCategory === 'patches'
-          ? 'No patch JSON/JSONC files were found.'
-          : 'No plugin TOML config files were found.';
+          ? t('plugins.empty.patches')
+          : t('plugins.empty.configs');
   const isPackageActionDisabled = hasUnsavedEdits || isInstalling || isMutating;
   const isEditorActionDisabled = isInstalling || isMutating;
   const workspaceStatus =
     error != null
-      ? { color: 'error' as const, label: 'Scan failed' }
+      ? { color: 'error' as const, label: t('plugins.status.scanFailed') }
       : inventory.conflicts.length > 0
-        ? { color: 'error' as const, label: 'Conflicts found' }
+        ? { color: 'error' as const, label: t('plugins.status.conflicts') }
         : !isInventoryCurrent
-          ? { color: 'warning' as const, label: 'Refresh required' }
+          ? {
+              color: 'warning' as const,
+              label: t('plugins.status.refreshRequired'),
+            }
           : isLoading
-            ? { color: 'info' as const, label: 'Scanning' }
-            : { color: 'success' as const, label: 'Ready' };
+            ? { color: 'info' as const, label: t('plugins.status.scanning') }
+            : { color: 'success' as const, label: t('plugins.status.ready') };
 
   return (
     <Box
@@ -903,7 +962,7 @@ export default function ModManagerPlugins(): JSX.Element {
           >
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Stack alignItems="center" direction="row" spacing={1}>
-                <Typography variant="h5">D2RLoader Plugins</Typography>
+                <Typography variant="h5">{t('plugins.title')}</Typography>
                 <Chip
                   color={workspaceStatus.color}
                   label={workspaceStatus.label}
@@ -916,9 +975,7 @@ export default function ModManagerPlugins(): JSX.Element {
                 sx={{ mt: 0.5 }}
                 variant="body2"
               >
-                Import, inspect, and safely edit D2RLoader files from one
-                focused workspace. D2RMM-managed packages and files supplied by
-                mods in your mod list are always identified separately.
+                {t('plugins.description')}
               </Typography>
             </Box>
             <Stack
@@ -933,7 +990,7 @@ export default function ModManagerPlugins(): JSX.Element {
                 sx={{ width: { sm: 'auto', xs: '100%' } }}
                 variant="outlined"
               >
-                Open package storage
+                {t('plugins.action.openStorage')}
               </Button>
               <LoadingButton
                 disabled={hasUnsavedEdits || isMutating}
@@ -943,7 +1000,7 @@ export default function ModManagerPlugins(): JSX.Element {
                 sx={{ width: { sm: 'auto', xs: '100%' } }}
                 variant="contained"
               >
-                Refresh inventory
+                {t('plugins.action.refresh')}
               </LoadingButton>
             </Stack>
           </Stack>
@@ -964,12 +1021,10 @@ export default function ModManagerPlugins(): JSX.Element {
             <FolderOpen color="primary" />
             <Box>
               <Typography sx={{ fontWeight: 600 }} variant="body2">
-                Drop a DLL, JSON/JSONC, TOML, plugin folder, or ZIP anywhere on
-                this tab.
+                {t('plugins.import.title')}
               </Typography>
               <Typography color="text.secondary" variant="caption">
-                D2RMM keeps an editable source copy. Run Install Mods after a
-                package import or file edit to rebuild the selected output.
+                {t('plugins.import.description')}
               </Typography>
             </Box>
           </Box>
@@ -983,23 +1038,23 @@ export default function ModManagerPlugins(): JSX.Element {
           {[
             {
               count: inventory.plugins.length,
-              description: 'DLLs and companion files',
-              label: 'Plugin files',
+              description: t('plugins.summary.plugins.description'),
+              label: t('plugins.summary.plugins.label'),
             },
             {
               count: inventory.patches.length,
-              description: 'Memory patch definitions',
-              label: 'Patch files',
+              description: t('plugins.summary.patches.description'),
+              label: t('plugins.summary.patches.label'),
             },
             {
               count: inventory.configs.length,
-              description: 'Editable TOML files',
-              label: 'Config files',
+              description: t('plugins.summary.configs.description'),
+              label: t('plugins.summary.configs.label'),
             },
             {
               count: totalFileCount,
-              description: `${sourceCount} source${sourceCount === 1 ? '' : 's'} detected`,
-              label: 'All files',
+              description: t('plugins.summary.sources', { count: sourceCount }),
+              label: t('plugins.summary.all.label'),
             },
           ].map(({ count, description, label }) => (
             <Paper key={label} sx={{ flex: 1, p: 1.5 }} variant="outlined">
@@ -1019,10 +1074,7 @@ export default function ModManagerPlugins(): JSX.Element {
         </Stack>
 
         <Alert icon={<Security />} severity="warning" sx={{ mt: 1.5 }}>
-          DLL plugins execute native code and patch files can modify game
-          memory. Import only files you trust. JSON and TOML from a mod are
-          edited in that mod&apos;s source folder; package files are edited in
-          D2RMM storage.
+          {t('plugins.securityWarning')}
         </Alert>
 
         {error != null ? (
@@ -1032,14 +1084,12 @@ export default function ModManagerPlugins(): JSX.Element {
         ) : null}
         {hasUnsavedEdits ? (
           <Alert severity="warning" sx={{ mt: 1.5 }}>
-            A file editor has unsaved changes. Save or cancel it before
-            importing, deleting, refreshing, installing, or running D2R.
+            {t('plugins.unsavedWarning')}
           </Alert>
         ) : null}
         {!isInventoryCurrent ? (
           <Alert severity="warning" sx={{ mt: 1.5 }}>
-            A source changed but the inventory could not be refreshed. Refresh
-            successfully before installing or running D2R.
+            {t('plugins.refreshWarning')}
           </Alert>
         ) : null}
         {inventory.conflicts.map((conflict) => (
@@ -1051,16 +1101,21 @@ export default function ModManagerPlugins(): JSX.Element {
         <Paper sx={{ mt: 2, overflow: 'hidden' }} variant="outlined">
           {isLoading ? <LinearProgress /> : null}
           <Tabs
-            aria-label="Plugin workspace views"
+            aria-label={t('plugins.workspace.aria')}
             onChange={(_event, value) =>
               setWorkspaceView(value as 'files' | 'packages')
             }
             value={workspaceView}
           >
-            <Tab label={`File library (${totalFileCount})`} value="files" />
+            <Tab
+              label={t('plugins.workspace.files', { count: totalFileCount })}
+              value="files"
+            />
             <Tab
               disabled={hasUnsavedEdits}
-              label={`Managed packages (${inventory.packages.length})`}
+              label={t('plugins.workspace.packages', {
+                count: inventory.packages.length,
+              })}
               value="packages"
             />
           </Tabs>
@@ -1084,14 +1139,14 @@ export default function ModManagerPlugins(): JSX.Element {
                         </InputAdornment>
                       ),
                     }}
-                    inputProps={{ 'aria-label': 'Search plugin files' }}
+                    inputProps={{ 'aria-label': t('plugins.search.aria') }}
                     onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Search by file, path, package, or mod..."
+                    placeholder={t('plugins.search.placeholder')}
                     size="small"
                     value={searchQuery}
                   />
                   <ToggleButtonGroup
-                    aria-label="Filter plugin files by source"
+                    aria-label={t('plugins.sourceFilter.aria')}
                     exclusive={true}
                     onChange={(_event, value: typeof sourceFilter | null) => {
                       if (value != null) setSourceFilter(value);
@@ -1100,19 +1155,19 @@ export default function ModManagerPlugins(): JSX.Element {
                     value={sourceFilter}
                   >
                     <ToggleButton disabled={hasUnsavedEdits} value="all">
-                      All sources
+                      {t('plugins.sourceFilter.all')}
                     </ToggleButton>
                     <ToggleButton disabled={hasUnsavedEdits} value="managed">
                       D2RMM
                     </ToggleButton>
                     <ToggleButton disabled={hasUnsavedEdits} value="mod">
-                      Mods
+                      {t('plugins.sourceFilter.mods')}
                     </ToggleButton>
                   </ToggleButtonGroup>
                 </Stack>
 
                 <Tabs
-                  aria-label="Plugin file categories"
+                  aria-label={t('plugins.category.aria')}
                   onChange={(_event, value) =>
                     setFileCategory(value as 'plugins' | 'patches' | 'configs')
                   }
@@ -1122,17 +1177,17 @@ export default function ModManagerPlugins(): JSX.Element {
                 >
                   <Tab
                     disabled={hasUnsavedEdits && fileCategory !== 'plugins'}
-                    label={`Plugins · ${inventory.plugins.length}`}
+                    label={`${t('plugins.category.plugins')} · ${inventory.plugins.length}`}
                     value="plugins"
                   />
                   <Tab
                     disabled={hasUnsavedEdits && fileCategory !== 'patches'}
-                    label={`Patches · ${inventory.patches.length}`}
+                    label={`${t('plugins.category.patches')} · ${inventory.patches.length}`}
                     value="patches"
                   />
                   <Tab
                     disabled={hasUnsavedEdits && fileCategory !== 'configs'}
-                    label={`Plugin Configs · ${inventory.configs.length}`}
+                    label={`${t('plugins.category.configs')} · ${inventory.configs.length}`}
                     value="configs"
                   />
                 </Tabs>
@@ -1141,16 +1196,16 @@ export default function ModManagerPlugins(): JSX.Element {
                   sx={{ mt: 1 }}
                   variant="caption"
                 >
-                  Showing {visibleItems.length} of {categoryItems.length}{' '}
-                  {categoryTitle.toLocaleLowerCase()} across{' '}
-                  {
-                    new Set(
+                  {t('plugins.category.showing', {
+                    category: categoryTitle,
+                    shown: visibleItems.length,
+                    sources: new Set(
                       visibleItems.map(
                         (item) => `${item.sourceType}:${item.sourceName}`,
                       ),
-                    ).size
-                  }{' '}
-                  source(s).
+                    ).size,
+                    total: categoryItems.length,
+                  })}
                 </Typography>
               </Box>
               <Divider />
@@ -1166,18 +1221,15 @@ export default function ModManagerPlugins(): JSX.Element {
           ) : (
             <Box sx={{ p: 2 }}>
               <Alert severity="info" sx={{ mb: 2 }}>
-                Managed packages are preserved source bundles owned by D2RMM.
-                Review their deployment targets here; edit individual JSON or
-                TOML files from the File library.
+                {t('plugins.package.help')}
               </Alert>
               {inventory.packages.length === 0 ? (
                 <Paper sx={{ p: 3, textAlign: 'center' }} variant="outlined">
                   <Typography sx={{ fontWeight: 600 }}>
-                    No managed packages yet
+                    {t('plugins.package.empty.title')}
                   </Typography>
                   <Typography color="text.secondary" variant="body2">
-                    Drop a supported file, folder, or ZIP on this tab to import
-                    the first package.
+                    {t('plugins.package.empty.description')}
                   </Typography>
                 </Paper>
               ) : (

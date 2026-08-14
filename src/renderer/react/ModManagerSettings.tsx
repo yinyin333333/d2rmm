@@ -5,7 +5,9 @@ import type {
 } from 'bridge/BridgeAPI';
 import { getBaseSavesPath } from 'renderer/AppInfoAPI';
 import BridgeAPI from 'renderer/BridgeAPI';
+import { LocaleAPI } from 'renderer/LocaleAPI';
 import ShellAPI from 'renderer/ShellAPI';
+import { LOCALE_DISPLAY_NAMES } from 'renderer/i18n';
 import type { D2RLoaderSettingsState } from 'renderer/react/context/D2RLoaderSettingsContext';
 import {
   useD2RLoaderConfigRefresh,
@@ -46,6 +48,8 @@ import {
   setExtraArgEnabled,
   setSeedValue,
 } from 'renderer/react/utils/launchArgs';
+import i18next from 'i18next';
+import { normalizeLocale, type SupportedLocale } from 'shared/locales';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -260,6 +264,14 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
   const [isSavesPathFocused, onSavesPathFocus, onSavesPathBlur] =
     useIsFocused();
   const [themeMode, setThemeMode] = useThemeMode();
+  const [locale, setLocale] = useState(() =>
+    normalizeLocale(i18next.resolvedLanguage ?? i18next.language),
+  );
+  const onLocaleChange = useCallback(async (newLocale: SupportedLocale) => {
+    setLocale(newLocale);
+    await i18next.changeLanguage(newLocale);
+    await LocaleAPI.setLocale(newLocale);
+  }, []);
 
   const dataSource = isPreExtractedData ? 'directory' : 'casc';
   const normalizedExtraArgs = normalizeLaunchArgs(extraArgs);
@@ -1017,6 +1029,25 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
               {t('settings.display.theme.light')}
             </MenuItem>
             <MenuItem value="dark">{t('settings.display.theme.dark')}</MenuItem>
+          </TextField>
+          <TextField
+            fullWidth={true}
+            label={t('settings.display.language.label')}
+            onChange={(event) =>
+              onLocaleChange(event.target.value as SupportedLocale).catch(
+                console.error,
+              )
+            }
+            select={true}
+            sx={{ marginTop: 2 }}
+            value={locale}
+            variant="filled"
+          >
+            {Object.entries(LOCALE_DISPLAY_NAMES).map(([localeCode, label]) => (
+              <MenuItem key={localeCode} value={localeCode}>
+                {label}
+              </MenuItem>
+            ))}
           </TextField>
         </StyledAccordionDetails>
       </StyledAccordion>

@@ -7,6 +7,7 @@ import { initConsoleAPI } from './ConsoleAPI';
 import { initD2RLoaderPluginAPI } from './D2RLoaderPluginAPI';
 import { initEventAPI } from './EventAPI';
 import { initIPC } from './IPC';
+import { initLocaleAPI } from './LocaleAPI';
 import { initModUpdaterAPI } from './ModUpdaterAPI';
 import { runWorkerInitialization } from './WorkerLifecycle';
 import { initAsar } from './asar';
@@ -26,6 +27,8 @@ async function start(): Promise<void> {
   await startupMeasure('worker', 'initConsoleAPI', initConsoleAPI);
   console.debug('[worker] Initializing AppInfoAPI...');
   await startupMeasure('worker', 'initAppInfoAPI', initAppInfoAPI);
+  console.debug('[worker] Initializing LocaleAPI...');
+  await startupMeasure('worker', 'initLocaleAPI', initLocaleAPI);
   console.debug('[worker] Initializing Asar...');
   await startupMeasure('worker', 'initAsar', initAsar);
   console.debug('[worker] Initializing QuickJS...');

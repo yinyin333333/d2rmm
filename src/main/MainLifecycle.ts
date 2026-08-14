@@ -3,6 +3,7 @@ export type MainLifecycleDependencies<TWindow> = {
   initAppInfoAPI: () => Promise<void>;
   initConsoleAPI: () => Promise<void>;
   initEventAPI: () => Promise<void>;
+  initLocaleAPI: () => Promise<void>;
   initNxmProtocolAPI: () => Promise<void>;
   initRequestAPI: () => Promise<void>;
   initShellAPI: () => Promise<void>;
@@ -22,6 +23,7 @@ export function createMainLifecycleCoordinator<TWindow>(
     await dependencies.initEventAPI();
     await dependencies.initConsoleAPI();
     await dependencies.initAppInfoAPI();
+    await dependencies.initLocaleAPI();
     await dependencies.initShellAPI();
     await dependencies.initRequestAPI();
     await dependencies.initNxmProtocolAPI();

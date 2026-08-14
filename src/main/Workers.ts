@@ -4,6 +4,7 @@ import { app } from 'electron';
 import path from 'path';
 import { tl } from '../shared/i18n';
 import { markWorkerReady, registerWorker, unregisterWorker } from './IPC';
+import { getCurrentLocale } from './i18n';
 
 const workers: Set<ChildProcess> = new Set();
 
@@ -220,11 +221,13 @@ export function spawnNewWorker(
     };
 
     try {
+      const workerEnv = { ...process.env, LOCALE: getCurrentLocale() };
       worker = !app.isPackaged
         ? fork('./src/main/worker/worker.ts', [], {
             execArgv: ['-r', 'ts-node/register/transpile-only'],
+            env: workerEnv,
           })
-        : fork(path.join(__dirname, 'worker.js'));
+        : fork(path.join(__dirname, 'worker.js'), [], { env: workerEnv });
     } catch (error) {
       reject(error);
       return;

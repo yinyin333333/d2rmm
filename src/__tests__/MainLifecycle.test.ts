@@ -9,6 +9,7 @@ describe('macOS main process lifecycle', () => {
     const initAppInfoAPI = jest.fn().mockResolvedValue(undefined);
     const initConsoleAPI = jest.fn().mockResolvedValue(undefined);
     const initEventAPI = jest.fn().mockResolvedValue(undefined);
+    const initLocaleAPI = jest.fn().mockResolvedValue(undefined);
     const initNxmProtocolAPI = jest.fn().mockResolvedValue(undefined);
     const initRequestAPI = jest.fn().mockResolvedValue(undefined);
     const initShellAPI = jest.fn().mockResolvedValue(undefined);
@@ -18,6 +19,7 @@ describe('macOS main process lifecycle', () => {
       initAppInfoAPI,
       initConsoleAPI,
       initEventAPI,
+      initLocaleAPI,
       initNxmProtocolAPI,
       initRequestAPI,
       initShellAPI,
@@ -54,6 +56,7 @@ describe('macOS main process lifecycle', () => {
       initAppInfoAPI,
       initConsoleAPI,
       initEventAPI,
+      initLocaleAPI,
       initNxmProtocolAPI,
       initRequestAPI,
       initShellAPI,
