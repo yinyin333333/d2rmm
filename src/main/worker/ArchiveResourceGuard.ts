@@ -53,7 +53,10 @@ export async function inspectZipArchive(
       {
         autoClose: true,
         lazyEntries: true,
-        strictFileNames: true,
+        // Microsoft-created ZIPs commonly store entry separators as
+        // backslashes. Let yauzl normalize those separators before applying
+        // our own path, duplicate, link, and resource-safety checks below.
+        strictFileNames: false,
         validateEntrySizes: true,
       },
       (openError, zipFile: ZipFile) => {
