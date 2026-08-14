@@ -37,7 +37,10 @@ jest.mock('react-window', () => {
           children,
           itemCount,
         }: {
-          children: (props: { index: number; style: React.CSSProperties }) => React.ReactNode;
+          children: (props: {
+            index: number;
+            style: React.CSSProperties;
+          }) => React.ReactNode;
           itemCount: number;
         },
         _ref,

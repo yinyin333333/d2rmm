@@ -1,7 +1,4 @@
-import type {
-  AsAsyncSerializableAPI,
-  AsyncSerializableAPI,
-} from 'bridge/API';
+import type { AsAsyncSerializableAPI, AsyncSerializableAPI } from 'bridge/API';
 import type {
   IPCMessage,
   IPCMessageRequest,
@@ -46,9 +43,7 @@ export function provideAPI<T extends AsyncSerializableAPI<T>>(
 function getProvidedAPI(message: IPCMessageRequest):
   | {
       broadcast: boolean;
-      handler: NonNullable<
-        ReturnType<typeof getOwnCallableAPIHandler>
-      >;
+      handler: NonNullable<ReturnType<typeof getOwnCallableAPIHandler>>;
     }
   | undefined {
   const provided = REGISTERED_APIS.get(message.namespace);

@@ -130,4 +130,20 @@ describe('ZIP archive resource preflight', () => {
       /unsafe.*entry path/i,
     );
   });
+
+  it('accepts Windows separators but still rejects traversal after normalization', async () => {
+    const normalZipPath = writeZip('windows-path.zip', {
+      'Package\\plugins\\Plugin.dll': Buffer.from('plugin'),
+    });
+    const traversalZipPath = writeZip('windows-traversal.zip', {
+      'Package\\..\\outside.txt': Buffer.from('outside'),
+    });
+
+    await expect(inspectZipArchive(normalZipPath, limits())).resolves.toEqual(
+      expect.objectContaining({ entries: 1, maxDepth: 3 }),
+    );
+    await expect(inspectZipArchive(traversalZipPath, limits())).rejects.toThrow(
+      /unsafe.*entry path|invalid relative path/i,
+    );
+  });
 });

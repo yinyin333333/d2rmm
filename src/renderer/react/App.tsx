@@ -166,14 +166,16 @@ function RootRoute() {
             <Tab label={t('tabs.settings')} value="settings" />
             <Tab label={t('tabs.logs')} value="logs" />
           </TabList>
-          <Button
-            onClick={() => {
-              ShellAPI.openExternal(DISCORD_INVITE_URL).catch(console.error);
-            }}
-          >
-            {t('tabs.discord')}
-          </Button>
-          <D2RLoaderDownloadButton />
+          <Box sx={{ alignItems: 'center', display: 'flex', gap: 1, ml: 1 }}>
+            <Button
+              onClick={() => {
+                ShellAPI.openExternal(DISCORD_INVITE_URL).catch(console.error);
+              }}
+            >
+              {t('tabs.discord')}
+            </Button>
+            <D2RLoaderDownloadButton />
+          </Box>
           <Box sx={{ flex: 1 }} />
           <InstallationProgressBar />
         </Box>

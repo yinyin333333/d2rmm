@@ -316,9 +316,7 @@ function EditableInventoryFile({
               endIcon={
                 <ExpandMore
                   sx={{
-                    transform: isExpanded
-                      ? 'rotate(180deg)'
-                      : 'rotate(0deg)',
+                    transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                     transition: (theme) =>
                       theme.transitions.create('transform'),
                   }}

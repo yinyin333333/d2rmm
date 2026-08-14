@@ -289,6 +289,36 @@ describe('App', () => {
     expect(installButton).not.toBeDisabled();
   });
 
+  it('renders direct mod actions in the requested order', async () => {
+    render(<App />);
+
+    const actions = [
+      screen.getByRole('button', { name: 'Add Section' }),
+      screen.getByRole('button', { name: 'Refresh List' }),
+      screen.getByRole('button', { name: 'Install Mods' }),
+      screen.getByRole('button', { name: 'Run D2R' }),
+    ];
+
+    for (let index = 0; index < actions.length - 1; index += 1) {
+      expect(
+        actions[index].compareDocumentPosition(actions[index + 1]) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    expect(actions[0]).toHaveClass('MuiButton-outlined');
+    expect(actions[1]).toHaveClass('MuiButton-outlined');
+    expect(actions[0]).toHaveClass('MuiButton-sizeMedium');
+    expect(actions[1]).toHaveClass('MuiButton-sizeMedium');
+    expect(document.querySelector('.MuiButtonGroup-root')).toBeNull();
+    expect(document.getElementById('overflow-actions-button')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Check for Mod Updates' }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(actions[0]);
+    expect(await screen.findByText('New Section Header')).toBeInTheDocument();
+  });
+
   it('renders tabs in order and keeps Plugins mounted across tab changes', () => {
     render(<App />);
 
@@ -369,7 +399,7 @@ describe('App', () => {
     );
   });
 
-  it('rescans plugin origins after Refresh Mod List removes a mod', async () => {
+  it('rescans plugin origins after Refresh List removes a mod', async () => {
     mockState.readModDirectory.mockResolvedValueOnce(['With Loader']);
     render(<App />);
 
@@ -379,17 +409,14 @@ describe('App', () => {
       ]),
     );
     mockState.readModDirectory.mockResolvedValue([]);
-    const overflow = document.getElementById('overflow-actions-button');
-    if (overflow == null) throw new Error('Overflow button was not rendered.');
-    fireEvent.click(overflow);
-    fireEvent.click(await screen.findByText('Refresh Mod List'));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh List' }));
 
     await waitFor(() =>
       expect(mockState.readPluginInventory).toHaveBeenLastCalledWith([]),
     );
   });
 
-  it('rescans loader files when Refresh Mod List keeps the same mod IDs', async () => {
+  it('rescans loader files when Refresh List keeps the same mod IDs', async () => {
     mockState.readModDirectory.mockResolvedValue(['With Loader']);
     render(<App />);
 
@@ -399,10 +426,7 @@ describe('App', () => {
       ]),
     );
     const previousScanCount = mockState.readPluginInventory.mock.calls.length;
-    const overflow = document.getElementById('overflow-actions-button');
-    if (overflow == null) throw new Error('Overflow button was not rendered.');
-    fireEvent.click(overflow);
-    fireEvent.click(await screen.findByText('Refresh Mod List'));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh List' }));
 
     await waitFor(() =>
       expect(mockState.readPluginInventory.mock.calls.length).toBeGreaterThan(

@@ -24,7 +24,9 @@ export function getFileManagerPathIdentity(
 ): { filePath: string; key: string } {
   const normalizedFilePath = filePath.replace(/\\/g, '/');
   const effectiveFilePath =
-    platform === 'win32' ? normalizedFilePath.toLowerCase() : normalizedFilePath;
+    platform === 'win32'
+      ? normalizedFilePath.toLowerCase()
+      : normalizedFilePath;
   return { filePath: effectiveFilePath, key: effectiveFilePath };
 }
 

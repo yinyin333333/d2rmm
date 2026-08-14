@@ -1,4 +1,8 @@
-*       text    eol=crlf
+*       text=auto eol=lf
+*.bat   text    eol=crlf
+*.cmd   text    eol=crlf
+*.vbs   text    eol=crlf
+*.wsf   text    eol=crlf
 *.exe   binary
 *.dll   binary
 *.png   binary

@@ -869,11 +869,7 @@ export async function initModUpdaterAPI(): Promise<void> {
         });
 
         try {
-          return await installFromZipPathUnlocked(
-            filePath,
-            modID,
-            appRootPath,
-          );
+          return await installFromZipPathUnlocked(filePath, modID, appRootPath);
         } finally {
           // Always remove the downloaded temp zip, even on failure.
           if (existsSync(filePath)) {

@@ -16,19 +16,15 @@ jest.mock('renderer/react/context/DialogContext', () => ({
   useDialogContext: () => ({ close: mockClose, isOpen: true }),
 }));
 
-jest.mock(
-  'renderer/react/context/hooks/useModConfigOverride',
-  () => ({
-    __esModule: true,
-    default: () => [
-      {
-        website:
-          'https://www.nexusmods.com/diablo2resurrected/mods/100',
-      },
-      mockSetModConfigOverride,
-    ],
-  }),
-);
+jest.mock('renderer/react/context/hooks/useModConfigOverride', () => ({
+  __esModule: true,
+  default: () => [
+    {
+      website: 'https://www.nexusmods.com/diablo2resurrected/mods/100',
+    },
+    mockSetModConfigOverride,
+  ],
+}));
 
 jest.mock('renderer/react/context/hooks/useModUpdate', () => ({
   __esModule: true,
@@ -48,13 +44,8 @@ jest.mock('@mui/material', () => ({
     children: React.ReactNode;
     onClick?: () => void;
   }) => <button onClick={onClick}>{children}</button>,
-  Dialog: ({
-    children,
-    open,
-  }: {
-    children: React.ReactNode;
-    open: boolean;
-  }) => (open ? <div>{children}</div> : null),
+  Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
+    open ? <div>{children}</div> : null,
   DialogActions: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
@@ -75,12 +66,7 @@ jest.mock('@mui/material', () => ({
     type: string;
     value: string;
   }) => (
-    <input
-      aria-label={label}
-      onChange={onChange}
-      type={type}
-      value={value}
-    />
+    <input aria-label={label} onChange={onChange} type={type} value={value} />
   ),
   createSvgIcon: () => () => null,
 }));

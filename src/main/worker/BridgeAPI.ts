@@ -51,7 +51,9 @@ import {
 import { downloadAndInstallD2RLoader } from './D2RLoaderInstaller';
 import { applyManagedD2RLoaderPackages } from './D2RLoaderPluginAPI';
 import {
-  applyD2RLoaderPrerequisites,
+  // D2RLoader prerequisite pre-application is temporarily disabled.
+  // Uncomment this import and the install block below to restore it.
+  // applyD2RLoaderPrerequisites,
   clearD2RLoaderOutputDirectory,
 } from './D2RLoaderPrerequisites';
 import { EventAPI } from './EventAPI';
@@ -1717,13 +1719,15 @@ const config = JSON.parse(D2RMM.getConfigJSON());
         await BridgeAPI.openStorage(runtime.options.gamePath);
       }
 
-      if (
-        (runtime.modsToInstall.length > 0 || shouldSyncD2RLoaderOutput) &&
-        runtime.options.useD2RLoader === true &&
-        !runtime.options.isDryRun
-      ) {
-        await applyD2RLoaderPrerequisites(runtime);
-      }
+      // D2RLoader prerequisite pre-application is temporarily disabled.
+      // Keep this block for possible restoration later.
+      // if (
+      //   (runtime.modsToInstall.length > 0 || shouldSyncD2RLoaderOutput) &&
+      //   runtime.options.useD2RLoader === true &&
+      //   !runtime.options.isDryRun
+      // ) {
+      //   await applyD2RLoaderPrerequisites(runtime);
+      // }
 
       for (let i = 0; i < runtime.modsToInstall.length; i = i + 1) {
         const startTime = Date.now();

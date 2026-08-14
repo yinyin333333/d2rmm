@@ -5,7 +5,13 @@ import { parseBinding } from 'renderer/react/BindingsParser';
 import { useModSettingsContext } from 'renderer/react/settings/ModSettingsContext';
 import debounce from 'renderer/utils/debounce';
 import { MuiColorInput, MuiColorInputColors } from 'mui-color-input';
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from 'react';
 
 type ColorArray = [number, number, number, number];
 type ColorObject = {

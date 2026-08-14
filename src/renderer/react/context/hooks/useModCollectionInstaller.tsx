@@ -1,5 +1,5 @@
-import ModUpdaterAPI from 'renderer/ModUpdaterAPI';
 import type { ModConfigValue } from 'bridge/ModConfigValue';
+import ModUpdaterAPI from 'renderer/ModUpdaterAPI';
 import {
   useSectionHeaders,
   useSetItemsOrder,

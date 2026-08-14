@@ -228,13 +228,11 @@ describe('D2RLoaderPluginContext deployment state', () => {
       );
     });
 
-    expect(mockReadEditableJSON).toHaveBeenCalledWith(
-      {
-        packageName: 'Editable',
-        sourcePath: 'settings.json',
-        sourceType: 'managed',
-      },
-    );
+    expect(mockReadEditableJSON).toHaveBeenCalledWith({
+      packageName: 'Editable',
+      sourcePath: 'settings.json',
+      sourceType: 'managed',
+    });
     expect(mockSaveEditableJSON).toHaveBeenCalledWith(
       {
         packageName: 'Editable',

@@ -49,10 +49,7 @@ function createProgressTransform(
       bytesDownloaded += buffer.length;
       const currentTime = dependencies.now();
 
-      if (
-        eventID != null &&
-        currentTime - lastEventTime > THROTTLE_TIME_MS
-      ) {
+      if (eventID != null && currentTime - lastEventTime > THROTTLE_TIME_MS) {
         lastEventTime = currentTime;
         dependencies
           .sendProgress(eventID, { bytesDownloaded, bytesTotal })
@@ -180,7 +177,9 @@ export function createRequestAPI(
           const onClose = (): void => {
             if (!responseReceived) {
               rejectOnce(
-                new Error('Download request closed before receiving a response.'),
+                new Error(
+                  'Download request closed before receiving a response.',
+                ),
               );
             }
           };

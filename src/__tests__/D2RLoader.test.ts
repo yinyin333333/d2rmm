@@ -64,11 +64,13 @@ describe('D2RLoader TOML config', () => {
       ].join('\n'),
     );
 
-    expect(settings.map(({ id, value, valueType }) => ({
-      id,
-      value,
-      valueType,
-    }))).toEqual([
+    expect(
+      settings.map(({ id, value, valueType }) => ({
+        id,
+        value,
+        valueType,
+      })),
+    ).toEqual([
       {
         id: 'd2rloader.skip_title_screen',
         value: false,
@@ -133,15 +135,12 @@ describe('D2RLoader TOML config', () => {
   });
 
   it('does not insert missing TOML keys or tables', () => {
-    const output = updateD2RLoaderConfig(
-      '[d2rloader]\ndefault_mod = "Old"\n',
-      {
-        ...SETTINGS,
-        tomlSettings: {
-          'd2rloader.skip_title_screen': true,
-        },
+    const output = updateD2RLoaderConfig('[d2rloader]\ndefault_mod = "Old"\n', {
+      ...SETTINGS,
+      tomlSettings: {
+        'd2rloader.skip_title_screen': true,
       },
-    );
+    });
 
     expect(output).toContain('default_mod = "D2RMMRE"');
     expect(output).not.toContain('skip_title_screen');

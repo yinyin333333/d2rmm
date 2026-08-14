@@ -33,15 +33,16 @@ describe('worker IPC deterministic lifecycle', () => {
       writable: true,
     });
     const originalOn = process.on.bind(process);
-    processOn = jest.spyOn(process, 'on').mockImplementation(
-      ((event: string, listener: (...args: unknown[]) => void) => {
-        if (event === 'message' || event === 'disconnect') {
-          listeners.set(event, listener);
-          return process;
-        }
-        return originalOn(event as never, listener as never);
-      }) as typeof process.on,
-    );
+    processOn = jest.spyOn(process, 'on').mockImplementation(((
+      event: string,
+      listener: (...args: unknown[]) => void,
+    ) => {
+      if (event === 'message' || event === 'disconnect') {
+        listeners.set(event, listener);
+        return process;
+      }
+      return originalOn(event as never, listener as never);
+    }) as typeof process.on);
   });
 
   afterEach(() => {
@@ -66,16 +67,15 @@ describe('worker IPC deterministic lifecycle', () => {
     'returns a structured error for unsafe method %s without losing the listener',
     async (api) => {
       const ipc = await loadWorkerIPC();
-      ipc.provideAPI(
-        'UnsafeWorkerDispatchTestAPI',
-        {
-          notCallable: 'not a function',
-          syncThrow: () => {
-            throw new Error('worker synchronous failure');
-          },
-        } as never,
-      );
-      const messageListener = listeners.get('message') as ProcessMessageListener;
+      ipc.provideAPI('UnsafeWorkerDispatchTestAPI', {
+        notCallable: 'not a function',
+        syncThrow: () => {
+          throw new Error('worker synchronous failure');
+        },
+      } as never);
+      const messageListener = listeners.get(
+        'message',
+      ) as ProcessMessageListener;
 
       expect(() =>
         messageListener({
@@ -91,8 +91,7 @@ describe('worker IPC deterministic lifecycle', () => {
         expect.objectContaining({
           id: `main:${api}`,
           error: expect.objectContaining({
-            name:
-              api === 'syncThrow' ? 'Error' : 'IPCUnknownMethodError',
+            name: api === 'syncThrow' ? 'Error' : 'IPCUnknownMethodError',
           }),
         }),
         expect.any(Function),

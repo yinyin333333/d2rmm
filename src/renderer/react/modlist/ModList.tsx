@@ -7,10 +7,11 @@ import {
   useMods,
   useOrdereredItems,
 } from 'renderer/react/context/ModsContext';
+import AddSectionHeaderButton from 'renderer/react/modlist/AddSectionHeaderButton';
 import ModInstallButton from 'renderer/react/modlist/ModInstallButton';
 import ModListItem from 'renderer/react/modlist/ModListItem';
 import ModListSectionHeader from 'renderer/react/modlist/ModListSectionHeader';
-import OverflowActionsButton from 'renderer/react/modlist/OverflowActionsButton';
+import RefreshModListButton from 'renderer/react/modlist/RefreshModListButton';
 import RunGameButton from 'renderer/react/modlist/RunGameButton';
 import ModSettingsDrawer from 'renderer/react/settings/ModSettingsDrawer';
 import resolvePath from 'renderer/utils/resolvePath';
@@ -28,7 +29,6 @@ import SearchIcon from '@mui/icons-material/Search';
 import { LoadingButton } from '@mui/lab';
 import {
   Box,
-  ButtonGroup,
   CircularProgress,
   Divider,
   InputAdornment,
@@ -238,7 +238,16 @@ export default function ModList(): JSX.Element {
         )}
       </List>
       <Divider />
-      <Box sx={{ display: 'flex', flexDirection: 'row', p: 1 }}>
+      <Box
+        sx={{
+          alignItems: 'center',
+          display: 'flex',
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          gap: 1,
+          p: 1,
+        }}
+      >
         <TextField
           hiddenLabel={true}
           InputProps={{
@@ -266,12 +275,24 @@ export default function ModList(): JSX.Element {
           value={searchQuery}
           variant="outlined"
         />
-        <Box sx={{ flex: '1 1 0', ml: 1 }} />
-        <ButtonGroup sx={{ flex: '0 0 auto' }} variant="outlined">
-          <RunGameButton />
+        <Box sx={{ flex: '1 1 0' }} />
+        <Box
+          sx={{
+            alignItems: 'center',
+            display: 'flex',
+            flex: '0 1 auto',
+            flexWrap: 'wrap',
+            gap: 0.5,
+            justifyContent: 'flex-end',
+            '& .MuiButton-root': { px: 1.5, whiteSpace: 'nowrap' },
+            '& > span > .MuiButton-root': { px: 4 },
+          }}
+        >
+          <AddSectionHeaderButton />
+          <RefreshModListButton />
           <ModInstallButton />
-          <OverflowActionsButton />
-        </ButtonGroup>
+          <RunGameButton />
+        </Box>
       </Box>
       <ModSettingsDrawer />
     </>

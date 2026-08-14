@@ -67,7 +67,9 @@ export function createQuickJSContextWithMemoryLimit(
   memoryLimit: number,
 ): QuickJSAsyncContext {
   if (!Number.isSafeInteger(memoryLimit) || memoryLimit <= 0) {
-    throw new Error('The QuickJS memory limit must be a positive safe integer.');
+    throw new Error(
+      'The QuickJS memory limit must be a positive safe integer.',
+    );
   }
   const context = module.newContext();
   try {

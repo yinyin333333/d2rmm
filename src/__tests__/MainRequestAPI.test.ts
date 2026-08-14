@@ -1,10 +1,7 @@
 import { EventEmitter } from 'events';
 import path from 'path';
 import { Readable, Writable } from 'stream';
-import {
-  createRequestAPI,
-  RequestAPIDependencies,
-} from '../main/RequestAPI';
+import { createRequestAPI, RequestAPIDependencies } from '../main/RequestAPI';
 
 jest.mock('electron', () => ({
   app: {
@@ -100,7 +97,9 @@ function makeResponse(
     },
   }) as FakeResponse;
   response.headers = {
-    'content-length': String(chunks.reduce((sum, chunk) => sum + chunk.length, 0)),
+    'content-length': String(
+      chunks.reduce((sum, chunk) => sum + chunk.length, 0),
+    ),
   };
   response.statusCode = statusCode;
   response.statusMessage = statusCode === 200 ? 'OK' : 'Failure';
@@ -223,20 +222,23 @@ describe('main RequestAPI download lifecycle', () => {
     '..\\escape.zip',
     path.resolve(path.sep, 'absolute', 'escape.zip'),
     '\\\\server\\share\\escape.zip',
-  ])('does not use untrusted display filename %s in the actual path', async (fileName) => {
-    const state = makeDependencies();
-    const api = createRequestAPI(state.dependencies);
+  ])(
+    'does not use untrusted display filename %s in the actual path',
+    async (fileName) => {
+      const state = makeDependencies();
+      const api = createRequestAPI(state.dependencies);
 
-    const result = await api.download('https://invalid.test/payload', {
-      fileName,
-    });
+      const result = await api.download('https://invalid.test/payload', {
+        fileName,
+      });
 
-    expect(result.filePath).toBe(
-      path.join(state.requestRoot, '00000000-0000-4000-8000-000000000001'),
-    );
-    expect(result.filePath).not.toContain('escape.zip');
-    expect(state.makeDirectory).toHaveBeenCalledWith(state.requestRoot);
-  });
+      expect(result.filePath).toBe(
+        path.join(state.requestRoot, '00000000-0000-4000-8000-000000000001'),
+      );
+      expect(result.filePath).not.toContain('escape.zip');
+      expect(state.makeDirectory).toHaveBeenCalledWith(state.requestRoot);
+    },
+  );
 
   it('rejects a writable error, aborts the request, and removes the partial path once', async () => {
     const writer = new Writable({
@@ -248,9 +250,9 @@ describe('main RequestAPI download lifecycle', () => {
     const state = makeDependencies({ createOutputStream: () => writer });
     const api = createRequestAPI(state.dependencies);
 
-    await expect(
-      api.download('https://invalid.test/payload'),
-    ).rejects.toThrow('disk full');
+    await expect(api.download('https://invalid.test/payload')).rejects.toThrow(
+      'disk full',
+    );
 
     expect(state.requests[0].aborted).toBe(true);
     expect(state.removeFile).toHaveBeenCalledTimes(1);
@@ -275,9 +277,9 @@ describe('main RequestAPI download lifecycle', () => {
     });
     const api = createRequestAPI(state.dependencies);
 
-    await expect(
-      api.download('https://invalid.test/payload'),
-    ).rejects.toThrow('write failed');
+    await expect(api.download('https://invalid.test/payload')).rejects.toThrow(
+      'write failed',
+    );
     await new Promise<void>((resolve) => queueMicrotask(resolve));
 
     expect(state.requests[0].aborted).toBe(true);
@@ -298,9 +300,9 @@ describe('main RequestAPI download lifecycle', () => {
     });
     const api = createRequestAPI(state.dependencies);
 
-    await expect(
-      api.download('https://invalid.test/payload'),
-    ).rejects.toThrow('socket reset');
+    await expect(api.download('https://invalid.test/payload')).rejects.toThrow(
+      'socket reset',
+    );
     expect(state.requests[0].aborted).toBe(true);
     expect(state.removeFile).toHaveBeenCalledTimes(1);
   });
@@ -323,9 +325,9 @@ describe('main RequestAPI download lifecycle', () => {
     });
     const api = createRequestAPI(state.dependencies);
 
-    await expect(
-      api.download('https://invalid.test/payload'),
-    ).rejects.toThrow('aborted');
+    await expect(api.download('https://invalid.test/payload')).rejects.toThrow(
+      'aborted',
+    );
     expect(state.requests[0].aborted).toBe(true);
     expect(state.removeFile).toHaveBeenCalledTimes(1);
   });
@@ -338,9 +340,9 @@ describe('main RequestAPI download lifecycle', () => {
     });
     const api = createRequestAPI(state.dependencies);
 
-    await expect(
-      api.download('https://invalid.test/payload'),
-    ).rejects.toThrow('request failed');
+    await expect(api.download('https://invalid.test/payload')).rejects.toThrow(
+      'request failed',
+    );
     expect(createOutputStream).not.toHaveBeenCalled();
     expect(state.requests[0].aborted).toBe(true);
     expect(state.removeFile).toHaveBeenCalledTimes(1);
@@ -354,9 +356,9 @@ describe('main RequestAPI download lifecycle', () => {
     });
     const api = createRequestAPI(state.dependencies);
 
-    await expect(
-      api.download('https://invalid.test/payload'),
-    ).rejects.toThrow('aborted');
+    await expect(api.download('https://invalid.test/payload')).rejects.toThrow(
+      'aborted',
+    );
     expect(createOutputStream).not.toHaveBeenCalled();
     expect(state.removeFile).toHaveBeenCalledTimes(1);
   });
@@ -368,7 +370,10 @@ describe('main RequestAPI download lifecycle', () => {
       const state = makeDependencies({
         createOutputStream,
         onEnd: (request) =>
-          request.emit('response', makeResponse([Buffer.from('error')], statusCode)),
+          request.emit(
+            'response',
+            makeResponse([Buffer.from('error')], statusCode),
+          ),
       });
       const api = createRequestAPI(state.dependencies);
 

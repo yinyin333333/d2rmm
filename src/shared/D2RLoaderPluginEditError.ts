@@ -1,9 +1,7 @@
 export const D2R_LOADER_PLUGIN_EDIT_CONFLICT_ERROR_NAME =
   'D2RLoaderPluginEditConflictError';
 
-export function createD2RLoaderPluginEditConflictError(
-  message: string,
-): Error {
+export function createD2RLoaderPluginEditConflictError(message: string): Error {
   const error = new Error(message);
   error.name = D2R_LOADER_PLUGIN_EDIT_CONFLICT_ERROR_NAME;
   return error;

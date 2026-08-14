@@ -42,7 +42,10 @@ describe('packaging hook phase and platform boundaries', () => {
     const appOutDir = path.join(outDir, `${platform}-unpacked`);
     mkdirSync(appOutDir, { recursive: true });
     writeFileSync(path.join(appOutDir, 'marker.txt'), platform);
-    writeFileSync(path.join(outDir, 'types.d.ts'), 'import x from "x";\ntype A = 1;');
+    writeFileSync(
+      path.join(outDir, 'types.d.ts'),
+      'import x from "x";\ntype A = 1;',
+    );
     writeFileSync(path.join(outDir, 'config-schema.json'), '{"ok":true}');
     return {
       appOutDir,
@@ -66,13 +69,11 @@ describe('packaging hook phase and platform boundaries', () => {
 
       await afterSign(hookContext);
 
-      expect(readFileSync(path.join(hookContext.appOutDir, 'marker.txt'), 'utf8')).toBe(
-        platform,
-      );
       expect(
-        existsSync(
-          path.join(hookContext.appOutDir, 'D2RMM Test 1.2.3'),
-        ),
+        readFileSync(path.join(hookContext.appOutDir, 'marker.txt'), 'utf8'),
+      ).toBe(platform);
+      expect(
+        existsSync(path.join(hookContext.appOutDir, 'D2RMM Test 1.2.3')),
       ).toBe(false);
       const appContents =
         platform === 'darwin'
@@ -109,10 +110,7 @@ describe('packaging hook phase and platform boundaries', () => {
     const hookContext = context('win32');
     await afterPack(hookContext);
     await afterSign(hookContext);
-    const wrappedRoot = path.join(
-      hookContext.appOutDir,
-      'D2RMM Test 1.2.3',
-    );
+    const wrappedRoot = path.join(hookContext.appOutDir, 'D2RMM Test 1.2.3');
 
     expect(readFileSync(path.join(wrappedRoot, 'marker.txt'), 'utf8')).toBe(
       'win32',

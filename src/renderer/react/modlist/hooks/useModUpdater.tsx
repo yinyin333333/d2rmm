@@ -61,13 +61,7 @@ export default function useModUpdater(mod: Mod): {
         version: download.version,
       });
     },
-    [
-      nexusAuthState.apiKey,
-      nexusModID,
-      isCacheCurrent,
-      installMod,
-      mod.id,
-    ],
+    [nexusAuthState.apiKey, nexusModID, isCacheCurrent, installMod, mod.id],
   );
 
   return {

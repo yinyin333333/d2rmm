@@ -34,9 +34,9 @@ function parseVersion(version: string): ParsedVersion {
     );
   }
 
-  const coreParts = match[1].split('.').map((identifier) =>
-    parseNumericIdentifier(version, identifier),
-  );
+  const coreParts = match[1]
+    .split('.')
+    .map((identifier) => parseNumericIdentifier(version, identifier));
   const core: [number, number, number, number] = [0, 0, 0, 0];
   coreParts.forEach((value, index) => {
     core[index] = value;

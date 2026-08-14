@@ -40,7 +40,7 @@ export async function selectDirectory(
     ...(defaultPath?.trim() ? { defaultPath } : {}),
     properties: ['openDirectory', 'createDirectory'],
   });
-  return result.canceled ? null : (result.filePaths[0] ?? null);
+  return result.canceled ? null : result.filePaths[0] ?? null;
 }
 
 function getDocumentIdentity(url: string): string | null {

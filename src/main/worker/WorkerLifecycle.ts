@@ -1,7 +1,4 @@
-import type {
-  IPCSerializedError,
-  WorkerLifecycleIPCMessage,
-} from 'bridge/IPC';
+import type { IPCSerializedError, WorkerLifecycleIPCMessage } from 'bridge/IPC';
 import { isI18nError } from '../../shared/i18n';
 
 export type SendWorkerLifecycleMessage = (

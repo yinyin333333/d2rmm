@@ -19,11 +19,7 @@ export function getDefaultBaseSavesPath(
   homePath: string,
 ): string {
   return path.resolve(
-    path.join(
-      userProfile ?? homePath,
-      'Saved Games',
-      'Diablo II Resurrected',
-    ),
+    path.join(userProfile ?? homePath, 'Saved Games', 'Diablo II Resurrected'),
   );
 }
 

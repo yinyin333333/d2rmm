@@ -96,10 +96,7 @@ describe('D2RLoader plugin package manager', () => {
   }
 
   it('creates d2rloader before any plugin is imported', () => {
-    const packagesRoot = path.join(
-      appRoot,
-      D2R_LOADER_PACKAGES_DIRECTORY,
-    );
+    const packagesRoot = path.join(appRoot, D2R_LOADER_PACKAGES_DIRECTORY);
     expect(existsSync(packagesRoot)).toBe(false);
 
     const inventory = readD2RLoaderPluginInventory(appRoot, []);
@@ -272,7 +269,9 @@ describe('D2RLoader plugin package manager', () => {
     );
     expect(isD2RLoaderPluginEditConflictError(staleModEditError)).toBe(true);
     expect(staleModEditError).toEqual(
-      expect.objectContaining({ message: expect.stringMatching(/changed since/i) }),
+      expect.objectContaining({
+        message: expect.stringMatching(/changed since/i),
+      }),
     );
     expect(() =>
       readD2RLoaderPluginSourceJSON(appRoot, {
@@ -353,6 +352,384 @@ describe('D2RLoader plugin package manager', () => {
       true,
     );
     expectSentinelUnchanged();
+  });
+
+  it('imports the Community Pack folder with config JSON taking canonical priority', async () => {
+    const source = path.join(incomingRoot, 'Community-Pack-1.0.0');
+    const pluginNames = [
+      'plugin-items.dll',
+      'plugin-levels.dll',
+      'plugin-misc.dll',
+      'plugin-quests.dll',
+      'plugin-skills.dll',
+    ];
+    for (const pluginName of pluginNames) {
+      writeFile(
+        path.join(source, 'd2rloader', 'plugins', pluginName),
+        fakePluginDLL(),
+      );
+    }
+    writeFile(
+      path.join(source, 'd2rloader', 'config', 'D2RPlugins.json'),
+      '{"plugins":[]}',
+    );
+    writeFile(path.join(source, 'LICENSE'), 'license');
+    writeFile(path.join(source, 'README.md'), 'readme');
+    writeFile(path.join(source, 'THIRD_PARTY_NOTICES.md'), 'notices');
+
+    const result = await importD2RLoaderPluginSources(appRoot, [source]);
+    const manifest = JSON.parse(
+      readFileSync(
+        path.join(
+          appRoot,
+          D2R_LOADER_PACKAGES_DIRECTORY,
+          'Community-Pack-1.0.0',
+          D2R_LOADER_PACKAGE_MANIFEST,
+        ),
+        'utf8',
+      ),
+    ) as D2RLoaderPackageManifest;
+
+    expect(result.packages).toEqual(['Community-Pack-1.0.0']);
+    expect(result.warnings).toEqual([]);
+    expect(manifest.warnings).toEqual([]);
+    expect(manifest.files.filter(({ role }) => role === 'plugin')).toHaveLength(
+      5,
+    );
+    expect(manifest.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'config',
+          sourcePath: path.join('d2rloader', 'config', 'D2RPlugins.json'),
+          targetPath: path.join('config', 'D2RPlugins.json'),
+          targetRoot: 'd2rloader',
+        }),
+        expect.objectContaining({
+          sourcePath: 'LICENSE',
+          role: 'support',
+          targetPath: null,
+          targetRoot: null,
+        }),
+        expect.objectContaining({
+          sourcePath: 'README.md',
+          role: 'support',
+          targetPath: null,
+          targetRoot: null,
+        }),
+        expect.objectContaining({
+          sourcePath: 'THIRD_PARTY_NOTICES.md',
+          role: 'support',
+          targetPath: null,
+          targetRoot: null,
+        }),
+      ]),
+    );
+    for (const pluginName of pluginNames) {
+      expect(manifest.files).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'plugin',
+            sourcePath: path.join('d2rloader', 'plugins', pluginName),
+            targetPath: path.join('plugins', pluginName),
+            targetRoot: 'd2rloader',
+          }),
+        ]),
+      );
+    }
+    expect(
+      readD2RLoaderPluginInventory(appRoot, []).packages.find(
+        ({ name }) => name === 'Community-Pack-1.0.0',
+      )?.unmappedFiles,
+    ).toEqual([]);
+  });
+
+  it('imports Community Pack ZIPs with wrapper, bare, and Windows entry paths', async () => {
+    const pluginNames = [
+      'plugin-items.dll',
+      'plugin-levels.dll',
+      'plugin-misc.dll',
+      'plugin-quests.dll',
+      'plugin-skills.dll',
+    ];
+    const makeZip = (
+      zipPath: string,
+      wrapper: string | null,
+      separator: '/' | '\\' = '/',
+      includeDirectoryEntry: boolean = false,
+    ): void => {
+      const prefix = wrapper == null ? '' : `${wrapper}${separator}`;
+      const entries: Record<string, Uint8Array> = {};
+      if (includeDirectoryEntry) {
+        entries[`${prefix}d2rloader${separator}`] = new Uint8Array();
+      }
+      for (const pluginName of pluginNames) {
+        entries[
+          `${prefix}d2rloader${separator}plugins${separator}${pluginName}`
+        ] = Uint8Array.from(fakePluginDLL());
+      }
+      entries[
+        `${prefix}d2rloader${separator}config${separator}D2RPlugins.json`
+      ] = Uint8Array.from(Buffer.from('{"plugins":[]}'));
+      writeFile(zipPath, Buffer.from(zipSync(entries)));
+    };
+    const wrappedZip = path.join(incomingRoot, 'Community Wrapped.zip');
+    const bareZip = path.join(incomingRoot, 'Community Bare.zip');
+    const windowsZip = path.join(incomingRoot, 'Community Windows.zip');
+    makeZip(wrappedZip, 'Community-Pack-1.0.0');
+    makeZip(bareZip, null);
+    makeZip(windowsZip, 'Community-Pack-1.0.0-Windows', '\\', true);
+
+    const wrapped = await importD2RLoaderPluginSources(appRoot, [wrappedZip]);
+    const bare = await importD2RLoaderPluginSources(appRoot, [bareZip]);
+    const windows = await importD2RLoaderPluginSources(appRoot, [windowsZip]);
+    expect(wrapped.packages).toEqual(['Community-Pack-1.0.0']);
+    expect(bare.packages).toEqual(['Community Bare']);
+    expect(windows.packages).toEqual(['Community-Pack-1.0.0-Windows']);
+    for (const packageName of [
+      'Community-Pack-1.0.0',
+      'Community Bare',
+      'Community-Pack-1.0.0-Windows',
+    ]) {
+      const manifest = JSON.parse(
+        readFileSync(
+          path.join(
+            appRoot,
+            D2R_LOADER_PACKAGES_DIRECTORY,
+            packageName,
+            D2R_LOADER_PACKAGE_MANIFEST,
+          ),
+          'utf8',
+        ),
+      ) as D2RLoaderPackageManifest;
+      expect(
+        manifest.files.filter(({ role }) => role === 'plugin'),
+      ).toHaveLength(5);
+      expect(
+        manifest.files.find(({ sourcePath }) =>
+          /D2RPlugins\.json$/i.test(sourcePath),
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          role: 'config',
+          targetPath: path.join('config', 'D2RPlugins.json'),
+        }),
+      );
+    }
+  });
+
+  it('imports a dropped d2rloader folder with the Community Pack mapping', async () => {
+    const source = path.join(incomingRoot, 'Community-Pack-1.0.0', 'd2rloader');
+    for (const pluginName of [
+      'plugin-items.dll',
+      'plugin-levels.dll',
+      'plugin-misc.dll',
+      'plugin-quests.dll',
+      'plugin-skills.dll',
+    ]) {
+      writeFile(path.join(source, 'plugins', pluginName), fakePluginDLL());
+    }
+    writeFile(path.join(source, 'config', 'D2RPlugins.json'), '{"plugins":[]}');
+
+    const result = await importD2RLoaderPluginSources(appRoot, [source]);
+    const manifest = JSON.parse(
+      readFileSync(
+        path.join(
+          appRoot,
+          D2R_LOADER_PACKAGES_DIRECTORY,
+          'd2rloader',
+          D2R_LOADER_PACKAGE_MANIFEST,
+        ),
+        'utf8',
+      ),
+    ) as D2RLoaderPackageManifest;
+    expect(result.packages).toEqual(['d2rloader']);
+    expect(manifest.files.filter(({ role }) => role === 'plugin')).toHaveLength(
+      5,
+    );
+    expect(
+      manifest.files.find(({ sourcePath }) =>
+        /D2RPlugins\.json$/i.test(sourcePath),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        role: 'config',
+        targetPath: path.join('config', 'D2RPlugins.json'),
+      }),
+    );
+  });
+
+  it('combines only the recognized Community Pack plugins and config folders', async () => {
+    const root = path.join(incomingRoot, 'Community-Pack-1.0.0');
+    const plugins = path.join(root, 'd2rloader', 'plugins');
+    const config = path.join(root, 'd2rloader', 'config');
+    for (const pluginName of [
+      'plugin-items.dll',
+      'plugin-levels.dll',
+      'plugin-misc.dll',
+      'plugin-quests.dll',
+      'plugin-skills.dll',
+    ]) {
+      writeFile(path.join(plugins, pluginName), fakePluginDLL());
+    }
+    writeFile(path.join(config, 'D2RPlugins.json'), '{"plugins":[]}');
+
+    const result = await importD2RLoaderPluginSources(appRoot, [
+      plugins,
+      config,
+    ]);
+    expect(result.packages).toEqual(['Community-Pack-1.0.0']);
+    const manifest = JSON.parse(
+      readFileSync(
+        path.join(
+          appRoot,
+          D2R_LOADER_PACKAGES_DIRECTORY,
+          'Community-Pack-1.0.0',
+          D2R_LOADER_PACKAGE_MANIFEST,
+        ),
+        'utf8',
+      ),
+    ) as D2RLoaderPackageManifest;
+    expect(manifest.files.filter(({ role }) => role === 'plugin')).toHaveLength(
+      5,
+    );
+    expect(
+      manifest.files.find(({ sourcePath }) =>
+        /D2RPlugins\.json$/i.test(sourcePath),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        role: 'config',
+        targetPath: path.join('config', 'D2RPlugins.json'),
+      }),
+    );
+
+    const unrelatedPlugins = path.join(
+      incomingRoot,
+      'Unrelated Bundle',
+      'd2rloader',
+      'plugins',
+    );
+    const unrelatedConfig = path.join(
+      incomingRoot,
+      'Unrelated Bundle',
+      'd2rloader',
+      'config',
+    );
+    writeFile(path.join(unrelatedPlugins, 'one.dll'), fakePluginDLL());
+    writeFile(path.join(unrelatedConfig, 'settings.toml'), 'enabled = true');
+    const unrelatedResult = await importD2RLoaderPluginSources(appRoot, [
+      unrelatedPlugins,
+      unrelatedConfig,
+    ]);
+    expect(unrelatedResult.packages).toEqual(['plugins', 'config']);
+  });
+
+  it('maps a same-stem valid DLL and MPQ dropped from the plugins folder', async () => {
+    const source = path.join(incomingRoot, 'CharmInv', 'd2rloader', 'plugins');
+    writeFile(path.join(source, 'd2rl-charm-inv.dll'), fakePluginDLL());
+    writeFile(path.join(source, 'd2rl-charm-inv.mpq'), 'mpq');
+
+    const result = await importD2RLoaderPluginSources(appRoot, [source]);
+    const manifest = JSON.parse(
+      readFileSync(
+        path.join(
+          appRoot,
+          D2R_LOADER_PACKAGES_DIRECTORY,
+          'plugins',
+          D2R_LOADER_PACKAGE_MANIFEST,
+        ),
+        'utf8',
+      ),
+    ) as D2RLoaderPackageManifest;
+    expect(result.packages).toEqual(['plugins']);
+    expect(manifest.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourcePath: 'd2rl-charm-inv.dll',
+          role: 'plugin',
+          targetPath: path.join('plugins', 'd2rl-charm-inv.dll'),
+        }),
+        expect.objectContaining({
+          sourcePath: 'd2rl-charm-inv.mpq',
+          role: 'plugin',
+          targetPath: path.join('plugins', 'd2rl-charm-inv.mpq'),
+        }),
+      ]),
+    );
+  });
+
+  it('maps a same-stem DLL and MPQ from a ZIP and rejects unmatched MPQs', async () => {
+    const zipPath = path.join(incomingRoot, 'Charm ZIP.zip');
+    writeFile(
+      zipPath,
+      Buffer.from(
+        zipSync({
+          'Charm ZIP/d2rloader/plugins/d2rl-charm-inv.dll':
+            Uint8Array.from(fakePluginDLL()),
+          'Charm ZIP/d2rloader/plugins/d2rl-charm-inv.mpq': Uint8Array.from(
+            Buffer.from('mpq'),
+          ),
+        }),
+      ),
+    );
+    const unmatched = path.join(incomingRoot, 'Unmatched', 'plugins');
+    writeFile(path.join(unmatched, 'orphan.mpq'), 'mpq');
+    writeFile(path.join(unmatched, 'invalid.dll'), 'not a plugin');
+    writeFile(path.join(unmatched, 'invalid.mpq'), 'mpq');
+
+    const zipResult = await importD2RLoaderPluginSources(appRoot, [zipPath]);
+    const zipManifest = JSON.parse(
+      readFileSync(
+        path.join(
+          appRoot,
+          D2R_LOADER_PACKAGES_DIRECTORY,
+          'Charm ZIP',
+          D2R_LOADER_PACKAGE_MANIFEST,
+        ),
+        'utf8',
+      ),
+    ) as D2RLoaderPackageManifest;
+    expect(zipResult.packages).toEqual(['Charm ZIP']);
+    expect(
+      zipManifest.files.find(({ sourcePath }) => sourcePath.endsWith('.mpq')),
+    ).toEqual(
+      expect.objectContaining({
+        role: 'plugin',
+        targetPath: path.join('plugins', 'd2rl-charm-inv.mpq'),
+      }),
+    );
+
+    const unmatchedResult = await importD2RLoaderPluginSources(appRoot, [
+      unmatched,
+    ]);
+    const unmatchedManifest = JSON.parse(
+      readFileSync(
+        path.join(
+          appRoot,
+          D2R_LOADER_PACKAGES_DIRECTORY,
+          'plugins',
+          D2R_LOADER_PACKAGE_MANIFEST,
+        ),
+        'utf8',
+      ),
+    ) as D2RLoaderPackageManifest;
+    expect(unmatchedResult.packages).toEqual(['plugins']);
+    expect(
+      unmatchedManifest.files.filter(({ sourcePath }) =>
+        sourcePath.endsWith('.mpq'),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        role: 'support',
+        targetPath: null,
+        targetRoot: null,
+      }),
+      expect.objectContaining({
+        role: 'support',
+        targetPath: null,
+        targetRoot: null,
+      }),
+    ]);
   });
 
   it('classifies a patch by schema and rejects an unrelated standalone JSON', async () => {
@@ -620,8 +997,7 @@ describe('D2RLoader plugin package manager', () => {
     );
     expect(
       deployment.find(
-        ({ targetPath }) =>
-          targetPath === path.join('config', 'settings.toml'),
+        ({ targetPath }) => targetPath === path.join('config', 'settings.toml'),
       )?.data,
     ).toEqual(Buffer.from(editedTOML));
     expectSentinelUnchanged();
@@ -637,13 +1013,12 @@ describe('D2RLoader plugin package manager', () => {
 
     const packagePath = path.join(appRoot, 'd2rloader', 'TOML Boundary');
     const manifest = JSON.parse(
-      readFileSync(
-        path.join(packagePath, D2R_LOADER_PACKAGE_MANIFEST),
-        'utf8',
-      ),
+      readFileSync(path.join(packagePath, D2R_LOADER_PACKAGE_MANIFEST), 'utf8'),
     ) as D2RLoaderPackageManifest;
     expect(
-      manifest.files.find(({ sourcePath }) => sourcePath === 'plugin-settings.toml'),
+      manifest.files.find(
+        ({ sourcePath }) => sourcePath === 'plugin-settings.toml',
+      ),
     ).toEqual(
       expect.objectContaining({
         role: 'config',
@@ -957,17 +1332,16 @@ describe('D2RLoader plugin package manager', () => {
     );
     writeFile(path.join(manualFolder, 'settings.toml'), 'enabled = true\n');
 
-    const synchronized =
-      await synchronizeD2RLoaderPluginDirectory(appRoot);
+    const synchronized = await synchronizeD2RLoaderPluginDirectory(appRoot);
     const inventory = readD2RLoaderPluginInventory(appRoot, []);
 
     expect(synchronized.packages).toEqual(['plugins']);
     expect(
       existsSync(path.join(manualFolder, D2R_LOADER_PACKAGE_MANIFEST)),
     ).toBe(true);
-    expect(
-      existsSync(path.join(manualFolder, 'source', 'existing.dll')),
-    ).toBe(true);
+    expect(existsSync(path.join(manualFolder, 'source', 'existing.dll'))).toBe(
+      true,
+    );
     expect(inventory.plugins).toEqual([
       expect.objectContaining({
         relativePath: 'existing.dll',
@@ -1004,17 +1378,14 @@ describe('D2RLoader plugin package manager', () => {
       ),
     );
 
-    const synchronized =
-      await synchronizeD2RLoaderPluginDirectory(appRoot);
+    const synchronized = await synchronizeD2RLoaderPluginDirectory(appRoot);
     const inventory = readD2RLoaderPluginInventory(appRoot, []);
 
     expect(synchronized.packages).toEqual(['Manual']);
     expect(existsSync(readmePath)).toBe(true);
     expect(existsSync(zipPath)).toBe(false);
     expect(
-      existsSync(
-        path.join(currentRoot, 'Manual', D2R_LOADER_PACKAGE_MANIFEST),
-      ),
+      existsSync(path.join(currentRoot, 'Manual', D2R_LOADER_PACKAGE_MANIFEST)),
     ).toBe(true);
     expect(inventory.plugins).toEqual([
       expect.objectContaining({
@@ -1038,9 +1409,9 @@ describe('D2RLoader plugin package manager', () => {
     mkdirSync(currentRoot, { recursive: true });
     writeFile(globalConfigPath, 'default_mod = "D2RMM"\n');
 
-    await expect(
-      synchronizeD2RLoaderPluginDirectory(appRoot),
-    ).rejects.toThrow(/loader-wide configuration.*Settings/i);
+    await expect(synchronizeD2RLoaderPluginDirectory(appRoot)).rejects.toThrow(
+      /loader-wide configuration.*Settings/i,
+    );
     expect(readFileSync(globalConfigPath, 'utf8')).toBe(
       'default_mod = "D2RMM"\n',
     );
@@ -1191,9 +1562,7 @@ describe('D2RLoader plugin package manager', () => {
         expect.stringMatching(
           /plugins[\\/]D2RPlugins\.json.*Package A.*Package B/i,
         ),
-        expect.stringMatching(
-          /config[\\/]shared\.toml.*Package A.*Package B/i,
-        ),
+        expect.stringMatching(/config[\\/]shared\.toml.*Package A.*Package B/i),
         expect.stringMatching(
           /data[\\/]global[\\/]excel[\\/]shared\.txt.*Package A.*Package B/i,
         ),
@@ -1223,6 +1592,36 @@ describe('D2RLoader plugin package manager', () => {
 
     expect(() => readD2RLoaderPluginInventory(appRoot, [])).toThrow(
       /symbolic link|junction|reparse point/i,
+    );
+    expectSentinelUnchanged();
+  });
+
+  it('rejects a Community Pack source-root directory link before installation', async () => {
+    const root = path.join(incomingRoot, 'Community-Pack-1.0.0');
+    const plugins = path.join(root, 'd2rloader', 'plugins');
+    const linkedConfig = path.join(root, 'd2rloader', 'config');
+    const configTarget = path.join(root, 'community-config');
+    for (const pluginName of [
+      'plugin-items.dll',
+      'plugin-levels.dll',
+      'plugin-misc.dll',
+      'plugin-quests.dll',
+      'plugin-skills.dll',
+    ]) {
+      writeFile(path.join(plugins, pluginName), fakePluginDLL());
+    }
+    writeFile(path.join(configTarget, 'D2RPlugins.json'), '{"plugins":[]}');
+    symlinkSync(
+      configTarget,
+      linkedConfig,
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+
+    await expect(
+      importD2RLoaderPluginSources(appRoot, [plugins, linkedConfig]),
+    ).rejects.toThrow(/symbolic link|junction|reparse point/i);
+    expect(existsSync(path.join(appRoot, D2R_LOADER_PACKAGES_DIRECTORY))).toBe(
+      false,
     );
     expectSentinelUnchanged();
   });

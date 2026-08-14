@@ -200,10 +200,7 @@ function isEditableD2RLoaderTomlSetting(
 }
 
 function normalizeDirectoryPath(filePath: string): string {
-  const normalized = filePath
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/\/+/g, '/');
+  const normalized = filePath.trim().replace(/\\/g, '/').replace(/\/+/g, '/');
   return normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
 }
 
@@ -262,7 +259,6 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
   const finalSavesPath = useFinalSavesPath();
   const [isSavesPathFocused, onSavesPathFocus, onSavesPathBlur] =
     useIsFocused();
-
   const [themeMode, setThemeMode] = useThemeMode();
 
   const dataSource = isPreExtractedData ? 'directory' : 'casc';
@@ -429,16 +425,14 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
     (dataSource === 'directory' &&
       (!isValidPreExtractedDataPath || isIdenticalInputAndOutput));
   const generalNeedsAttention = generalHasError || isSavesPathOutsideBase;
-  const d2rLoaderSectionStatus: Pick<
-    SettingsSection,
-    'status' | 'tone'
-  > = isD2RLoaderConfigLoading
-    ? { status: t('settings.status.checking'), tone: 'info' }
-    : !d2rLoaderSettings.useD2RLoader
-      ? { status: t('settings.status.disabled'), tone: 'default' }
-      : d2rLoaderConfig == null
-        ? { status: t('settings.status.needsAttention'), tone: 'warning' }
-        : { status: t('settings.status.enabled'), tone: 'success' };
+  const d2rLoaderSectionStatus: Pick<SettingsSection, 'status' | 'tone'> =
+    isD2RLoaderConfigLoading
+      ? { status: t('settings.status.checking'), tone: 'info' }
+      : !d2rLoaderSettings.useD2RLoader
+        ? { status: t('settings.status.disabled'), tone: 'default' }
+        : d2rLoaderConfig == null
+          ? { status: t('settings.status.needsAttention'), tone: 'warning' }
+          : { status: t('settings.status.enabled'), tone: 'success' };
   const isNexusReady =
     nexusAuthState.apiKey != null && isRegisteredAsNxmProtocolHandler;
   const settingsSections: readonly SettingsSection[] = [
@@ -961,7 +955,10 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
                 ) : (
                   filteredD2RLoaderTomlSections.map(
                     ({ section, settings }, sectionIndex) => (
-                      <Box key={section} sx={{ marginTop: sectionIndex ? 2 : 1 }}>
+                      <Box
+                        key={section}
+                        sx={{ marginTop: sectionIndex ? 2 : 1 }}
+                      >
                         {sectionIndex === 0 ? null : (
                           <Divider sx={{ marginTop: 2, marginBottom: 1 }} />
                         )}
@@ -1030,10 +1027,7 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
         hidden={activeSection !== 'nexus'}
         square={true}
       >
-        <StyledAccordionSummary
-          aria-controls="nexus-content"
-          id="nexus-header"
-        >
+        <StyledAccordionSummary aria-controls="nexus-content" id="nexus-header">
           <Typography sx={{ marginLeft: 1 }}>
             {t('settings.nexus.title')}
           </Typography>
@@ -1160,9 +1154,7 @@ function NexusRequestLimit({
   const remainingInt = parseInt(remaining, 10);
   const limitInt = parseInt(limit, 10);
   const remainingPercent =
-    Number.isFinite(remainingInt) &&
-    Number.isFinite(limitInt) &&
-    limitInt > 0
+    Number.isFinite(remainingInt) && Number.isFinite(limitInt) && limitInt > 0
       ? Math.max(0, Math.min(100, (remainingInt / limitInt) * 100))
       : 0;
   const resetStringForCurrentLocale = new Date(reset).toLocaleString();
