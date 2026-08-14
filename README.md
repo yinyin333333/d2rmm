@@ -1,8 +1,31 @@
-# Diablo II: Resurrected Mod Manager
+# Diablo II: Resurrected Mod Manager for D2RLoader
 
-D2RMM is a mod manager for Diablo II: Resurrected.
+D2RMM Custom is a mod manager for Diablo II: Resurrected with D2RLoader.
 
-See the [Nexus page](https://www.nexusmods.com/diablo2resurrected/mods/169) for a full description.
+This is a separately maintained project from the original D2RMM. It remains
+compatible with the standard retail D2RMM workflow, while also providing
+compatibility and optimizations for D2RLoader-based setups, including TCP
+play.
+
+## Usage
+
+1. Click the **D2RLoader** button in the top menu. D2RLoader will be installed
+   automatically.
+2. Install any required MPQ files or mods written for the original D2RMM in
+   the usual way.
+3. Click **Install Mods**, then click **Run D2R**. The game will launch through
+   D2RLoader.
+4. To change D2RLoader options, open **Settings** and edit the D2RLoader TOML
+   configuration values.
+5. To run the original D2R without D2RLoader, disable the **D2RLoader**
+   checkbox in **Settings**.
+
+## D2RLoader Plugins
+
+D2RLoader plugins are generally distributed as DLL and JSON files. They enable
+hard mods that go beyond the limits of ordinary soft modding by extending or
+changing the game's runtime behavior. DLL files provide the native plugin code,
+while JSON files commonly contain plugin configuration or patch definitions.
 
 ## Example Mods
 
