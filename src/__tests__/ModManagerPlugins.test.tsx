@@ -1,3 +1,5 @@
+import BridgeAPI from 'renderer/BridgeAPI';
+import ShellAPI from 'renderer/ShellAPI';
 import ModManagerPlugins from 'renderer/react/ModManagerPlugins';
 import {
   DialogManagerContextProvider,
@@ -7,16 +9,24 @@ import '@testing-library/jest-dom';
 import { createD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-const mockDeletePackage = jest.fn();
+const mockDeleteSource = jest.fn();
 const mockReadEditableJSON = jest.fn();
 const mockRefresh = jest.fn();
 const mockSaveEditableJSON = jest.fn();
 const mockSetEditableJSONDirty = jest.fn();
 const mockShowToast = jest.fn();
+const mockCreateDirectory = jest.fn();
+const mockOpenPath = jest.fn();
+const mockShowItemInFolder = jest.fn();
 
 const mockInventory = {
   configs: [
     {
+      deletionSource: {
+        packageName: 'eezstreet-plugin-pack-2.0',
+        sourcePath: 'settings.toml',
+        sourceType: 'managed' as const,
+      },
       editableSource: {
         packageName: 'eezstreet-plugin-pack-2.0',
         sourcePath: 'settings.toml',
@@ -58,6 +68,11 @@ const mockInventory = {
   ],
   patches: [
     {
+      deletionSource: {
+        packageName: 'maxstashgold',
+        sourcePath: 'maxstashgold.json',
+        sourceType: 'managed' as const,
+      },
       editableSource: {
         packageName: 'maxstashgold',
         sourcePath: 'maxstashgold.json',
@@ -75,6 +90,11 @@ const mockInventory = {
   ],
   plugins: [
     {
+      deletionSource: {
+        packageName: 'eezstreet-plugin-pack-2.0',
+        sourcePath: 'D2RPlugins.json',
+        sourceType: 'managed' as const,
+      },
       editableSource: {
         packageName: 'eezstreet-plugin-pack-2.0',
         sourcePath: 'D2RPlugins.json',
@@ -90,6 +110,11 @@ const mockInventory = {
       sourceType: 'managed' as const,
     },
     {
+      deletionSource: {
+        packageName: 'eezstreet-plugin-pack-2.0',
+        sourcePath: 'plugin-items.dll',
+        sourceType: 'managed' as const,
+      },
       editableSource: null,
       editableSourcePath: null,
       id: 'managed:eezstreet:plugin-items.dll',
@@ -101,6 +126,13 @@ const mockInventory = {
       sourceType: 'managed' as const,
     },
     {
+      deletionSource: {
+        category: 'plugins' as const,
+        loaderRootPath: 'd2rloader',
+        modID: 'Example Mod',
+        sourcePath: 'mod-settings.json',
+        sourceType: 'mod' as const,
+      },
       editableSource: {
         category: 'plugins' as const,
         loaderRootPath: 'd2rloader',
@@ -122,17 +154,22 @@ const mockInventory = {
 
 jest.mock('renderer/BridgeAPI', () => ({
   __esModule: true,
-  default: { createDirectory: jest.fn() },
+  default: {
+    createDirectory: (...args: unknown[]) => mockCreateDirectory(...args),
+  },
 }));
 
 jest.mock('renderer/ShellAPI', () => ({
   __esModule: true,
-  default: { showItemInFolder: jest.fn() },
+  default: {
+    openPath: (...args: unknown[]) => mockOpenPath(...args),
+    showItemInFolder: (...args: unknown[]) => mockShowItemInFolder(...args),
+  },
 }));
 
 jest.mock('renderer/react/context/D2RLoaderPluginContext', () => ({
   useD2RLoaderPluginManager: () => ({
-    deletePackage: mockDeletePackage,
+    deleteSource: mockDeleteSource,
     error: null,
     hasUnsavedEdits: false,
     inventory: mockInventory,
@@ -167,7 +204,10 @@ function renderPlugins(): void {
 describe('ModManagerPlugins', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockDeletePackage.mockResolvedValue(undefined);
+    mockCreateDirectory.mockResolvedValue(undefined);
+    mockDeleteSource.mockResolvedValue(undefined);
+    mockOpenPath.mockResolvedValue(undefined);
+    mockShowItemInFolder.mockResolvedValue(undefined);
     mockReadEditableJSON.mockImplementation(
       async (source: { packageName?: string; sourcePath: string }) => {
         const { sourcePath } = source;
@@ -493,14 +533,35 @@ describe('ModManagerPlugins', () => {
     expect(mockSaveEditableJSON).toHaveBeenCalledTimes(2);
   });
 
-  it('uses the same Material dialog style for package deletion', async () => {
-    const confirmSpy = jest.spyOn(window, 'confirm');
+  it('opens package storage itself instead of selecting it in the parent folder', async () => {
     renderPlugins();
-    fireEvent.click(screen.getByRole('tab', { name: 'Managed packages (2)' }));
 
     fireEvent.click(
+      screen.getByRole('button', { name: 'Open package storage' }),
+    );
+
+    await waitFor(() =>
+      expect(mockCreateDirectory).toHaveBeenCalledWith('C:\\D2RMM\\d2rloader'),
+    );
+    expect(mockOpenPath).toHaveBeenCalledWith('C:\\D2RMM\\d2rloader');
+    expect(mockShowItemInFolder).not.toHaveBeenCalled();
+    expect(mockCreateDirectory.mock.invocationCallOrder[0]).toBeLessThan(
+      mockOpenPath.mock.invocationCallOrder[0],
+    );
+    expect(BridgeAPI.createDirectory).toBeDefined();
+    expect(ShellAPI.openPath).toBeDefined();
+  });
+
+  it('deletes a managed package from its file-library entry with a Material dialog', async () => {
+    const confirmSpy = jest.spyOn(window, 'confirm');
+    renderPlugins();
+
+    expect(
+      screen.queryByRole('tab', { name: /Managed packages/i }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
       screen.getByRole('button', {
-        name: 'Delete eezstreet-plugin-pack-2.0',
+        name: 'Delete managed package eezstreet-plugin-pack-2.0 (includes D2RPlugins.json)',
       }),
     );
     expect(
@@ -514,19 +575,53 @@ describe('ModManagerPlugins', () => {
       }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(mockDeletePackage).not.toHaveBeenCalled();
+    expect(mockDeleteSource).not.toHaveBeenCalled();
 
     fireEvent.click(
       screen.getByRole('button', {
-        name: 'Delete eezstreet-plugin-pack-2.0',
+        name: 'Delete managed package eezstreet-plugin-pack-2.0 (includes D2RPlugins.json)',
       }),
     );
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
     await waitFor(() =>
-      expect(mockDeletePackage).toHaveBeenCalledWith(
-        'eezstreet-plugin-pack-2.0',
+      expect(mockDeleteSource).toHaveBeenCalledWith(
+        {
+          packageName: 'eezstreet-plugin-pack-2.0',
+          sourcePath: 'D2RPlugins.json',
+          sourceType: 'managed',
+        },
+        'a'.repeat(64),
       ),
     );
     expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('deletes a mod-supplied plugin file from the same file library', async () => {
+    renderPlugins();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Delete mod-settings.json from mod Example Mod',
+      }),
+    );
+    expect(
+      await screen.findByText(
+        'Are you sure you want to delete "mod-settings.json" from "Example Mod"?',
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() =>
+      expect(mockDeleteSource).toHaveBeenCalledWith(
+        {
+          category: 'plugins',
+          loaderRootPath: 'd2rloader',
+          modID: 'Example Mod',
+          sourcePath: 'mod-settings.json',
+          sourceType: 'mod',
+        },
+        'd'.repeat(64),
+      ),
+    );
   });
 });

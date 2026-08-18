@@ -13,6 +13,7 @@ import {
 
 const mockImportSources = jest.fn();
 const mockDeletePackage = jest.fn();
+const mockDeleteSource = jest.fn();
 const mockReadEditableJSON = jest.fn();
 const mockReadInventory = jest.fn();
 const mockSaveEditableJSON = jest.fn();
@@ -24,6 +25,7 @@ jest.mock('renderer/D2RLoaderPluginAPI', () => ({
   __esModule: true,
   default: {
     deletePackage: (...args: unknown[]) => mockDeletePackage(...args),
+    deleteSource: (...args: unknown[]) => mockDeleteSource(...args),
     importSources: (...args: unknown[]) => mockImportSources(...args),
     readEditableJSON: (...args: unknown[]) => mockReadEditableJSON(...args),
     readInventory: (...args: unknown[]) => mockReadInventory(...args),
@@ -84,6 +86,7 @@ describe('D2RLoaderPluginContext deployment state', () => {
     mockUseD2RLoader = false;
     mockReadInventory.mockReset();
     mockDeletePackage.mockReset();
+    mockDeleteSource.mockReset();
     mockImportSources.mockReset();
     mockReadEditableJSON.mockReset();
     mockSaveEditableJSON.mockReset();
@@ -246,6 +249,31 @@ describe('D2RLoaderPluginContext deployment state', () => {
     expect(screen.getByText('idle')).toBeTruthy();
   });
 
+  it('deletes an inventory source through the shared mutation boundary and refreshes', async () => {
+    mockDeleteSource.mockResolvedValue(undefined);
+    render(
+      <D2RLoaderPluginContextProvider>
+        <Probe />
+      </D2RLoaderPluginContextProvider>,
+    );
+    await waitFor(() => expect(pluginManager?.isLoading).toBe(false));
+    const source = {
+      category: 'plugins' as const,
+      loaderRootPath: 'Example.mpq/d2rloader',
+      modID: 'Example Mod',
+      sourcePath: 'Example.dll',
+      sourceType: 'mod' as const,
+    };
+
+    await act(async () => {
+      await pluginManager!.deleteSource(source, 'a'.repeat(64));
+    });
+
+    expect(mockDeleteSource).toHaveBeenCalledWith(source, 'a'.repeat(64));
+    expect(mockReadInventory).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('idle')).toBeTruthy();
+  });
+
   it('blocks package replacement and deletion while an editor draft is dirty', async () => {
     render(
       <D2RLoaderPluginContextProvider>
@@ -264,8 +292,21 @@ describe('D2RLoaderPluginContext deployment state', () => {
     await expect(pluginManager!.deletePackage('Package')).rejects.toThrow(
       /save or cancel/i,
     );
+    await expect(
+      pluginManager!.deleteSource(
+        {
+          category: 'plugins',
+          loaderRootPath: 'd2rloader',
+          modID: 'Example Mod',
+          sourcePath: 'Example.dll',
+          sourceType: 'mod',
+        },
+        'a'.repeat(64),
+      ),
+    ).rejects.toThrow(/save or cancel/i);
     expect(mockImportSources).not.toHaveBeenCalled();
     expect(mockDeletePackage).not.toHaveBeenCalled();
+    expect(mockDeleteSource).not.toHaveBeenCalled();
 
     act(() =>
       pluginManager!.setEditableJSONDirty('Package/settings.json', false),

@@ -2,7 +2,7 @@ export type D2RLoaderPluginSourceType = 'managed' | 'mod';
 
 export type D2RLoaderPluginCategory = 'config' | 'patches' | 'plugins';
 
-export type D2RLoaderPluginEditableSource =
+export type D2RLoaderPluginSource =
   | {
       packageName: string;
       sourcePath: string;
@@ -16,7 +16,10 @@ export type D2RLoaderPluginEditableSource =
       sourceType: 'mod';
     };
 
+export type D2RLoaderPluginEditableSource = D2RLoaderPluginSource;
+
 export type D2RLoaderPluginInventoryItem = {
+  deletionSource: D2RLoaderPluginSource;
   editableSource: D2RLoaderPluginEditableSource | null;
   editableSourcePath: string | null;
   id: string;
@@ -72,6 +75,10 @@ export type D2RLoaderPluginEditResult = {
 
 export type ID2RLoaderPluginAPI = {
   deletePackage: (packageName: string) => Promise<void>;
+  deleteSource: (
+    source: D2RLoaderPluginSource,
+    expectedSha256: string,
+  ) => Promise<void>;
   importSources: (
     sourcePaths: string[],
   ) => Promise<D2RLoaderPluginImportResult>;
