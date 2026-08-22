@@ -140,4 +140,42 @@ describe('ModsContext initial/full and partial refresh ordering', () => {
       expect(document.querySelector('output')?.textContent).toBe(''),
     );
   });
+
+  it('loads mods with bounded concurrency while preserving directory order', async () => {
+    const ids = ['A', 'B', 'C', 'D', 'E', 'F'];
+    const configs = new Map(
+      ids.map((id) => [id, deferred<Record<string, never>>()]),
+    );
+    mockReadModDirectory.mockResolvedValue(ids);
+    mockReadModInfo.mockImplementation((id: string) =>
+      Promise.resolve(info(id)),
+    );
+    mockReadModConfig.mockImplementation(
+      (id: string) => configs.get(id)!.promise,
+    );
+
+    renderProvider();
+    await waitFor(() => expect(mockReadModConfig).toHaveBeenCalledTimes(4));
+    expect(mockReadModConfig.mock.calls.map(([id]) => id)).toEqual([
+      'A',
+      'B',
+      'C',
+      'D',
+    ]);
+
+    await act(async () => configs.get('D')!.resolve({}));
+    await waitFor(() => expect(mockReadModConfig).toHaveBeenCalledTimes(5));
+    expect(mockReadModConfig).toHaveBeenLastCalledWith('E');
+    await act(async () => configs.get('B')!.resolve({}));
+    await waitFor(() => expect(mockReadModConfig).toHaveBeenCalledTimes(6));
+    expect(mockReadModConfig).toHaveBeenLastCalledWith('F');
+
+    await act(async () => {
+      configs.get('A')!.resolve({});
+      configs.get('C')!.resolve({});
+      configs.get('E')!.resolve({});
+      configs.get('F')!.resolve({});
+    });
+    await waitFor(() => expect(screen.getByText(ids.join(','))).toBeTruthy());
+  });
 });

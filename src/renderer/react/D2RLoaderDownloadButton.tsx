@@ -4,6 +4,7 @@ import {
   useD2RLoaderSettings,
 } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useSanitizedGamePath } from 'renderer/react/context/GamePathContext';
+import { useInstallationOperation } from 'renderer/react/context/InstallContext';
 import useToast from 'renderer/react/hooks/useToast';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -21,9 +22,21 @@ export default function D2RLoaderDownloadButton(): JSX.Element {
   const [, refreshConfig] = useD2RLoaderConfigRefresh();
   const showToast = useToast();
   const [isInstalling, setIsInstalling] = useState(false);
+  const { operation, finishOperation, tryStartOperation } =
+    useInstallationOperation();
 
   const install = useCallback(async () => {
-    if (isInstalling) return;
+    const operationToken = tryStartOperation(
+      t('install.progress.installingD2RLoader'),
+    );
+    if (operationToken == null) {
+      showToast({
+        duration: 4000,
+        severity: 'info',
+        title: t('install.disabled.activeOperation'),
+      });
+      return;
+    }
 
     setIsInstalling(true);
     try {
@@ -62,23 +75,33 @@ export default function D2RLoaderDownloadButton(): JSX.Element {
       });
     } finally {
       setIsInstalling(false);
+      finishOperation(operationToken);
     }
   }, [
+    finishOperation,
     gamePath,
-    isInstalling,
     refreshConfig,
     setD2RLoaderSettings,
     showToast,
     t,
+    tryStartOperation,
   ]);
 
+  const isBusyWithAnotherOperation = operation.active && !isInstalling;
+
   return (
-    <Tooltip title={t('d2rLoader.download.tooltip')}>
+    <Tooltip
+      title={
+        isBusyWithAnotherOperation
+          ? t('install.disabled.activeOperation')
+          : t('d2rLoader.download.tooltip')
+      }
+    >
       <span>
         <Button
           aria-label={t('d2rLoader.download.ariaLabel')}
           color="error"
-          disabled={isInstalling}
+          disabled={operation.active}
           onClick={() => void install()}
           startIcon={
             isInstalling ? (

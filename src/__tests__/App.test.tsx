@@ -289,6 +289,67 @@ describe('App', () => {
     expect(installButton).not.toBeDisabled();
   });
 
+  it.each(['resolve', 'reject'] as const)(
+    'shows exclusive drop-install feedback and restores actions after %s',
+    async (outcome) => {
+      let settleInstall: () => void = () => {};
+      mockState.installModFromZip.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            settleInstall = () =>
+              outcome === 'resolve'
+                ? resolve()
+                : reject(new Error('broken archive'));
+          }),
+      );
+      render(<App />);
+      const runButton = screen.getByRole('button', { name: 'Run D2R' });
+      const installButton = screen.getByRole('button', {
+        name: 'Install Mods',
+      });
+      await waitFor(() => expect(installButton).not.toBeDisabled());
+      const zip = new File(['large zip'], 'Large.zip', {
+        type: 'application/zip',
+      });
+      const drop = () =>
+        fireEvent.drop(screen.getByRole('tab', { name: 'Mods' }), {
+          dataTransfer: {
+            files: [zip],
+            items: [{ webkitGetAsEntry: () => ({ isDirectory: false }) }],
+          },
+        });
+
+      drop();
+      if (outcome === 'resolve') drop();
+
+      expect(mockState.installModFromZip).toHaveBeenCalledTimes(1);
+      const progressLabel = screen.getByText('Installing Large.zip (1/1)');
+      expect(progressLabel).toBeInTheDocument();
+      expect(progressLabel).toHaveAttribute(
+        'title',
+        'Installing Large.zip (1/1)',
+      );
+      expect(progressLabel).toHaveStyle({ maxWidth: '240px' });
+      expect(installButton).toBeDisabled();
+      expect(runButton).toBeDisabled();
+
+      await act(async () => settleInstall());
+
+      await waitFor(() =>
+        expect(
+          screen.queryByText('Installing Large.zip (1/1)'),
+        ).not.toBeInTheDocument(),
+      );
+      expect(installButton).not.toBeDisabled();
+      expect(runButton).not.toBeDisabled();
+      if (outcome === 'reject') {
+        expect(
+          await screen.findByText('Failed to install Large'),
+        ).toBeInTheDocument();
+      }
+    },
+  );
+
   it('renders direct mod actions in the requested order', async () => {
     render(<App />);
 
@@ -319,7 +380,7 @@ describe('App', () => {
     expect(await screen.findByText('New Section Header')).toBeInTheDocument();
   });
 
-  it('renders tabs in order and keeps Plugins mounted across tab changes', () => {
+  it('lazy-mounts Plugins on first visit and keeps it mounted across tab changes', async () => {
     render(<App />);
 
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
@@ -334,11 +395,12 @@ describe('App', () => {
     );
     expect(pluginPanel).not.toBeNull();
     expect(pluginPanel).toHaveAttribute('hidden');
-    expect(screen.getByText('D2RLoader Plugins')).toBeInTheDocument();
+    expect(screen.queryByText('D2RLoader Plugins')).not.toBeInTheDocument();
 
     fireEvent.click(pluginTab);
 
     expect(pluginPanel).not.toHaveAttribute('hidden');
+    expect(await screen.findByText('D2RLoader Plugins')).toBeInTheDocument();
     expect(
       screen.getByRole('tab', { name: /^Plugins . 0$/ }),
     ).toBeInTheDocument();
@@ -474,6 +536,141 @@ describe('App', () => {
       ).toMatchObject({ useD2RLoader: true }),
     );
     expect(await screen.findByText('D2RLoader installed')).toBeInTheDocument();
+  });
+
+  it.each(['resolve', 'reject'] as const)(
+    'holds the shared operation lock while D2RLoader installation is pending, then restores actions after %s',
+    async (outcome) => {
+      let settleInstall: () => void = () => {};
+      mockState.installD2RLoader.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            settleInstall = () =>
+              outcome === 'resolve'
+                ? resolve({ status: 'installed', version: '1.0.1.0' })
+                : reject(new Error('Download failed.'));
+          }),
+      );
+      render(<App />);
+      const installButton = screen.getByRole('button', {
+        name: 'Install Mods',
+      });
+      await waitFor(() => expect(installButton).not.toBeDisabled());
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Download D2RLoader' }),
+      );
+
+      expect(mockState.installD2RLoader).toHaveBeenCalledTimes(1);
+      const runButton = screen.getByRole('button', { name: 'Run D2R' });
+      expect(screen.getByText('Installing D2RLoader…')).toBeInTheDocument();
+      expect(installButton).toBeDisabled();
+      expect(runButton).toBeDisabled();
+
+      await act(async () => settleInstall());
+
+      await waitFor(() => expect(installButton).not.toBeDisabled());
+      expect(runButton).not.toBeDisabled();
+      expect(
+        screen.queryByText('Installing D2RLoader…'),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it.each(['resolve', 'reject'] as const)(
+    'holds the shared operation lock while a plugin import is pending, then restores actions after %s',
+    async (outcome) => {
+      let settleImport: () => void = () => {};
+      mockState.importPluginSources.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            settleImport = () =>
+              outcome === 'resolve'
+                ? resolve({
+                    importedFiles: 1,
+                    packages: ['Example'],
+                    warnings: [],
+                  })
+                : reject(new Error('Import failed.'));
+          }),
+      );
+      render(<App />);
+      const installButton = screen.getByRole('button', {
+        name: 'Install Mods',
+      });
+      await waitFor(() => expect(installButton).not.toBeDisabled());
+      fireEvent.click(screen.getByRole('tab', { name: 'Plugins' }));
+      const pluginHeading = await screen.findByText('D2RLoader Plugins');
+
+      fireEvent.drop(pluginHeading, {
+        dataTransfer: {
+          files: [new File(['zip'], 'Example.zip')],
+          items: [{ webkitGetAsEntry: () => ({ isDirectory: false }) }],
+        },
+      });
+
+      expect(mockState.importPluginSources).toHaveBeenCalledTimes(1);
+      expect(
+        screen.getByText('Importing D2RLoader packages…'),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('tab', { name: 'Mods' }));
+      const activeInstallButton = screen.getByRole('button', {
+        name: 'Install Mods',
+      });
+      const activeRunButton = screen.getByRole('button', { name: 'Run D2R' });
+      expect(activeInstallButton).toBeDisabled();
+      expect(activeRunButton).toBeDisabled();
+
+      await act(async () => settleImport());
+
+      await waitFor(() => expect(activeInstallButton).not.toBeDisabled());
+      expect(activeRunButton).not.toBeDisabled();
+      expect(
+        screen.queryByText('Importing D2RLoader packages…'),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it('blocks loader actions in the opposite direction while another operation owns the lock', async () => {
+    let resolveDropInstall: () => void = () => {};
+    mockState.installModFromZip.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDropInstall = resolve;
+        }),
+    );
+    render(<App />);
+    const installButton = screen.getByRole('button', { name: 'Install Mods' });
+    await waitFor(() => expect(installButton).not.toBeDisabled());
+    fireEvent.drop(screen.getByRole('tab', { name: 'Mods' }), {
+      dataTransfer: {
+        files: [new File(['zip'], 'Pending.zip')],
+        items: [{ webkitGetAsEntry: () => ({ isDirectory: false }) }],
+      },
+    });
+
+    const downloadButton = screen.getByRole('button', {
+      name: 'Download D2RLoader',
+    });
+    expect(downloadButton).toBeDisabled();
+    fireEvent.click(downloadButton);
+    expect(mockState.installD2RLoader).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Plugins' }));
+    const pluginHeading = await screen.findByText('D2RLoader Plugins');
+    fireEvent.drop(pluginHeading, {
+      dataTransfer: {
+        files: [new File(['zip'], 'Plugin.zip')],
+        items: [{ webkitGetAsEntry: () => ({ isDirectory: false }) }],
+      },
+    });
+    expect(mockState.importPluginSources).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText('Another install or import is in progress.'),
+    ).toBeInTheDocument();
+
+    await act(async () => resolveDropInstall());
+    await waitFor(() => expect(downloadButton).not.toBeDisabled());
   });
 
   it('should leave D2RLoader disabled when installation fails', async () => {

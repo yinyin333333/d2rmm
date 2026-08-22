@@ -1274,11 +1274,35 @@ function getCanonicalLoaderTarget(
   return null;
 }
 
+function getUnpackedPluginMPQTarget(
+  relativePath: string,
+  validPluginDLLPaths: Set<string>,
+): string | null {
+  const segments = relativePath.split(/[\\/]+/).filter(Boolean);
+  // A filesystem directory is not represented in CollectedSourceFile, so
+  // infer an unpacked MPQ boundary from each file below a *.mpq path segment.
+  for (let index = segments.length - 2; index >= 0; index -= 1) {
+    const mpqDirectory = segments[index];
+    if (path.extname(mpqDirectory).toLowerCase() !== '.mpq') continue;
+
+    const pluginStem = path.basename(mpqDirectory, path.extname(mpqDirectory));
+    const expectedDLLPath = path.join(
+      ...segments.slice(0, index),
+      `${pluginStem}.dll`,
+    );
+    if (!validPluginDLLPaths.has(pathKey(expectedDLLPath))) continue;
+
+    return path.join('plugins', ...segments.slice(index));
+  }
+  return null;
+}
+
 function createPackageManifest(
   packageName: string,
   sourceRootName: string,
   files: CollectedSourceFile[],
   allowUnsupportedJSON: boolean = false,
+  preserveUnpackedPluginMPQDirectories: boolean = true,
 ): D2RLoaderPackageManifest {
   const warnings: string[] = [];
   const dllBuffers = files
@@ -1289,6 +1313,9 @@ function createPackageManifest(
     (file) =>
       path.extname(file.relativePath).toLowerCase() === '.dll' &&
       hasRequiredPluginExports(readBoundedFile(file.absolutePath)),
+  );
+  const validPluginDLLPaths = new Set(
+    validPluginDLLs.map((file) => pathKey(file.relativePath)),
   );
   const dllSearchTexts = getDLLSearchTexts(dllBuffers);
 
@@ -1302,6 +1329,18 @@ function createPackageManifest(
       sourceRootName,
       file.relativePath,
     );
+    const unpackedPluginMPQTarget = preserveUnpackedPluginMPQDirectories
+      ? getUnpackedPluginMPQTarget(file.relativePath, validPluginDLLPaths)
+      : null;
+    if (unpackedPluginMPQTarget != null) {
+      return {
+        role: 'plugin',
+        sha256,
+        sourcePath: file.relativePath,
+        targetPath: unpackedPluginMPQTarget,
+        targetRoot: 'd2rloader',
+      };
+    }
     if (extension === '.dll') {
       if (hasRequiredPluginExports(buffer)) {
         return {
@@ -1803,22 +1842,45 @@ function readPackageManifest(packagePath: string): D2RLoaderPackageManifest {
     manifest.version === 1,
   );
   if (manifest.version === 2) {
-    const classifiedBySource = new Map(
-      classified.files.map((file) => [pathKey(file.sourcePath), file]),
-    );
-    const mismatch =
-      manifest.files.length !== classified.files.length ||
-      manifest.files.some((file) => {
-        const expected = classifiedBySource.get(pathKey(file.sourcePath));
-        return (
-          expected == null ||
-          expected.role !== file.role ||
-          expected.sha256.toLowerCase() !== file.sha256.toLowerCase() ||
-          expected.targetRoot !== file.targetRoot ||
-          expected.targetPath !== file.targetPath
-        );
-      });
-    if (mismatch) {
+    const matchesClassification = (
+      expectedManifest: D2RLoaderPackageManifest,
+    ): boolean => {
+      const expectedBySource = new Map(
+        expectedManifest.files.map((file) => [pathKey(file.sourcePath), file]),
+      );
+      return (
+        manifest.files.length === expectedManifest.files.length &&
+        manifest.files.every((file) => {
+          const expected = expectedBySource.get(pathKey(file.sourcePath));
+          return (
+            expected != null &&
+            expected.role === file.role &&
+            expected.sha256.toLowerCase() === file.sha256.toLowerCase() &&
+            expected.targetRoot === file.targetRoot &&
+            expected.targetPath === file.targetPath
+          );
+        })
+      );
+    };
+    if (!matchesClassification(classified)) {
+      // Version 2 manifests created before unpacked MPQ directory support
+      // flattened or separately classified their contents. Validate against
+      // that exact legacy classifier, then return the corrected classification
+      // so an existing package is repaired on its next deployment.
+      const legacyClassified = createPackageManifest(
+        packageName,
+        packageName,
+        collectSourceFiles(sourceRoot),
+        false,
+        false,
+      );
+      if (matchesClassification(legacyClassified)) {
+        return {
+          ...classified,
+          importedAt: manifest.importedAt,
+          name: packageName,
+        };
+      }
       throw new Error(
         `Managed D2RLoader package manifest does not match its source classification: "${manifestPath}". Re-import the package.`,
       );

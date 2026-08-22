@@ -91,6 +91,8 @@ type IItemsOrder = string[];
 
 type IItemsOrderMutator = (from: number, to: number) => unknown;
 
+const MOD_LOAD_CONCURRENCY = 4;
+
 type IModConfigMutator = (
   id: string,
   value: React.SetStateAction<ModConfigValue>,
@@ -186,43 +188,54 @@ export function ModsContextProvider({
         ids == null ? 'first/full mod list load' : 'partial mod list load';
       const modIDs = ids ?? (await BridgeAPI.readModDirectory());
       startupMark('renderer', `${label}: ${modIDs.length} candidates`);
-      const mods: Mod[] = [];
-      for (const modID of modIDs) {
-        try {
-          let info;
+      const loadedMods = new Array<Mod | null>(modIDs.length).fill(null);
+      let nextIndex = 0;
+      const loadNext = async (): Promise<void> => {
+        while (nextIndex < modIDs.length) {
+          const index = nextIndex;
+          nextIndex += 1;
+          const modID = modIDs[index];
           try {
-            info = await BridgeAPI.readModInfo(modID);
-          } catch {
-            // ignore folder as it may not be a mod
-            continue;
+            let info;
+            try {
+              info = await BridgeAPI.readModInfo(modID);
+            } catch {
+              // ignore folder as it may not be a mod
+              continue;
+            }
+
+            if (info == null) {
+              // ignore folder as it may not be a mod
+              continue;
+            }
+
+            const savedConfig = (await BridgeAPI.readModConfig(
+              modID,
+            )) as unknown as ModConfigValue;
+            const defaultConfig = getDefaultConfig(info.config, savedConfig);
+
+            loadedMods[index] = {
+              id: modID,
+              info,
+              config: { ...defaultConfig, ...savedConfig },
+            };
+          } catch (error) {
+            logger.error('Failed to load mod', modID, error as Error);
+            showToast({
+              severity: 'error',
+              title: `Failed to load mod ${modID}`,
+              description: String(error),
+            });
           }
-
-          if (info == null) {
-            // ignore folder as it may not be a mod
-            continue;
-          }
-
-          const savedConfig = (await BridgeAPI.readModConfig(
-            modID,
-          )) as unknown as ModConfigValue;
-
-          const defaultConfig = getDefaultConfig(info.config, savedConfig);
-
-          mods.push({
-            id: modID,
-            info,
-            config: { ...defaultConfig, ...savedConfig },
-          });
-        } catch (error) {
-          logger.error('Failed to load mod', modID, error as Error);
-          showToast({
-            severity: 'error',
-            title: `Failed to load mod ${modID}`,
-            description: String(error),
-          });
         }
-      }
-      return mods;
+      };
+      await Promise.all(
+        Array.from(
+          { length: Math.min(MOD_LOAD_CONCURRENCY, modIDs.length) },
+          loadNext,
+        ),
+      );
+      return loadedMods.filter((mod): mod is Mod => mod != null);
     },
     [logger, showToast],
   );

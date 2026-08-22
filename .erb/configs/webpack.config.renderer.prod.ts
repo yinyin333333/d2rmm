@@ -14,7 +14,7 @@ import { BundleAnalyzerPlugin } from 'webpack-bundle-analyzer';
 import { merge } from 'webpack-merge';
 import checkNodeEnv from '../scripts/check-node-env';
 import deleteSourceMaps from '../scripts/delete-source-maps';
-import baseConfig from './webpack.config.base';
+import baseConfig, { createTypeScriptRule } from './webpack.config.base';
 import webpackPaths from './webpack.paths';
 
 class GenerateJsonSchemaPlugin {
@@ -52,6 +52,59 @@ class GenerateJsonSchemaPlugin {
   }
 }
 
+class VerifyRendererLazyChunksPlugin {
+  private readonly lazyModuleNames = [
+    'ModManagerLogs.tsx',
+    'ModManagerPlugins.tsx',
+    'ModManagerSettings.tsx',
+  ];
+
+  apply(compiler: webpack.Compiler) {
+    compiler.hooks.compilation.tap(
+      'VerifyRendererLazyChunksPlugin',
+      (compilation) => {
+        if (compilation.compiler !== compiler) return;
+        compilation.hooks.afterOptimizeChunks.tap(
+          'VerifyRendererLazyChunksPlugin',
+          () => {
+            for (const lazyModuleName of this.lazyModuleNames) {
+              const chunks = new Set<webpack.Chunk>();
+              for (const candidate of compilation.modules) {
+                const module = candidate as webpack.Module & {
+                  resource?: string;
+                  rootModule?: { resource?: string };
+                };
+                const resource = module.resource ?? module.rootModule?.resource;
+                if (
+                  resource == null ||
+                  path.basename(resource) !== lazyModuleName
+                ) {
+                  continue;
+                }
+                for (const chunk of compilation.chunkGraph.getModuleChunksIterable(
+                  module,
+                )) {
+                  chunks.add(chunk);
+                }
+              }
+              if (
+                chunks.size === 0 ||
+                [...chunks].some((chunk) => chunk.canBeInitial())
+              ) {
+                compilation.errors.push(
+                  new webpack.WebpackError(
+                    `${lazyModuleName} must be emitted only in an async renderer chunk`,
+                  ),
+                );
+              }
+            }
+          },
+        );
+      },
+    );
+  }
+}
+
 checkNodeEnv('production');
 deleteSourceMaps();
 
@@ -79,6 +132,7 @@ const configuration: webpack.Configuration = {
     path: webpackPaths.distRendererPath,
     publicPath: './',
     filename: 'renderer.js',
+    chunkFilename: 'renderer.[name].[contenthash:8].js',
     library: {
       type: 'umd',
     },
@@ -165,6 +219,10 @@ const configuration: webpack.Configuration = {
       isDevelopment: process.env.NODE_ENV !== 'production',
     }),
 
+    // Keep the startup bundle honest: these screens are intentionally loaded
+    // on first visit and must not regress into the initial renderer chunk.
+    new VerifyRendererLazyChunksPlugin(),
+
     new DtsBundleWebpack({
       name: 'types',
       main: path.join(webpackPaths.srcPath, 'mods/types.d.ts'),
@@ -186,4 +244,15 @@ const configuration: webpack.Configuration = {
   ],
 };
 
-export default merge(baseConfig, configuration);
+const rendererBaseConfig: webpack.Configuration = {
+  ...baseConfig,
+  module: {
+    ...baseConfig.module,
+    rules: [
+      createTypeScriptRule(true),
+      ...(baseConfig.module?.rules?.slice(1) ?? []),
+    ],
+  },
+};
+
+export default merge(rendererBaseConfig, configuration);

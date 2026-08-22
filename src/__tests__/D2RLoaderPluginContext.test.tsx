@@ -19,6 +19,9 @@ const mockReadInventory = jest.fn();
 const mockSaveEditableJSON = jest.fn();
 let mockOutputPath = 'C:\\FakeGame\\mods\\First\\First.mpq\\data';
 let mockUseD2RLoader = false;
+let mockIsLoadingMods = false;
+let mockMods: { id: string }[] = [];
+let mockModsRevision = 1;
 let pluginManager: ReturnType<typeof useD2RLoaderPluginManager> | null = null;
 
 jest.mock('renderer/D2RLoaderPluginAPI', () => ({
@@ -34,8 +37,9 @@ jest.mock('renderer/D2RLoaderPluginAPI', () => ({
 }));
 
 jest.mock('renderer/react/context/ModsContext', () => ({
-  useMods: () => [[], jest.fn()],
-  useModsRevision: () => 1,
+  useIsLoadingMods: () => mockIsLoadingMods,
+  useMods: () => [mockMods, jest.fn()],
+  useModsRevision: () => mockModsRevision,
 }));
 
 jest.mock('renderer/react/context/D2RLoaderSettingsContext', () => ({
@@ -84,6 +88,9 @@ describe('D2RLoaderPluginContext deployment state', () => {
     pluginManager = null;
     mockOutputPath = 'C:\\FakeGame\\mods\\First\\First.mpq\\data';
     mockUseD2RLoader = false;
+    mockIsLoadingMods = false;
+    mockMods = [];
+    mockModsRevision = 1;
     mockReadInventory.mockReset();
     mockDeletePackage.mockReset();
     mockDeleteSource.mockReset();
@@ -99,6 +106,30 @@ describe('D2RLoaderPluginContext deployment state', () => {
       patches: [],
       plugins: [],
     });
+  });
+
+  it('waits for the initial mod load before scanning inventory once', async () => {
+    mockIsLoadingMods = true;
+    mockModsRevision = 0;
+    const view = render(
+      <D2RLoaderPluginContextProvider>
+        <Probe />
+      </D2RLoaderPluginContextProvider>,
+    );
+
+    expect(mockReadInventory).not.toHaveBeenCalled();
+
+    mockIsLoadingMods = false;
+    mockMods = [{ id: 'Second' }, { id: 'First' }];
+    mockModsRevision = 1;
+    view.rerender(
+      <D2RLoaderPluginContextProvider>
+        <Probe />
+      </D2RLoaderPluginContextProvider>,
+    );
+
+    await waitFor(() => expect(mockReadInventory).toHaveBeenCalledTimes(1));
+    expect(mockReadInventory).toHaveBeenCalledWith(['First', 'Second']);
   });
 
   it('marks the same package signature dirty when the output target changes', async () => {

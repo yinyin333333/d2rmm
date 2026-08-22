@@ -1,132 +1,143 @@
-import { ChildProcess, spawn } from 'child_process';
+import type { ChildProcess } from 'child_process';
+import { fork } from 'child_process';
+import path from 'path';
+import {
+  getQuickJSProxyAPI,
+  installQuickJSExecutionWatchdog,
+} from '../main/worker/quickjs';
 
-const CHILD_SOURCE = String.raw`
-const { getQuickJS } = require('quickjs-emscripten');
+type WatchdogChildResult =
+  | { elapsedMs: number; status: 'interrupted' }
+  | { error: string; status: 'failed' };
 
-getQuickJS().then((QuickJS) => {
-  if (process.send) process.send({ type: 'ready' });
-  process.on('message', ({ mode }) => {
-    const context = QuickJS.newContext();
-    let checks = 0;
-    if (mode === 'bounded') {
-      context.runtime.setInterruptHandler(() => ++checks > 100);
-    }
-    const result = context.evalCode('while (true) {}');
-    let message = '';
-    if (result.error) {
-      const dumped = context.dump(result.error);
-      message = dumped && dumped.message
-        ? String(dumped.message)
-        : JSON.stringify(dumped);
-      result.error.dispose();
-    } else {
-      result.value.dispose();
-    }
-    context.dispose();
-    if (process.send) process.send({ type: 'done', checks, message });
-  });
-});
-`;
+const CHILD_SAFETY_TIMEOUT_MS = 5_000;
 
-type ChildResult = {
-  checks: number;
-  elapsedMs: number;
-  message: string;
-  outcome: 'completed' | 'watchdog-killed';
-};
-
-function stopChild(child: ChildProcess): void {
-  if (child.exitCode == null && child.signalCode == null) {
-    child.kill();
-  }
-}
-
-function runChild(
-  mode: 'bounded' | 'unbounded',
-  watchdogMs: number,
-): Promise<ChildResult> {
+function runWatchdogChild(): Promise<WatchdogChildResult> {
   return new Promise((resolve, reject) => {
-    const startedAt = Date.now();
-    const child = spawn(process.execPath, ['-e', CHILD_SOURCE], {
-      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-    });
-    let ready = false;
-    let settled = false;
+    const child: ChildProcess = fork(
+      path.join(__dirname, '..', 'testFixtures', 'QuickJSWatchdog.child.ts'),
+      [],
+      {
+        execArgv: ['-r', require.resolve('ts-node/register/transpile-only')],
+        silent: true,
+      },
+    );
     let stderr = '';
-    const readyTimeout = setTimeout(() => {
-      finish(new Error(`QuickJS child was not ready: ${stderr}`));
-    }, 10000);
-    let watchdog: ReturnType<typeof setTimeout> | null = null;
+    let result: WatchdogChildResult | undefined;
+    const killTimer = setTimeout(() => {
+      child.kill();
+      reject(new Error('QuickJS watchdog child exceeded its safety timeout'));
+    }, CHILD_SAFETY_TIMEOUT_MS);
 
-    const finish = (error: Error | null, result?: ChildResult): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(readyTimeout);
-      if (watchdog != null) clearTimeout(watchdog);
-      stopChild(child);
-      if (error != null) reject(error);
-      else resolve(result!);
-    };
-
-    child.stderr?.on('data', (chunk) => {
+    child.stderr?.on('data', (chunk: Buffer | string) => {
       stderr += chunk.toString();
     });
-    child.on('error', (error) => finish(error));
-    child.on('exit', (code, signal) => {
-      if (!settled && (!ready || signal == null)) {
-        finish(
+    child.once('message', (message: WatchdogChildResult) => {
+      result = message;
+    });
+    child.once('error', (error) => {
+      clearTimeout(killTimer);
+      reject(error);
+    });
+    child.once('exit', (code) => {
+      clearTimeout(killTimer);
+      if (code !== 0 || result == null) {
+        reject(
           new Error(
-            `QuickJS child exited unexpectedly (code ${code}, signal ${signal}): ${stderr}`,
+            `QuickJS watchdog child exited with code ${code}: ${stderr}`,
           ),
         );
+        return;
       }
-    });
-    child.on('message', (message: unknown) => {
-      const value = message as {
-        checks?: number;
-        message?: string;
-        type?: string;
-      };
-      if (value.type === 'ready') {
-        ready = true;
-        child.send({ mode });
-        watchdog = setTimeout(() => {
-          finish(null, {
-            checks: 0,
-            elapsedMs: Date.now() - startedAt,
-            message: '',
-            outcome: 'watchdog-killed',
-          });
-        }, watchdogMs);
-      } else if (value.type === 'done') {
-        finish(null, {
-          checks: value.checks ?? 0,
-          elapsedMs: Date.now() - startedAt,
-          message: value.message ?? '',
-          outcome: 'completed',
-        });
-      }
+      resolve(result);
     });
   });
 }
 
-describe('QuickJS disposable-process watchdog evidence', () => {
-  jest.setTimeout(15000);
+describe('QuickJS production execution watchdog', () => {
+  jest.setTimeout(CHILD_SAFETY_TIMEOUT_MS * 2);
 
-  it('shows that current unbounded evaluation must be killed externally', async () => {
-    const result = await runChild('unbounded', 400);
+  it('interrupts a real QuickJS infinite loop in a child process', async () => {
+    const result = await runWatchdogChild();
 
-    expect(result.outcome).toBe('watchdog-killed');
-    expect(result.elapsedMs).toBeGreaterThanOrEqual(350);
-    expect(result.elapsedMs).toBeLessThan(10000);
+    expect(result).toMatchObject({ status: 'interrupted' });
+    if (result.status === 'interrupted') {
+      expect(result.elapsedMs).toBeLessThan(CHILD_SAFETY_TIMEOUT_MS);
+    }
   });
 
-  it('shows that the supported interrupt handler stops the same loop deterministically', async () => {
-    const result = await runChild('bounded', 5000);
+  it('interrupts execution with an injected clock and no wall-clock wait', () => {
+    let interruptHandler: (() => boolean) | undefined;
+    const runtime = {
+      removeInterruptHandler: jest.fn(),
+      setInterruptHandler: jest.fn((handler: () => boolean) => {
+        interruptHandler = handler;
+      }),
+    };
+    let now = 0;
+    const watchdog = installQuickJSExecutionWatchdog(runtime as never, {
+      budgetMs: 10,
+      now: () => now,
+    });
 
-    expect(result.outcome).toBe('completed');
-    expect(result.checks).toBe(101);
-    expect(result.message).toMatch(/interrupted/i);
-    expect(result.elapsedMs).toBeLessThan(5000);
+    expect(interruptHandler?.()).toBe(false);
+    now = 10;
+    expect(interruptHandler?.()).toBe(true);
+    watchdog.dispose();
+  });
+
+  it('refreshes the continuous-execution deadline after a host call', () => {
+    let interruptHandler: (() => boolean) | undefined;
+    const runtime = {
+      removeInterruptHandler: jest.fn(),
+      setInterruptHandler: jest.fn((handler: () => boolean) => {
+        interruptHandler = handler;
+      }),
+    };
+    let now = 100;
+    const watchdog = installQuickJSExecutionWatchdog(runtime as never, {
+      budgetMs: 30,
+      now: () => now,
+    });
+
+    expect(interruptHandler?.()).toBe(false);
+    now = 131;
+    expect(interruptHandler?.()).toBe(true);
+    watchdog.refresh();
+    expect(interruptHandler?.()).toBe(false);
+    now = 161;
+    expect(interruptHandler?.()).toBe(true);
+
+    watchdog.dispose();
+    watchdog.dispose();
+    expect(runtime.removeInterruptHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes after an async proxy host call settles', async () => {
+    let hostFunction: ((...args: unknown[]) => Promise<unknown>) | undefined;
+    const vm = {
+      dump: jest.fn(),
+      newAsyncifiedFunction: jest.fn(
+        (_name: string, callback: (...args: unknown[]) => Promise<unknown>) => {
+          hostFunction = callback;
+          return {};
+        },
+      ),
+      newObject: jest.fn(() => ({})),
+      setProp: jest.fn(),
+      undefined: {},
+    };
+    const scope = { manage: jest.fn((value: unknown) => value) };
+    const watchdog = { refresh: jest.fn() };
+
+    getQuickJSProxyAPI(
+      vm as never,
+      scope as never,
+      { waitForHost: async () => undefined } as never,
+      watchdog,
+    );
+    await hostFunction?.();
+
+    expect(watchdog.refresh).toHaveBeenCalledTimes(1);
   });
 });

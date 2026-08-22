@@ -8,7 +8,11 @@ import type {
 } from 'bridge/D2RLoaderPluginAPI';
 import D2RLoaderPluginAPI from 'renderer/D2RLoaderPluginAPI';
 import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
-import { useMods, useModsRevision } from 'renderer/react/context/ModsContext';
+import {
+  useIsLoadingMods,
+  useMods,
+  useModsRevision,
+} from 'renderer/react/context/ModsContext';
 import { useOutputPath } from 'renderer/react/context/OutputPathContext';
 import useSavedState from 'renderer/react/hooks/useSavedState';
 import React, {
@@ -73,6 +77,7 @@ export function D2RLoaderPluginContextProvider({
 }): JSX.Element {
   const [mods] = useMods();
   const modsRevision = useModsRevision();
+  const isLoadingMods = useIsLoadingMods();
   const [d2rLoaderSettings] = useD2RLoaderSettings();
   const outputPath = useOutputPath();
   const currentOutputMode = `mod:${
@@ -136,8 +141,9 @@ export function D2RLoaderPluginContextProvider({
   }, []);
 
   useEffect(() => {
+    if (isLoadingMods) return;
     refresh().catch(console.error);
-  }, [modsRevision, refresh]);
+  }, [isLoadingMods, modsRevision, refresh]);
 
   const runMutation = useCallback(
     async <T,>(operation: () => Promise<T>): Promise<T> => {

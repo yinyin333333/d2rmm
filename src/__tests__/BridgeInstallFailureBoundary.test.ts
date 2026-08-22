@@ -165,6 +165,59 @@ describe('BridgeAPI install commit boundary', () => {
     expect(saveFlush).not.toHaveBeenCalled();
   });
 
+  it('reports zero-mod output sync as finalizing and reaches 100% only after the flush', async () => {
+    let finishDelete!: (value: number) => void;
+    const deletePending = new Promise<number>((resolve) => {
+      finishDelete = resolve;
+    });
+    const deleteFile = jest
+      .spyOn(BridgeAPI, 'deleteFile')
+      .mockImplementationOnce(() => deletePending);
+    jest.spyOn(BridgeAPI, 'readFile').mockResolvedValue(null);
+    jest.spyOn(BridgeAPI, 'createDirectory').mockResolvedValue(true);
+    jest.spyOn(BridgeAPI, 'writeTxt').mockResolvedValue(1);
+
+    const installPromise = BridgeAPI.installMods([], {
+      ...options,
+      syncD2RLoaderOutput: true,
+      useD2RLoader: true,
+    });
+
+    // The status send is awaited before the destructive output flush begins.
+    for (
+      let attempts = 0;
+      attempts < 20 && !deleteFile.mock.calls.length;
+      attempts += 1
+    ) {
+      await Promise.resolve();
+    }
+    expect(mockEventSend).toHaveBeenCalledWith('installationStatus', {
+      phase: 'finalizing',
+      installedModsCount: 0,
+      totalModsCount: 0,
+    });
+    expect(deleteFile).toHaveBeenCalledTimes(1);
+    expect(mockEventSend).not.toHaveBeenCalledWith(
+      'installationProgress',
+      0,
+      0,
+    );
+
+    finishDelete(1);
+    await expect(installPromise).resolves.toEqual([]);
+
+    expect(mockEventSend).toHaveBeenCalledWith('installationProgress', 0, 0);
+    const finalizingOrder = mockEventSend.mock.invocationCallOrder.find(
+      (_order, index) =>
+        mockEventSend.mock.calls[index][0] === 'installationStatus',
+    );
+    const completeOrder = mockEventSend.mock.invocationCallOrder.find(
+      (_order, index) =>
+        mockEventSend.mock.calls[index][0] === 'installationProgress',
+    );
+    expect(finalizingOrder).toBeLessThan(completeOrder as number);
+  });
+
   it('removes stale loader output when an explicit sync disables D2RLoader', async () => {
     const deleteFile = jest.spyOn(BridgeAPI, 'deleteFile').mockResolvedValue(1);
     jest.spyOn(BridgeAPI, 'readFile').mockResolvedValue(null);

@@ -10,6 +10,7 @@ let mockHasUnsavedEdits = false;
 let mockIsDeploymentChanged = false;
 let mockIsInventoryCurrent = true;
 let mockIsInstalling = false;
+let mockIsLoadingMods = false;
 let mockIsLoadingPlugins = false;
 let mockIsMutatingPlugins = false;
 let mockIsOutputModeChanged = false;
@@ -48,11 +49,18 @@ jest.mock('renderer/react/context/InstallBeforeRunContext', () => ({
 
 jest.mock('renderer/react/context/InstallContext', () => ({
   useIsInstalling: () => [mockIsInstalling, jest.fn()],
+  useInstallationOperation: () => ({
+    operation: {
+      active: mockIsInstalling,
+      label: mockIsInstalling ? 'Installing mods…' : '',
+      progress: mockIsInstalling ? 50 : null,
+    },
+  }),
 }));
 
 jest.mock('renderer/react/context/ModsContext', () => ({
   useIsInstallConfigChanged: () => false,
-  useIsLoadingMods: () => false,
+  useIsLoadingMods: () => mockIsLoadingMods,
 }));
 
 jest.mock('renderer/react/context/OutputModNameContext', () => ({
@@ -74,6 +82,7 @@ describe('RunGameButton launch failures', () => {
     mockIsDeploymentChanged = false;
     mockIsInventoryCurrent = true;
     mockIsInstalling = false;
+    mockIsLoadingMods = false;
     mockIsLoadingPlugins = false;
     mockIsMutatingPlugins = false;
     mockIsOutputModeChanged = false;
@@ -153,6 +162,19 @@ describe('RunGameButton launch failures', () => {
 
     expect(mockPrepareD2RLoaderLaunch).not.toHaveBeenCalled();
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('explains why a disabled launch action is unavailable', async () => {
+    mockIsLoadingMods = true;
+    render(<RunGameButton />);
+
+    const button = screen.getByRole('button', { name: 'Run D2R' });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.mouseOver(button.parentElement!);
+
+    expect((await screen.findByRole('tooltip')).textContent).toBe(
+      'Loading the mod list…',
+    );
   });
 
   it('does not launch with an unsaved loader JSON draft', () => {

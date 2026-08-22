@@ -3,9 +3,6 @@ import 'renderer/css/App.css';
 import D2RLoaderDownloadButton from 'renderer/react/D2RLoaderDownloadButton';
 import ErrorBoundary from 'renderer/react/ErrorBoundary';
 import InstallationProgressBar from 'renderer/react/InstallationProgressBar';
-import ModManagerLogs from 'renderer/react/ModManagerLogs';
-import ModManagerPlugins from 'renderer/react/ModManagerPlugins';
-import ModManagerSettings from 'renderer/react/ModManagerSettings';
 import { D2RLoaderPluginContextProvider } from 'renderer/react/context/D2RLoaderPluginContext';
 import { D2RLoaderSettingsContextProvider } from 'renderer/react/context/D2RLoaderSettingsContext';
 import {
@@ -36,7 +33,7 @@ import { UpdatesContextProvider } from 'renderer/react/context/UpdatesContext';
 import useD2RLoaderPluginDropZone from 'renderer/react/hooks/useD2RLoaderPluginDropZone';
 import useModDropZone from 'renderer/react/hooks/useModDropZone';
 import ModList from 'renderer/react/modlist/ModList';
-import { Suspense } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MemoryRouter as Router, Routes, Route } from 'react-router-dom';
 import TabContext, {
@@ -49,6 +46,21 @@ import TabPanel from '@mui/lab/TabPanel';
 import { Box, Button, Divider, Tab, Typography } from '@mui/material';
 
 const DISCORD_INVITE_URL = 'https://discord.gg/eEHT2kcBMf';
+const ModManagerLogs = lazy(() => import('renderer/react/ModManagerLogs'));
+const ModManagerPlugins = lazy(
+  () => import('renderer/react/ModManagerPlugins'),
+);
+const ModManagerSettings = lazy(
+  () => import('renderer/react/ModManagerSettings'),
+);
+
+function LazyTabFallback({ label }: { label: string }): JSX.Element {
+  return (
+    <Typography aria-live="polite" role="status" sx={{ p: 2 }}>
+      {label}…
+    </Typography>
+  );
+}
 
 function TabPanelBox({
   children,
@@ -117,6 +129,11 @@ function RootRoute() {
   const modDropZone = useModDropZone();
   const pluginDropZone = useD2RLoaderPluginDropZone();
   const dropZone = tab === 'plugins' ? pluginDropZone : modDropZone;
+  const [hasVisitedPlugins, setHasVisitedPlugins] = useState(tab === 'plugins');
+
+  useEffect(() => {
+    if (tab === 'plugins') setHasVisitedPlugins(true);
+  }, [tab]);
 
   return (
     <TabContext value={tab}>
@@ -184,13 +201,25 @@ function RootRoute() {
           <ModList />
         </TabPanelBox>
         <PersistentTabPanelBox value="plugins">
-          <ModManagerPlugins />
+          {hasVisitedPlugins || tab === 'plugins' ? (
+            <Suspense fallback={<LazyTabFallback label={t('tabs.plugins')} />}>
+              <ModManagerPlugins />
+            </Suspense>
+          ) : null}
         </PersistentTabPanelBox>
         <TabPanelBox value="settings">
-          {tab === 'settings' ? <ModManagerSettings /> : null}
+          {tab === 'settings' ? (
+            <Suspense fallback={<LazyTabFallback label={t('tabs.settings')} />}>
+              <ModManagerSettings />
+            </Suspense>
+          ) : null}
         </TabPanelBox>
         <TabPanelBox value="logs">
-          {tab === 'logs' ? <ModManagerLogs /> : null}
+          {tab === 'logs' ? (
+            <Suspense fallback={<LazyTabFallback label={t('tabs.logs')} />}>
+              <ModManagerLogs />
+            </Suspense>
+          ) : null}
         </TabPanelBox>
       </Box>
     </TabContext>
