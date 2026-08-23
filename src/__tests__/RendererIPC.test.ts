@@ -182,4 +182,30 @@ describe('renderer IPC deterministic lifecycle', () => {
 
     await expect(api.ping()).rejects.toBe(sendError);
   });
+
+  it('does not reuse request IDs after the renderer module is recreated', async () => {
+    const firstBridge = createBridge();
+    const firstIPC = await loadRendererIPC(firstBridge.bridge);
+    const firstAPI = firstIPC.consumeAPI<{ ping(): Promise<void> }>(
+      'FirstRendererSessionTestAPI',
+      {},
+      true,
+    );
+    await firstAPI.ping();
+
+    const secondBridge = createBridge();
+    const secondIPC = await loadRendererIPC(secondBridge.bridge);
+    const secondAPI = secondIPC.consumeAPI<{ ping(): Promise<void> }>(
+      'SecondRendererSessionTestAPI',
+      {},
+      true,
+    );
+    await secondAPI.ping();
+
+    const firstRequest = firstBridge.send.mock.calls[0][0] as IPCMessage;
+    const secondRequest = secondBridge.send.mock.calls[0][0] as IPCMessage;
+    expect(firstRequest.id).not.toBe(secondRequest.id);
+    expect(firstRequest.id).toMatch(/^renderer:[^:]+:0$/);
+    expect(secondRequest.id).toMatch(/^renderer:[^:]+:0$/);
+  });
 });

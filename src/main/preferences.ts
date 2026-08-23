@@ -33,8 +33,10 @@ export function getIsUsingLocalUserDataDirectory(): boolean {
     return false;
   }
 
-  // default (local)
-  return true;
+  // A packaged macOS executable lives inside the application bundle, which
+  // may itself be on a read-only DMG. Keep portable preferences available via
+  // the explicit flag, but use the writable per-user directory by default.
+  return process.platform !== 'darwin';
 }
 
 export function initPreferences(): void {

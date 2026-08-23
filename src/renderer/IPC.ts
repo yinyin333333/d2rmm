@@ -18,6 +18,7 @@ import {
   invokeIPCHandler,
 } from 'shared/IPC';
 import { PendingRequestRegistry } from 'shared/PendingRequestRegistry';
+import { v4 as uuidv4 } from 'uuid';
 
 declare global {
   interface Window {
@@ -46,6 +47,7 @@ const PENDING_REQUESTS = new PendingRequestRegistry<
 >();
 
 let REQUEST_COUNT = 0;
+const REQUEST_SESSION_ID = uuidv4();
 
 export function provideAPI<T extends AsyncSerializableAPI<T>>(
   namespace: string,
@@ -160,7 +162,7 @@ export function consumeAPI<T, TLocalAPI extends object = Record<string, never>>(
         return target[api as keyof typeof target];
       }
       return (...args: SerializableType[]) => {
-        const id = `renderer:${REQUEST_COUNT++}`;
+        const id = `renderer:${REQUEST_SESSION_ID}:${REQUEST_COUNT++}`;
         const request: IPCMessageRequest = {
           id,
           namespace,
