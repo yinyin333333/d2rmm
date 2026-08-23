@@ -3,12 +3,14 @@ import type { ModConfig } from 'bridge/ModConfig';
 import {
   ModsContextProvider,
   useMods,
+  useSetModConfig,
 } from 'renderer/react/context/ModsContext';
 import { act, render, screen, waitFor } from '@testing-library/react';
 
 const mockReadModConfig = jest.fn();
 const mockReadModDirectory = jest.fn();
 const mockReadModInfo = jest.fn();
+const mockWriteModConfig = jest.fn();
 const mockLogger = { error: jest.fn() };
 const mockShowToast = jest.fn();
 const mockConfigOverrides = {};
@@ -20,7 +22,7 @@ jest.mock('renderer/BridgeAPI', () => ({
     readModConfig: (...args: unknown[]) => mockReadModConfig(...args),
     readModDirectory: (...args: unknown[]) => mockReadModDirectory(...args),
     readModInfo: (...args: unknown[]) => mockReadModInfo(...args),
-    writeModConfig: jest.fn().mockResolvedValue(undefined),
+    writeModConfig: (...args: unknown[]) => mockWriteModConfig(...args),
   },
 }));
 
@@ -82,10 +84,14 @@ function info(id: string): ModConfig {
 }
 
 let refreshMods: ((ids?: string[]) => Promise<Mod[]>) | undefined;
+let latestMods: Mod[] = [];
+let setModConfig: ReturnType<typeof useSetModConfig> | undefined;
 
 function Probe(): JSX.Element {
   const [mods, refresh] = useMods();
   refreshMods = refresh;
+  latestMods = mods;
+  setModConfig = useSetModConfig();
   return <output>{mods.map(({ id }) => id).join(',')}</output>;
 }
 
@@ -100,9 +106,12 @@ function renderProvider(): void {
 describe('ModsContext initial/full and partial refresh ordering', () => {
   beforeEach(() => {
     refreshMods = undefined;
+    latestMods = [];
+    setModConfig = undefined;
     mockReadModConfig.mockReset().mockResolvedValue({});
     mockReadModDirectory.mockReset().mockResolvedValue(['A']);
     mockReadModInfo.mockReset();
+    mockWriteModConfig.mockReset().mockResolvedValue(undefined);
   });
 
   it('keeps a newly installed partial mod when the older initial scan finishes', async () => {
@@ -168,6 +177,63 @@ describe('ModsContext initial/full and partial refresh ordering', () => {
       await fullRefresh;
     });
     expect(screen.getByText('A,B')).toBeTruthy();
+  });
+
+  it('keeps config edited after a full refresh already read stale config', async () => {
+    mockReadModInfo.mockImplementation((id: string) =>
+      Promise.resolve(info(id)),
+    );
+    mockReadModConfig.mockResolvedValue({ value: 'initial' });
+    renderProvider();
+    await waitFor(() => expect(latestMods).toHaveLength(1));
+
+    const pendingBConfig = deferred<{ value: string }>();
+    mockReadModDirectory.mockResolvedValue(['A', 'B']);
+    mockReadModConfig.mockImplementation((id: string) =>
+      id === 'A' ? Promise.resolve({ value: 'stale' }) : pendingBConfig.promise,
+    );
+    let fullRefresh!: Promise<Mod[]>;
+    act(() => {
+      fullRefresh = refreshMods!();
+    });
+    await waitFor(() => expect(mockReadModConfig).toHaveBeenCalledWith('B'));
+
+    act(() => setModConfig?.('A', { value: 'new' }));
+    expect(latestMods[0].config).toEqual({ value: 'new' });
+
+    await act(async () => {
+      pendingBConfig.resolve({ value: 'b' });
+      await fullRefresh;
+    });
+    expect(latestMods.find(({ id }) => id === 'A')?.config).toEqual({
+      value: 'new',
+    });
+  });
+
+  it('keeps config whose persistence was pending when a full refresh started', async () => {
+    mockReadModInfo.mockImplementation((id: string) =>
+      Promise.resolve(info(id)),
+    );
+    mockReadModConfig.mockResolvedValue({ value: 'old' });
+    renderProvider();
+    await waitFor(() => expect(latestMods).toHaveLength(1));
+
+    const pendingWrite = deferred<void>();
+    mockWriteModConfig.mockReturnValueOnce(pendingWrite.promise);
+    act(() => setModConfig?.('A', { value: 'new' }));
+    await waitFor(() => expect(mockWriteModConfig).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await refreshMods?.();
+    });
+    expect(latestMods[0].config).toEqual({ value: 'new' });
+
+    await act(async () => pendingWrite.resolve(undefined));
+    mockReadModConfig.mockResolvedValue({ value: 'external' });
+    await act(async () => {
+      await refreshMods?.();
+    });
+    expect(latestMods[0].config).toEqual({ value: 'external' });
   });
 
   it('loads mods with bounded concurrency while preserving directory order', async () => {

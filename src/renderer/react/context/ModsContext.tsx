@@ -244,6 +244,12 @@ export function ModsContextProvider({
   );
 
   const [modsWithoutOverrides, setMods] = useState<Mod[]>([]);
+  const modsRef = useRef<Mod[]>([]);
+  const updateMods = useCallback((update: (mods: Mod[]) => Mod[]): void => {
+    const mods = update(modsRef.current);
+    modsRef.current = mods;
+    setMods(mods);
+  }, []);
   const [isLoadingMods, setIsLoadingMods] = useState(true);
   const [modsRevision, setModsRevision] = useState(0);
   const initialLoadIsPending = useRef(true);
@@ -257,11 +263,32 @@ export function ModsContextProvider({
   const latestPartialRefreshRequestByID = useRef(new Map<string, number>());
   const latestPartialRefreshCommitByID = useRef(new Map<string, number>());
   const pendingFullRefreshes = useRef(0);
+  // Config requests are ordered independently from refreshes. Applied
+  // generations track only config that reached the UI, while persisted
+  // generations advance only after a successful write. This keeps pending or
+  // failed optimistic edits protected without treating a failed, non-UI
+  // saveModConfig request as a local edit.
+  const nextConfigRequestGeneration = useRef(0);
+  const latestConfigRequestGenerationByID = useRef(new Map<string, number>());
+  const latestAppliedConfigMutationByID = useRef(new Map<string, number>());
+  const latestPersistedConfigMutationByID = useRef(new Map<string, number>());
+  const configPersistenceQueueByID = useRef(new Map<string, Promise<void>>());
 
   useEffect(() => {
     startupMark('renderer', 'first ModList load scheduled after first paint');
     let isMounted = true;
     const cancel = deferUntilAfterFirstPaint(() => {
+      const configRequestGenerationAtStart =
+        nextConfigRequestGeneration.current;
+      const unpersistedConfigIDsAtStart = new Set(
+        Array.from(latestAppliedConfigMutationByID.current).flatMap(
+          ([id, generation]) =>
+            generation >
+            (latestPersistedConfigMutationByID.current.get(id) ?? 0)
+              ? [id]
+              : [],
+        ),
+      );
       startupMark('renderer', 'first ModList load deferred start');
       startupMeasure('renderer', 'first ModList load', getMods)
         .then((mods) => {
@@ -272,12 +299,20 @@ export function ModsContextProvider({
             const partiallyRefreshedIDs = new Set(
               initialLoadPartialIDs.current,
             );
-            setMods((currentMods) =>
+            updateMods((currentMods) =>
               mergeFullModsWithPartialRefreshes(
                 mods,
                 currentMods,
                 partiallyRefreshedIDs,
-              ),
+              ).map((mod) => {
+                const currentMod = currentMods.find(({ id }) => id === mod.id);
+                return currentMod != null &&
+                  ((latestAppliedConfigMutationByID.current.get(mod.id) ?? 0) >
+                    configRequestGenerationAtStart ||
+                    unpersistedConfigIDsAtStart.has(mod.id))
+                  ? { ...mod, config: currentMod.config }
+                  : mod;
+              }),
             );
             setModsRevision((revision) => revision + 1);
           }
@@ -299,7 +334,7 @@ export function ModsContextProvider({
       isMounted = false;
       cancel();
     };
-  }, [getMods]);
+  }, [getMods, updateMods]);
 
   const persistModConfig = useCallback(
     async (id: string, config: ModConfigValue): Promise<void> => {
@@ -318,36 +353,77 @@ export function ModsContextProvider({
     [logger, showToast],
   );
 
-  const setModConfig = useCallback(
-    (id: string, value: React.SetStateAction<ModConfigValue>): void => {
-      const getConfig = typeof value !== 'function' ? () => value : value;
-      setMods((prevMods) =>
-        prevMods.map((mod) => {
-          if (mod.id === id) {
-            const config = getConfig(mod.config);
-            void persistModConfig(id, config).catch(() => undefined);
-            return { ...mod, config };
-          }
-          return mod;
-        }),
-      );
+  const queueModConfigPersistence = useCallback(
+    (id: string, config: ModConfigValue, generation: number): Promise<void> => {
+      const previous = configPersistenceQueueByID.current.get(id);
+      const persistence = (previous ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(async () => {
+          await persistModConfig(id, config);
+          latestPersistedConfigMutationByID.current.set(id, generation);
+        });
+      configPersistenceQueueByID.current.set(id, persistence);
+      const clear = (): void => {
+        if (configPersistenceQueueByID.current.get(id) === persistence) {
+          configPersistenceQueueByID.current.delete(id);
+        }
+      };
+      persistence.then(clear, clear);
+      return persistence;
     },
     [persistModConfig],
   );
 
-  const saveModConfig = useCallback(
-    async (id: string, config: ModConfigValue): Promise<void> => {
-      await persistModConfig(id, config);
-      setMods((prevMods) =>
-        prevMods.map((mod) => (mod.id === id ? { ...mod, config } : mod)),
+  const setModConfig = useCallback(
+    (id: string, value: React.SetStateAction<ModConfigValue>): void => {
+      const getConfig = typeof value !== 'function' ? () => value : value;
+      const currentMod = modsRef.current.find((mod) => mod.id === id);
+      if (currentMod == null) {
+        return;
+      }
+      const config = getConfig(currentMod.config);
+      const generation = ++nextConfigRequestGeneration.current;
+      latestConfigRequestGenerationByID.current.set(id, generation);
+      latestAppliedConfigMutationByID.current.set(id, generation);
+      updateMods((mods) =>
+        mods.map((mod) => (mod.id === id ? { ...mod, config } : mod)),
+      );
+      void queueModConfigPersistence(id, config, generation).catch(
+        () => undefined,
       );
     },
-    [persistModConfig],
+    [queueModConfigPersistence, updateMods],
+  );
+
+  const saveModConfig = useCallback(
+    async (id: string, config: ModConfigValue): Promise<void> => {
+      const generation = ++nextConfigRequestGeneration.current;
+      latestConfigRequestGenerationByID.current.set(id, generation);
+      await queueModConfigPersistence(id, config, generation);
+      if (latestConfigRequestGenerationByID.current.get(id) === generation) {
+        latestAppliedConfigMutationByID.current.set(id, generation);
+        updateMods((mods) =>
+          mods.map((mod) => (mod.id === id ? { ...mod, config } : mod)),
+        );
+      }
+    },
+    [queueModConfigPersistence, updateMods],
   );
 
   const refreshMods = useCallback(
     async (ids?: string[]): Promise<IMods> => {
       const refreshSequence = ++nextRefreshSequence.current;
+      const configRequestGenerationAtStart =
+        nextConfigRequestGeneration.current;
+      const unpersistedConfigIDsAtStart = new Set(
+        Array.from(latestAppliedConfigMutationByID.current).flatMap(
+          ([id, generation]) =>
+            generation >
+            (latestPersistedConfigMutationByID.current.get(id) ?? 0)
+              ? [id]
+              : [],
+        ),
+      );
       const isFullRefresh = ids == null;
       if (isFullRefresh) {
         latestFullRefreshRequest.current = refreshSequence;
@@ -388,18 +464,32 @@ export function ModsContextProvider({
               .filter((mod) => currentIDs.has(mod.id))
               .map((mod) => [mod.id, mod]),
           );
-          setMods((oldMods) => {
+          updateMods((oldMods) => {
             const oldIDs = new Set(oldMods.map((mod) => mod.id));
+            const currentByID = new Map(oldMods.map((mod) => [mod.id, mod]));
+            const preserveNewerConfig = (mod: Mod): Mod => {
+              const currentMod = currentByID.get(mod.id);
+              return currentMod != null &&
+                ((latestAppliedConfigMutationByID.current.get(mod.id) ?? 0) >
+                  configRequestGenerationAtStart ||
+                  unpersistedConfigIDsAtStart.has(mod.id))
+                ? { ...mod, config: currentMod.config }
+                : mod;
+            };
             return oldMods
               .filter(
                 (oldMod) =>
                   !currentIDs.has(oldMod.id) || refreshedByID.has(oldMod.id),
               )
-              .map((oldMod) => refreshedByID.get(oldMod.id) ?? oldMod)
+              .map((oldMod) =>
+                preserveNewerConfig(refreshedByID.get(oldMod.id) ?? oldMod),
+              )
               .concat(
-                mods.filter(
-                  (mod) => currentIDs.has(mod.id) && !oldIDs.has(mod.id),
-                ),
+                mods
+                  .filter(
+                    (mod) => currentIDs.has(mod.id) && !oldIDs.has(mod.id),
+                  )
+                  .map(preserveNewerConfig),
               );
           });
         } else {
@@ -412,13 +502,24 @@ export function ModsContextProvider({
               .map(([id]) => id),
           );
           latestCommittedFullRefresh.current = refreshSequence;
-          setMods((currentMods) =>
-            mergeFullModsWithPartialRefreshes(
+          updateMods((currentMods) => {
+            const currentByID = new Map(
+              currentMods.map((mod) => [mod.id, mod]),
+            );
+            return mergeFullModsWithPartialRefreshes(
               mods,
               currentMods,
               partiallyRefreshedIDs,
-            ),
-          );
+            ).map((mod) => {
+              const currentMod = currentByID.get(mod.id);
+              return currentMod != null &&
+                ((latestAppliedConfigMutationByID.current.get(mod.id) ?? 0) >
+                  configRequestGenerationAtStart ||
+                  unpersistedConfigIDsAtStart.has(mod.id))
+                ? { ...mod, config: currentMod.config }
+                : mod;
+            });
+          });
         }
         setModsRevision((revision) => revision + 1);
         return mods;
@@ -434,7 +535,7 @@ export function ModsContextProvider({
         }
       }
     },
-    [getMods],
+    [getMods, updateMods],
   );
 
   const [installedMods, setInstalledMods] = useSavedState(

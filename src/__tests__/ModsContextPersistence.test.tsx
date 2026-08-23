@@ -5,6 +5,7 @@ import {
   useInstalledMods,
   useIsInstallConfigChanged,
   useMods,
+  useSaveModConfig,
   useSetModConfig,
 } from 'renderer/react/context/ModsContext';
 import {
@@ -76,14 +77,18 @@ let latestMods: Mod[] = [];
 let latestDirty = false;
 let installedModsAreArray = false;
 let setModConfig: ReturnType<typeof useSetModConfig> | null = null;
+let saveModConfig: ReturnType<typeof useSaveModConfig> | null = null;
+let refreshMods: ((ids?: string[]) => Promise<Mod[]>) | null = null;
 
 function Probe(): JSX.Element {
-  const [mods] = useMods();
+  const [mods, refresh] = useMods();
   const [installedMods] = useInstalledMods();
   latestMods = mods;
   latestDirty = useIsInstallConfigChanged();
   installedModsAreArray = Array.isArray(installedMods);
   setModConfig = useSetModConfig();
+  saveModConfig = useSaveModConfig();
+  refreshMods = refresh;
   return (
     <button onClick={() => setModConfig?.('A', { value: 'new' })}>
       update config
@@ -109,6 +114,8 @@ describe('ModsContext persistence state', () => {
     latestDirty = false;
     installedModsAreArray = false;
     setModConfig = null;
+    saveModConfig = null;
+    refreshMods = null;
     mockSavedValues = {};
     mockReadModConfig.mockReset().mockResolvedValue({ value: 'old' });
     mockReadModDirectory.mockReset().mockResolvedValue(['A']);
@@ -158,5 +165,97 @@ describe('ModsContext persistence state', () => {
       }),
     );
     consoleError.mockRestore();
+  });
+
+  it('does not let a deferred save replace a newer local edit', async () => {
+    let resolveOldSave!: () => void;
+    const oldSave = new Promise<void>((resolve) => {
+      resolveOldSave = resolve;
+    });
+    mockWriteModConfig
+      .mockImplementationOnce(() => oldSave)
+      .mockResolvedValueOnce(undefined);
+    renderProvider();
+    await waitFor(() => expect(latestMods).toHaveLength(1));
+
+    let savingOld!: Promise<void>;
+    act(() => {
+      savingOld = saveModConfig!('A', { value: 'old-save' });
+    });
+    await waitFor(() => expect(mockWriteModConfig).toHaveBeenCalledTimes(1));
+
+    act(() => setModConfig?.('A', { value: 'new' }));
+    expect(latestMods[0].config).toEqual({ value: 'new' });
+    expect(mockWriteModConfig).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveOldSave();
+      await savingOld;
+    });
+    await waitFor(() => expect(mockWriteModConfig).toHaveBeenCalledTimes(2));
+    expect(mockWriteModConfig.mock.calls).toEqual([
+      ['A', { value: 'old-save' }],
+      ['A', { value: 'new' }],
+    ]);
+    expect(latestMods[0].config).toEqual({ value: 'new' });
+  });
+
+  it('rejects saveModConfig when persistence fails', async () => {
+    const failure = new Error('collection config write failure');
+    mockWriteModConfig.mockRejectedValue(failure);
+    renderProvider();
+    await waitFor(() => expect(latestMods).toHaveLength(1));
+
+    await expect(saveModConfig!('A', { value: 'collection' })).rejects.toBe(
+      failure,
+    );
+    expect(latestMods[0].config).toEqual({ value: 'old' });
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'Failed to save mod config',
+      'A',
+      failure,
+    );
+    expect(mockShowToast).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'error' }),
+    );
+
+    mockReadModConfig.mockResolvedValue({ value: 'external' });
+    await act(async () => {
+      await refreshMods?.();
+    });
+    expect(latestMods[0].config).toEqual({ value: 'external' });
+  });
+
+  it('does not clear a newer optimistic edit when an older save fails', async () => {
+    let rejectOldSave!: (error: Error) => void;
+    const oldSave = new Promise<void>((_resolve, reject) => {
+      rejectOldSave = reject;
+    });
+    let resolveNewEdit!: () => void;
+    const newEdit = new Promise<void>((resolve) => {
+      resolveNewEdit = resolve;
+    });
+    mockWriteModConfig
+      .mockImplementationOnce(() => oldSave)
+      .mockImplementationOnce(() => newEdit);
+    renderProvider();
+    await waitFor(() => expect(latestMods).toHaveLength(1));
+
+    const savingOld = saveModConfig!('A', { value: 'collection' });
+    await waitFor(() => expect(mockWriteModConfig).toHaveBeenCalledTimes(1));
+    act(() => setModConfig?.('A', { value: 'newer' }));
+
+    const failure = new Error('older collection save failed');
+    rejectOldSave(failure);
+    await expect(savingOld).rejects.toBe(failure);
+    await waitFor(() => expect(mockWriteModConfig).toHaveBeenCalledTimes(2));
+
+    mockReadModConfig.mockResolvedValue({ value: 'external' });
+    await act(async () => {
+      await refreshMods?.();
+    });
+    expect(latestMods[0].config).toEqual({ value: 'newer' });
+
+    await act(async () => resolveNewEdit());
   });
 });
