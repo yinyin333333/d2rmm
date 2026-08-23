@@ -34,7 +34,7 @@ export default function useModDropZone(): ModDropZoneHandlers {
 
   const onDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    dragDepth.current -= 1;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
     if (dragDepth.current === 0) {
       setIsDraggingOver(false);
     }
@@ -64,7 +64,7 @@ export default function useModDropZone(): ModDropZoneHandlers {
         const entry = event.dataTransfer.items[index]?.webkitGetAsEntry();
         if (entry?.isDirectory) {
           installable.push({ kind: 'folder', file });
-        } else if (file.name.endsWith('.zip')) {
+        } else if (/\.zip$/i.test(file.name)) {
           installable.push({ kind: 'zip', file });
         } else {
           ignoredCount += 1;

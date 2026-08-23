@@ -141,6 +141,35 @@ describe('ModsContext initial/full and partial refresh ordering', () => {
     );
   });
 
+  it('keeps a partial install that completes during an older full refresh', async () => {
+    mockReadModInfo.mockImplementation((id: string) =>
+      Promise.resolve(info(id)),
+    );
+    renderProvider();
+    await waitFor(() => expect(screen.getByText('A')).toBeTruthy());
+
+    const fullRefreshA = deferred<ModConfig | null>();
+    mockReadModInfo.mockImplementation((id: string) =>
+      id === 'A' ? fullRefreshA.promise : Promise.resolve(info(id)),
+    );
+    let fullRefresh!: Promise<Mod[]>;
+    act(() => {
+      fullRefresh = refreshMods!();
+    });
+    await waitFor(() => expect(mockReadModInfo).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      await refreshMods?.(['B']);
+    });
+    expect(screen.getByText('A,B')).toBeTruthy();
+
+    await act(async () => {
+      fullRefreshA.resolve(info('A'));
+      await fullRefresh;
+    });
+    expect(screen.getByText('A,B')).toBeTruthy();
+  });
+
   it('loads mods with bounded concurrency while preserving directory order', async () => {
     const ids = ['A', 'B', 'C', 'D', 'E', 'F'];
     const configs = new Map(

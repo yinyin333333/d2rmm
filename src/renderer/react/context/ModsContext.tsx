@@ -98,6 +98,8 @@ type IModConfigMutator = (
   value: React.SetStateAction<ModConfigValue>,
 ) => void;
 
+type IModConfigSaver = (id: string, value: ModConfigValue) => Promise<void>;
+
 export type IModsContext = {
   enabledMods: IEnabledMods;
   installedMods: IInstalledMods;
@@ -112,6 +114,7 @@ export type IModsContext = {
   reorderItems: IItemsOrderMutator;
   sectionHeaders: ISectionHeaders;
   selectedMod: ISelectedMod;
+  saveModConfig: IModConfigSaver;
   setEnabledMods: IEnabledModsMutator;
   setInstalledMods: IInstalledModsMutator;
   setItemsOrder: React.Dispatch<React.SetStateAction<IItemsOrder>>;
@@ -150,18 +153,18 @@ function getDefaultConfig(
   return defaultConfig;
 }
 
-function mergeInitialModsWithPartialRefreshes(
-  initialMods: Mod[],
+function mergeFullModsWithPartialRefreshes(
+  fullRefreshMods: Mod[],
   currentMods: Mod[],
   partiallyRefreshedIDs: ReadonlySet<string>,
 ): Mod[] {
   const currentByID = new Map(currentMods.map((mod) => [mod.id, mod]));
-  const initialIDs = new Set(initialMods.map((mod) => mod.id));
-  const merged = initialMods.flatMap((initialMod) => {
-    if (!partiallyRefreshedIDs.has(initialMod.id)) {
-      return [initialMod];
+  const fullRefreshIDs = new Set(fullRefreshMods.map((mod) => mod.id));
+  const merged = fullRefreshMods.flatMap((fullRefreshMod) => {
+    if (!partiallyRefreshedIDs.has(fullRefreshMod.id)) {
+      return [fullRefreshMod];
     }
-    const currentMod = currentByID.get(initialMod.id);
+    const currentMod = currentByID.get(fullRefreshMod.id);
     return currentMod == null ? [] : [currentMod];
   });
 
@@ -169,7 +172,7 @@ function mergeInitialModsWithPartialRefreshes(
     currentMods.filter(
       (currentMod) =>
         partiallyRefreshedIDs.has(currentMod.id) &&
-        !initialIDs.has(currentMod.id),
+        !fullRefreshIDs.has(currentMod.id),
     ),
   );
 }
@@ -245,6 +248,15 @@ export function ModsContextProvider({
   const [modsRevision, setModsRevision] = useState(0);
   const initialLoadIsPending = useRef(true);
   const initialLoadPartialIDs = useRef(new Set<string>());
+  // Sequence manual scans so stale full/partial results cannot overwrite a
+  // newer refresh. Per-ID commits let a full scan preserve installs that
+  // completed while it was in flight.
+  const nextRefreshSequence = useRef(0);
+  const latestFullRefreshRequest = useRef(0);
+  const latestCommittedFullRefresh = useRef(0);
+  const latestPartialRefreshRequestByID = useRef(new Map<string, number>());
+  const latestPartialRefreshCommitByID = useRef(new Map<string, number>());
+  const pendingFullRefreshes = useRef(0);
 
   useEffect(() => {
     startupMark('renderer', 'first ModList load scheduled after first paint');
@@ -256,15 +268,19 @@ export function ModsContextProvider({
           if (!isMounted) {
             return;
           }
-          const partiallyRefreshedIDs = new Set(initialLoadPartialIDs.current);
-          setMods((currentMods) =>
-            mergeInitialModsWithPartialRefreshes(
-              mods,
-              currentMods,
-              partiallyRefreshedIDs,
-            ),
-          );
-          setModsRevision((revision) => revision + 1);
+          if (latestCommittedFullRefresh.current === 0) {
+            const partiallyRefreshedIDs = new Set(
+              initialLoadPartialIDs.current,
+            );
+            setMods((currentMods) =>
+              mergeFullModsWithPartialRefreshes(
+                mods,
+                currentMods,
+                partiallyRefreshedIDs,
+              ),
+            );
+            setModsRevision((revision) => revision + 1);
+          }
           startupMark(
             'renderer',
             `first ModList load completed with ${mods.length} mods`,
@@ -274,7 +290,7 @@ export function ModsContextProvider({
         .finally(() => {
           initialLoadIsPending.current = false;
           initialLoadPartialIDs.current.clear();
-          if (isMounted) {
+          if (isMounted && pendingFullRefreshes.current === 0) {
             setIsLoadingMods(false);
           }
         });
@@ -285,6 +301,23 @@ export function ModsContextProvider({
     };
   }, [getMods]);
 
+  const persistModConfig = useCallback(
+    async (id: string, config: ModConfigValue): Promise<void> => {
+      try {
+        await BridgeAPI.writeModConfig(id, config);
+      } catch (error) {
+        logger.error('Failed to save mod config', id, error as Error);
+        showToast({
+          severity: 'error',
+          title: `Failed to save mod config for ${id}`,
+          description: String(error),
+        });
+        throw error;
+      }
+    },
+    [logger, showToast],
+  );
+
   const setModConfig = useCallback(
     (id: string, value: React.SetStateAction<ModConfigValue>): void => {
       const getConfig = typeof value !== 'function' ? () => value : value;
@@ -292,69 +325,112 @@ export function ModsContextProvider({
         prevMods.map((mod) => {
           if (mod.id === id) {
             const config = getConfig(mod.config);
-            BridgeAPI.writeModConfig(id, config).catch((error) => {
-              logger.error('Failed to save mod config', id, error as Error);
-              showToast({
-                severity: 'error',
-                title: `Failed to save mod config for ${id}`,
-                description: String(error),
-              });
-            });
+            void persistModConfig(id, config).catch(() => undefined);
             return { ...mod, config };
           }
           return mod;
         }),
       );
     },
-    [logger, showToast],
+    [persistModConfig],
+  );
+
+  const saveModConfig = useCallback(
+    async (id: string, config: ModConfigValue): Promise<void> => {
+      await persistModConfig(id, config);
+      setMods((prevMods) =>
+        prevMods.map((mod) => (mod.id === id ? { ...mod, config } : mod)),
+      );
+    },
+    [persistModConfig],
   );
 
   const refreshMods = useCallback(
     async (ids?: string[]): Promise<IMods> => {
-      // manually refresh mods
-      if (ids == null) {
+      const refreshSequence = ++nextRefreshSequence.current;
+      const isFullRefresh = ids == null;
+      if (isFullRefresh) {
+        latestFullRefreshRequest.current = refreshSequence;
+        pendingFullRefreshes.current += 1;
         setIsLoadingMods(true);
+      } else {
+        for (const id of ids) {
+          latestPartialRefreshRequestByID.current.set(id, refreshSequence);
+        }
       }
+
       try {
         const mods = await startupMeasure('renderer', 'refreshMods', () =>
           getMods(ids),
         );
         if (ids != null) {
-          // partial update
+          const currentIDs = new Set(
+            ids.filter(
+              (id) =>
+                latestPartialRefreshRequestByID.current.get(id) ===
+                refreshSequence,
+            ),
+          );
+          if (currentIDs.size === 0) {
+            return mods;
+          }
+
+          for (const id of currentIDs) {
+            latestPartialRefreshCommitByID.current.set(id, refreshSequence);
+          }
           if (initialLoadIsPending.current) {
-            for (const id of ids) {
+            for (const id of currentIDs) {
               initialLoadPartialIDs.current.add(id);
             }
           }
-          setMods((oldMods) =>
-            oldMods
-              // remove deleted mods
+          const refreshedByID = new Map(
+            mods
+              .filter((mod) => currentIDs.has(mod.id))
+              .map((mod) => [mod.id, mod]),
+          );
+          setMods((oldMods) => {
+            const oldIDs = new Set(oldMods.map((mod) => mod.id));
+            return oldMods
               .filter(
                 (oldMod) =>
-                  // either we're not updating this mod
-                  !ids.some((id) => id === oldMod.id) ||
-                  // or the mod still exists
-                  mods.some((mod) => mod.id === oldMod.id),
+                  !currentIDs.has(oldMod.id) || refreshedByID.has(oldMod.id),
               )
-              // update existing mods
-              .map(
-                (oldMod) => mods.find((mod) => mod.id === oldMod.id) ?? oldMod,
-              )
-              // add new mods
+              .map((oldMod) => refreshedByID.get(oldMod.id) ?? oldMod)
               .concat(
                 mods.filter(
-                  (mod) => !oldMods.some((oldMod) => oldMod.id === mod.id),
+                  (mod) => currentIDs.has(mod.id) && !oldIDs.has(mod.id),
                 ),
-              ),
-          );
+              );
+          });
         } else {
-          setMods(mods);
+          if (latestFullRefreshRequest.current !== refreshSequence) {
+            return mods;
+          }
+          const partiallyRefreshedIDs = new Set(
+            Array.from(latestPartialRefreshCommitByID.current)
+              .filter(([, sequence]) => sequence > refreshSequence)
+              .map(([id]) => id),
+          );
+          latestCommittedFullRefresh.current = refreshSequence;
+          setMods((currentMods) =>
+            mergeFullModsWithPartialRefreshes(
+              mods,
+              currentMods,
+              partiallyRefreshedIDs,
+            ),
+          );
         }
         setModsRevision((revision) => revision + 1);
         return mods;
       } finally {
-        if (ids == null) {
-          setIsLoadingMods(false);
+        if (isFullRefresh) {
+          pendingFullRefreshes.current -= 1;
+          if (
+            pendingFullRefreshes.current === 0 &&
+            !initialLoadIsPending.current
+          ) {
+            setIsLoadingMods(false);
+          }
         }
       }
     },
@@ -403,42 +479,44 @@ export function ModsContextProvider({
     [modsWithoutOverrides, modConfigOverrides],
   );
 
-  const updatedItemsOrder = useMemo(
-    () => [
-      ...itemsOrder.filter(
-        (id) =>
-          mods.some((mod) => mod.id === id) ||
-          sectionHeaders.headers.some(
-            (sectionHeader) => sectionHeader.id === id,
-          ),
-      ),
-      ...mods.map((mod) => mod.id).filter((id) => !itemsOrder.includes(id)),
-      ...sectionHeaders.headers
-        .map((sectionHeader) => sectionHeader.id)
-        .filter((id) => !itemsOrder.includes(id)),
-    ],
-    [itemsOrder, mods, sectionHeaders],
-  );
+  const updatedItemsOrder = useMemo(() => {
+    const modIDs = mods.map((mod) => mod.id);
+    const sectionHeaderIDs = sectionHeaders.headers.map(
+      (sectionHeader) => sectionHeader.id,
+    );
+    const currentIDs = new Set([...modIDs, ...sectionHeaderIDs]);
+    const existingOrderIDs = new Set(itemsOrder);
+    return [
+      ...itemsOrder.filter((id) => currentIDs.has(id)),
+      ...modIDs.filter((id) => !existingOrderIDs.has(id)),
+      ...sectionHeaderIDs.filter((id) => !existingOrderIDs.has(id)),
+    ];
+  }, [itemsOrder, mods, sectionHeaders]);
 
-  const orderedItems = useMemo(
-    () =>
-      [
-        ...mods.map((mod) => ({
-          type: 'mod' as const,
-          id: mod.id,
-          mod,
-        })),
-        ...sectionHeaders.headers.map((sectionHeader) => ({
-          type: 'sectionHeader' as const,
-          id: sectionHeader.id,
-          sectionHeader,
-        })),
-      ].sort(
-        (a, b) =>
-          updatedItemsOrder.indexOf(a.id) - updatedItemsOrder.indexOf(b.id),
-      ),
-    [mods, sectionHeaders, updatedItemsOrder],
-  );
+  const orderedItems = useMemo(() => {
+    const orderByID = new Map<string, number>();
+    updatedItemsOrder.forEach((id, index) => {
+      if (!orderByID.has(id)) {
+        orderByID.set(id, index);
+      }
+    });
+    return [
+      ...mods.map((mod) => ({
+        type: 'mod' as const,
+        id: mod.id,
+        mod,
+      })),
+      ...sectionHeaders.headers.map((sectionHeader) => ({
+        type: 'sectionHeader' as const,
+        id: sectionHeader.id,
+        sectionHeader,
+      })),
+    ].sort(
+      (a, b) =>
+        (orderByID.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+        (orderByID.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }, [mods, sectionHeaders, updatedItemsOrder]);
 
   const reorderItems = useCallback(
     (renderedFromIndex: number, renderedToIndex: number): void => {
@@ -539,6 +617,7 @@ export function ModsContextProvider({
       orderedItems,
       refreshMods,
       reorderItems,
+      saveModConfig,
       sectionHeaders,
       selectedMod,
       setEnabledMods,
@@ -561,6 +640,7 @@ export function ModsContextProvider({
       orderedItems,
       refreshMods,
       reorderItems,
+      saveModConfig,
       sectionHeaders,
       selectedMod,
       setEnabledMods,
@@ -736,6 +816,14 @@ export function useSetModConfig(): IModsContext['setModConfig'] {
     throw new Error('No preferences context available.');
   }
   return context.setModConfig;
+}
+
+export function useSaveModConfig(): IModsContext['saveModConfig'] {
+  const context = useContext(Context);
+  if (context == null) {
+    throw new Error('No preferences context available.');
+  }
+  return context.saveModConfig;
 }
 
 export function useIsInstallConfigChanged(): boolean {
