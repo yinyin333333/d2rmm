@@ -3,7 +3,7 @@ import BridgeAPI from 'renderer/BridgeAPI';
 import { useD2RLoaderPluginManager } from 'renderer/react/context/D2RLoaderPluginContext';
 import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useSanitizedGamePath } from 'renderer/react/context/GamePathContext';
-import { useIsInstalling } from 'renderer/react/context/InstallContext';
+import { useInstallationOperation } from 'renderer/react/context/InstallContext';
 import { useIsPreExtractedData } from 'renderer/react/context/IsPreExtractedDataContext';
 import { useLogger } from 'renderer/react/context/LogContext';
 import {
@@ -43,7 +43,7 @@ export default function useInstallMods(): () => Promise<boolean> {
   const logger = useLogger();
   const modsToInstall = useModsToInstall();
   const [, setInstalledMods] = useInstalledMods();
-  const [, setIsInstalling] = useIsInstalling();
+  const { finishOperation, tryStartOperation } = useInstallationOperation();
   const savesPath = useFinalSavesPath();
 
   const [, setTab] = useTabState();
@@ -62,7 +62,13 @@ export default function useInstallMods(): () => Promise<boolean> {
       setTab('plugins');
       return false;
     }
-    setIsInstalling(true);
+    const operationToken = tryStartOperation(
+      t('install.progress.installingMods'),
+      0,
+    );
+    if (operationToken == null) {
+      return false;
+    }
     try {
       logger.clear();
 
@@ -153,7 +159,7 @@ export default function useInstallMods(): () => Promise<boolean> {
       setTab('logs');
       return false;
     } finally {
-      setIsInstalling(false);
+      finishOperation(operationToken);
     }
   }, [
     d2rLoaderSettings.useD2RLoader,
@@ -174,9 +180,10 @@ export default function useInstallMods(): () => Promise<boolean> {
     preExtractedDataPath,
     savesPath,
     setInstalledMods,
-    setIsInstalling,
+    finishOperation,
     setTab,
     showToast,
     t,
+    tryStartOperation,
   ]);
 }

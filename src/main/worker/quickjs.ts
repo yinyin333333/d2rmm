@@ -2,6 +2,7 @@ import type { AsAsyncSerializableAPI, AsyncSerializableAPI } from 'bridge/API';
 import releaseAsyncVariant from '@jitl/quickjs-wasmfile-release-asyncify';
 import { readFileSync } from 'fs';
 import path from 'path';
+import { performance } from 'perf_hooks';
 import {
   QuickJSAsyncContext,
   QuickJSHandle,
@@ -13,6 +14,49 @@ import {
 import { getIsPackaged, getResourcesPath } from './AppInfoAPI';
 
 let loadedQuickJSAsyncWASMModule: QuickJSAsyncWASMModule | null;
+
+// This budget applies only while QuickJS is executing JavaScript. Async host
+// calls refresh the deadline immediately before control returns to the VM.
+export const QUICKJS_CONTINUOUS_EXECUTION_TIMEOUT_MS = 30_000;
+
+export interface QuickJSExecutionWatchdog {
+  dispose(): void;
+  refresh(): void;
+}
+
+type QuickJSInterruptRuntime = Pick<
+  QuickJSAsyncContext['runtime'],
+  'removeInterruptHandler' | 'setInterruptHandler'
+>;
+
+export function installQuickJSExecutionWatchdog(
+  runtime: QuickJSInterruptRuntime,
+  options: {
+    budgetMs?: number;
+    now?: () => number;
+  } = {},
+): QuickJSExecutionWatchdog {
+  const budgetMs = options.budgetMs ?? QUICKJS_CONTINUOUS_EXECUTION_TIMEOUT_MS;
+  const now = options.now ?? (() => performance.now());
+  if (!Number.isFinite(budgetMs) || budgetMs <= 0) {
+    throw new Error('The QuickJS execution budget must be positive.');
+  }
+
+  let deadline = now() + budgetMs;
+  let disposed = false;
+  runtime.setInterruptHandler(() => !disposed && now() >= deadline);
+
+  return {
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      runtime.removeInterruptHandler();
+    },
+    refresh: () => {
+      if (!disposed) deadline = now() + budgetMs;
+    },
+  };
+}
 
 export async function initQuickJS(): Promise<void> {
   const modulePath = path.join(
@@ -85,6 +129,7 @@ export function getQuickJSProxyAPI<T extends AsyncSerializableAPI<T>>(
   vm: QuickJSAsyncContext,
   scope: Scope,
   api: AsAsyncSerializableAPI<T>,
+  watchdog?: Pick<QuickJSExecutionWatchdog, 'refresh'>,
 ): QuickJSHandle {
   const handle = scope.manage(vm.newObject());
   for (const key in api) {
@@ -92,14 +137,20 @@ export function getQuickJSProxyAPI<T extends AsyncSerializableAPI<T>>(
       handle,
       key,
       scope.manage(
-        vm.newAsyncifiedFunction(key, async (...args) =>
-          getHandleForValue(
-            vm,
-            scope,
-            // @ts-ignore: TypeScript can't recurse deeply enough for this
-            await api[key](...args.map(vm.dump)),
-          ),
-        ),
+        vm.newAsyncifiedFunction(key, async (...args) => {
+          try {
+            return getHandleForValue(
+              vm,
+              scope,
+              // @ts-ignore: TypeScript can't recurse deeply enough for this
+              await api[key](...args.map(vm.dump)),
+            );
+          } finally {
+            // Time spent awaiting Node APIs must not consume the pure-JS
+            // execution budget. Refresh just before asyncify resumes the VM.
+            watchdog?.refresh();
+          }
+        }),
       ),
     );
   }

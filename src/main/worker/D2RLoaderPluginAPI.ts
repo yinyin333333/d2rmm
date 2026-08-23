@@ -6,6 +6,7 @@ import type {
   D2RLoaderPluginInventory,
   D2RLoaderPluginInventoryItem,
   D2RLoaderPluginPackageSummary,
+  D2RLoaderPluginSource,
   ID2RLoaderPluginAPI,
 } from 'bridge/D2RLoaderPluginAPI';
 import { createHash, randomUUID } from 'crypto';
@@ -1273,11 +1274,35 @@ function getCanonicalLoaderTarget(
   return null;
 }
 
+function getUnpackedPluginMPQTarget(
+  relativePath: string,
+  validPluginDLLPaths: Set<string>,
+): string | null {
+  const segments = relativePath.split(/[\\/]+/).filter(Boolean);
+  // A filesystem directory is not represented in CollectedSourceFile, so
+  // infer an unpacked MPQ boundary from each file below a *.mpq path segment.
+  for (let index = segments.length - 2; index >= 0; index -= 1) {
+    const mpqDirectory = segments[index];
+    if (path.extname(mpqDirectory).toLowerCase() !== '.mpq') continue;
+
+    const pluginStem = path.basename(mpqDirectory, path.extname(mpqDirectory));
+    const expectedDLLPath = path.join(
+      ...segments.slice(0, index),
+      `${pluginStem}.dll`,
+    );
+    if (!validPluginDLLPaths.has(pathKey(expectedDLLPath))) continue;
+
+    return path.join('plugins', ...segments.slice(index));
+  }
+  return null;
+}
+
 function createPackageManifest(
   packageName: string,
   sourceRootName: string,
   files: CollectedSourceFile[],
   allowUnsupportedJSON: boolean = false,
+  preserveUnpackedPluginMPQDirectories: boolean = true,
 ): D2RLoaderPackageManifest {
   const warnings: string[] = [];
   const dllBuffers = files
@@ -1288,6 +1313,9 @@ function createPackageManifest(
     (file) =>
       path.extname(file.relativePath).toLowerCase() === '.dll' &&
       hasRequiredPluginExports(readBoundedFile(file.absolutePath)),
+  );
+  const validPluginDLLPaths = new Set(
+    validPluginDLLs.map((file) => pathKey(file.relativePath)),
   );
   const dllSearchTexts = getDLLSearchTexts(dllBuffers);
 
@@ -1301,6 +1329,18 @@ function createPackageManifest(
       sourceRootName,
       file.relativePath,
     );
+    const unpackedPluginMPQTarget = preserveUnpackedPluginMPQDirectories
+      ? getUnpackedPluginMPQTarget(file.relativePath, validPluginDLLPaths)
+      : null;
+    if (unpackedPluginMPQTarget != null) {
+      return {
+        role: 'plugin',
+        sha256,
+        sourcePath: file.relativePath,
+        targetPath: unpackedPluginMPQTarget,
+        targetRoot: 'd2rloader',
+      };
+    }
     if (extension === '.dll') {
       if (hasRequiredPluginExports(buffer)) {
         return {
@@ -1802,22 +1842,45 @@ function readPackageManifest(packagePath: string): D2RLoaderPackageManifest {
     manifest.version === 1,
   );
   if (manifest.version === 2) {
-    const classifiedBySource = new Map(
-      classified.files.map((file) => [pathKey(file.sourcePath), file]),
-    );
-    const mismatch =
-      manifest.files.length !== classified.files.length ||
-      manifest.files.some((file) => {
-        const expected = classifiedBySource.get(pathKey(file.sourcePath));
-        return (
-          expected == null ||
-          expected.role !== file.role ||
-          expected.sha256.toLowerCase() !== file.sha256.toLowerCase() ||
-          expected.targetRoot !== file.targetRoot ||
-          expected.targetPath !== file.targetPath
-        );
-      });
-    if (mismatch) {
+    const matchesClassification = (
+      expectedManifest: D2RLoaderPackageManifest,
+    ): boolean => {
+      const expectedBySource = new Map(
+        expectedManifest.files.map((file) => [pathKey(file.sourcePath), file]),
+      );
+      return (
+        manifest.files.length === expectedManifest.files.length &&
+        manifest.files.every((file) => {
+          const expected = expectedBySource.get(pathKey(file.sourcePath));
+          return (
+            expected != null &&
+            expected.role === file.role &&
+            expected.sha256.toLowerCase() === file.sha256.toLowerCase() &&
+            expected.targetRoot === file.targetRoot &&
+            expected.targetPath === file.targetPath
+          );
+        })
+      );
+    };
+    if (!matchesClassification(classified)) {
+      // Version 2 manifests created before unpacked MPQ directory support
+      // flattened or separately classified their contents. Validate against
+      // that exact legacy classifier, then return the corrected classification
+      // so an existing package is repaired on its next deployment.
+      const legacyClassified = createPackageManifest(
+        packageName,
+        packageName,
+        collectSourceFiles(sourceRoot),
+        false,
+        false,
+      );
+      if (matchesClassification(legacyClassified)) {
+        return {
+          ...classified,
+          importedAt: manifest.importedAt,
+          name: packageName,
+        };
+      }
       throw new Error(
         `Managed D2RLoader package manifest does not match its source classification: "${manifestPath}". Re-import the package.`,
       );
@@ -2136,6 +2199,14 @@ type ModEditableSource = Extract<
   { sourceType: 'mod' }
 >;
 
+type ModPluginSource = Extract<D2RLoaderPluginSource, { sourceType: 'mod' }>;
+
+type ResolvedModPluginSource = {
+  filePath: string;
+  sourcePath: string;
+  targetPath: string;
+};
+
 type ResolvedModEditableSource = {
   filePath: string;
   format: 'json' | 'toml';
@@ -2170,10 +2241,10 @@ function getValidatedModRoot(appRoot: string, modID: string): string {
   }
 }
 
-function resolveModEditableSource(
+function resolveModPluginSource(
   appRoot: string,
-  source: ModEditableSource,
-): ResolvedModEditableSource {
+  source: ModPluginSource,
+): ResolvedModPluginSource {
   const modRoot = getValidatedModRoot(appRoot, source.modID);
   let requestedLoaderRoot: string;
   try {
@@ -2233,6 +2304,19 @@ function resolveModEditableSource(
     );
   }
 
+  return {
+    filePath,
+    sourcePath: source.sourcePath,
+    targetPath: path.join(source.category, source.sourcePath),
+  };
+}
+
+function resolveModEditableSource(
+  appRoot: string,
+  source: ModEditableSource,
+): ResolvedModEditableSource {
+  const resolved = resolveModPluginSource(appRoot, source);
+
   const isTOML =
     source.category === 'config' &&
     /\.toml$/i.test(source.sourcePath) &&
@@ -2247,7 +2331,7 @@ function resolveModEditableSource(
   }
 
   return {
-    filePath,
+    ...resolved,
     format: isTOML ? 'toml' : 'json',
     formatLabel: isTOML ? 'TOML' : 'JSON/JSONC',
     role:
@@ -2256,8 +2340,6 @@ function resolveModEditableSource(
         : source.category === 'patches'
           ? 'patch'
           : 'plugin',
-    sourcePath: source.sourcePath,
-    targetPath: path.join(source.category, source.sourcePath),
   };
 }
 
@@ -2622,11 +2704,13 @@ function inventoryItem(
   relativePath: string,
   filePath: string,
   packageName: string | null,
+  deletionSource: D2RLoaderPluginSource,
   sha256: string = hashFile(filePath),
   editableSourcePath: string | null = null,
   editableSource: D2RLoaderPluginEditableSource | null = null,
 ): D2RLoaderPluginInventoryItem {
   return {
+    deletionSource,
     editableSource,
     editableSourcePath,
     id: `${sourceType}:${sourceName}:${editableSourcePath ?? relativePath}`,
@@ -2689,6 +2773,11 @@ function listInventoryFiles(
                 sourcePath: editableSourcePath,
                 sourceType: 'mod' as const,
               };
+        const deletionSource = {
+          ...location,
+          sourcePath: relativePath,
+          sourceType: 'mod' as const,
+        };
         result.push(
           inventoryItem(
             'mod',
@@ -2696,6 +2785,7 @@ function listInventoryFiles(
             relativePath,
             entryPath,
             null,
+            deletionSource,
             undefined,
             editableSourcePath,
             editableSource,
@@ -2922,6 +3012,11 @@ export function readD2RLoaderPluginInventory(
         relativePath,
         sourcePath,
         manifest.name,
+        {
+          packageName: manifest.name,
+          sourcePath: file.sourcePath,
+          sourceType: 'managed',
+        },
         sourceHash,
         editableSourcePath,
         editableSource,
@@ -3214,6 +3309,140 @@ export function deleteD2RLoaderPluginPackage(
   mkdirSync(packagesRoot, { recursive: true });
 }
 
+function assertExpectedPluginSourceRevision(expectedSha256: string): void {
+  if (!/^[a-f0-9]{64}$/i.test(expectedSha256)) {
+    throw new Error('Invalid expected D2RLoader file revision hash.');
+  }
+}
+
+function assertPluginSourceRevision(
+  filePath: string,
+  expectedSha256: string,
+): void {
+  if (hashFile(filePath).toLowerCase() !== expectedSha256.toLowerCase()) {
+    throw createD2RLoaderPluginEditConflictError(
+      'The D2RLoader file changed since the inventory was refreshed. Refresh and try again.',
+    );
+  }
+}
+
+function deleteModPluginSourceFile(
+  filePath: string,
+  expectedSha256: string,
+): void {
+  assertPluginSourceRevision(filePath, expectedSha256);
+  const backupPath = path.join(
+    path.dirname(filePath),
+    `.d2rmm-delete-${randomUUID()}.bak`,
+  );
+  let originalMoved = false;
+  try {
+    renameSync(filePath, backupPath);
+    originalMoved = true;
+    assertPluginSourceRevision(backupPath, expectedSha256);
+    rmSync(backupPath);
+    originalMoved = false;
+  } catch (error) {
+    if (originalMoved && existsSync(backupPath) && !existsSync(filePath)) {
+      try {
+        renameSync(backupPath, filePath);
+        originalMoved = false;
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          'Failed to delete the mod D2RLoader file and restore its previous contents.',
+        );
+      }
+    }
+    throw error;
+  }
+}
+
+function deleteManagedPluginPackageSource(
+  appRoot: string,
+  source: Extract<D2RLoaderPluginSource, { sourceType: 'managed' }>,
+  expectedSha256: string,
+): void {
+  let packagePath: string;
+  let manifest: D2RLoaderPackageManifest;
+  try {
+    packagePath = getValidatedD2RLoaderPackagePath(appRoot, source.packageName);
+    manifest = readPackageManifest(packagePath);
+  } catch (error) {
+    throw createD2RLoaderPluginEditConflictError(
+      `Managed package "${source.packageName}" changed since the inventory was refreshed. Refresh and try again. ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  const manifestFile = manifest.files.find(
+    (file) => pathKey(file.sourcePath) === pathKey(source.sourcePath),
+  );
+  if (manifestFile == null) {
+    throw createD2RLoaderPluginEditConflictError(
+      `Managed package file no longer exists: "${source.sourcePath}". Refresh the inventory.`,
+    );
+  }
+  let filePath: string;
+  try {
+    filePath = getManagedPackageSourcePath(
+      packagePath,
+      manifestFile.sourcePath,
+    );
+  } catch (error) {
+    throw createD2RLoaderPluginEditConflictError(
+      `Managed package file changed since the inventory was refreshed: "${source.sourcePath}". Refresh and try again. ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  assertPluginSourceRevision(filePath, expectedSha256);
+
+  const backupPath = path.join(
+    path.dirname(packagePath),
+    `.d2rmm-delete-${randomUUID()}.bak`,
+  );
+  let packageMoved = false;
+  try {
+    renameSync(packagePath, backupPath);
+    packageMoved = true;
+    assertPluginSourceRevision(
+      getManagedPackageSourcePath(backupPath, manifestFile.sourcePath),
+      expectedSha256,
+    );
+    rmSync(backupPath, { force: true, recursive: true });
+    packageMoved = false;
+  } catch (error) {
+    if (packageMoved && existsSync(backupPath) && !existsSync(packagePath)) {
+      try {
+        renameSync(backupPath, packagePath);
+        packageMoved = false;
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          `Failed to delete managed package "${source.packageName}" and restore it.`,
+        );
+      }
+    }
+    throw error;
+  }
+}
+
+export function deleteD2RLoaderPluginSource(
+  appRoot: string,
+  source: D2RLoaderPluginSource,
+  expectedSha256: string,
+): void {
+  assertExpectedPluginSourceRevision(expectedSha256);
+  if (source.sourceType === 'managed') {
+    deleteManagedPluginPackageSource(appRoot, source, expectedSha256);
+    return;
+  }
+
+  const resolved = resolveModPluginSource(appRoot, source);
+  deleteModPluginSourceFile(resolved.filePath, expectedSha256);
+}
+
 let packageMutationTail: Promise<void> = Promise.resolve();
 
 function runPackageMutation<T>(operation: () => T | Promise<T>): Promise<T> {
@@ -3232,6 +3461,10 @@ export async function initD2RLoaderPluginAPI(): Promise<void> {
     deletePackage: async (packageName) =>
       runPackageMutation(() =>
         deleteD2RLoaderPluginPackage(appRoot, packageName),
+      ),
+    deleteSource: async (source, expectedSha256) =>
+      runPackageMutation(() =>
+        deleteD2RLoaderPluginSource(appRoot, source, expectedSha256),
       ),
     importSources: async (sourcePaths) =>
       runPackageMutation(() =>

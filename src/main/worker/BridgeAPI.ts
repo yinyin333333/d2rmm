@@ -79,7 +79,11 @@ import { parseSprite } from './SpriteParser';
 import { encodeTsv, parseTsv } from './TSVParser';
 import './asar';
 import { datamod } from './datamod';
-import { getQuickJS, getQuickJSProxyAPI } from './quickjs';
+import {
+  getQuickJS,
+  getQuickJSProxyAPI,
+  installQuickJSExecutionWatchdog,
+} from './quickjs';
 import * as d2s from './third-party/d2s/index';
 
 let runtime: InstallationRuntime | null = null;
@@ -1767,30 +1771,40 @@ const config = JSON.parse(D2RMM.getConfigJSON());
               `Mod configuration: ${JSON.stringify(runtime!.mod.config)}`,
             );
             const vm = scope.manage(getQuickJS().newContext());
-            vm.setProp(
-              vm.global,
-              'console',
-              getQuickJSProxyAPI(vm, scope, {
-                debug: async (...args: ConsoleArg[]) => {
-                  console.debug(...args);
-                },
-                log: async (...args: ConsoleArg[]) => {
-                  console.log(...args);
-                },
-                warn: async (...args: ConsoleArg[]) => {
-                  console.warn(...args);
-                },
-                error: async (...args: ConsoleArg[]) => {
-                  console.error(...args);
-                },
-              } as ConsoleAPI),
-            );
-            vm.setProp(
-              vm.global,
-              'D2RMM',
-              getQuickJSProxyAPI(vm, scope, getModAPI(runtime!)),
-            );
-            scope.manage(vm.unwrapResult(await vm.evalCodeAsync(code)));
+            const watchdog = installQuickJSExecutionWatchdog(vm.runtime);
+            try {
+              vm.setProp(
+                vm.global,
+                'console',
+                getQuickJSProxyAPI(
+                  vm,
+                  scope,
+                  {
+                    debug: async (...args: ConsoleArg[]) => {
+                      console.debug(...args);
+                    },
+                    log: async (...args: ConsoleArg[]) => {
+                      console.log(...args);
+                    },
+                    warn: async (...args: ConsoleArg[]) => {
+                      console.warn(...args);
+                    },
+                    error: async (...args: ConsoleArg[]) => {
+                      console.error(...args);
+                    },
+                  } as ConsoleAPI,
+                  watchdog,
+                ),
+              );
+              vm.setProp(
+                vm.global,
+                'D2RMM',
+                getQuickJSProxyAPI(vm, scope, getModAPI(runtime!), watchdog),
+              );
+              scope.manage(vm.unwrapResult(await vm.evalCodeAsync(code)));
+            } finally {
+              watchdog.dispose();
+            }
           });
           console.debug(
             `Mod ${action.toLowerCase()} took ${Date.now() - startTime}ms.`,
@@ -1842,15 +1856,18 @@ const config = JSON.parse(D2RMM.getConfigJSON());
         await applyManagedD2RLoaderPackages(runtime);
       }
 
-      EventAPI.send(
-        'installationProgress',
-        runtime.modsToInstall.length,
-        runtime.modsToInstall.length,
-      ).catch(console.error);
-
       // Flush in-memory files to the generated mod output. Dry runs keep the
       // historical memory-only behavior and never modify files on disk.
       if (hasInstallOutputChanges && !runtime.options.isDryRun) {
+        // Progress remains indeterminate until all generated output and save
+        // data have actually reached disk. Await the notification so the UI
+        // can enter its finalizing state before destructive output work starts.
+        await EventAPI.send('installationStatus', {
+          phase: 'finalizing',
+          installedModsCount: runtime.modsInstalled.length,
+          totalModsCount: runtime.modsToInstall.length,
+        }).catch(console.error);
+
         // delete old output
         await BridgeAPI.deleteFile(
           path.join(runtime.options.mergedPath, '..'),
@@ -1974,6 +1991,12 @@ const config = JSON.parse(D2RMM.getConfigJSON());
           },
         });
       }
+
+      await EventAPI.send(
+        'installationProgress',
+        runtime.modsToInstall.length,
+        runtime.modsToInstall.length,
+      ).catch(console.error);
 
       const modsInstalled = runtime.modsInstalled;
       return modsInstalled;

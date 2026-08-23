@@ -21,6 +21,7 @@ import {
   D2R_LOADER_PACKAGES_DIRECTORY,
   applyManagedD2RLoaderPackages,
   deleteD2RLoaderPluginPackage,
+  deleteD2RLoaderPluginSource,
   getManagedD2RLoaderDeployment,
   importD2RLoaderPluginSources,
   readD2RLoaderPluginPackageJSON,
@@ -177,6 +178,17 @@ describe('D2RLoader plugin package manager', () => {
       ['Mod B', 'same.dll'],
       [`Mod C (${path.join('Wrapped.mpq')})`, 'wrapped.dll'],
     ]);
+    expect(first.plugins[2]).toEqual(
+      expect.objectContaining({
+        deletionSource: {
+          category: 'plugins',
+          loaderRootPath: path.join('Wrapped.mpq', 'd2rloader'),
+          modID: 'Mod C',
+          sourcePath: 'wrapped.dll',
+          sourceType: 'mod',
+        },
+      }),
+    );
     expect(first.patches).toEqual([
       expect.objectContaining({
         sourceName: 'Mod B',
@@ -1991,6 +2003,181 @@ describe('D2RLoader plugin package manager', () => {
       /same normalized output target/i,
     );
     expect(write).not.toHaveBeenCalled();
+    expectSentinelUnchanged();
+  });
+
+  it('deletes the managed package represented by a file-library entry', async () => {
+    const deleteSource = path.join(incomingRoot, 'Delete Through Library');
+    const keepSource = path.join(incomingRoot, 'Keep Through Library');
+    writeFile(path.join(deleteSource, 'DeleteMe.dll'), fakePluginDLL('delete'));
+    writeFile(path.join(deleteSource, 'companion.json'), '{"enabled":true}');
+    writeFile(path.join(keepSource, 'KeepMe.dll'), fakePluginDLL('keep'));
+    await importD2RLoaderPluginSources(appRoot, [deleteSource, keepSource]);
+
+    const inventory = readD2RLoaderPluginInventory(appRoot, []);
+    const item = inventory.plugins.find(
+      ({ packageName, name }) =>
+        packageName === 'Delete Through Library' && name === 'DeleteMe.dll',
+    );
+    if (item == null) throw new Error('Expected managed inventory item.');
+
+    deleteD2RLoaderPluginSource(appRoot, item.deletionSource, item.sha256);
+
+    expect(
+      existsSync(
+        path.join(
+          appRoot,
+          D2R_LOADER_PACKAGES_DIRECTORY,
+          'Delete Through Library',
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      existsSync(
+        path.join(
+          appRoot,
+          D2R_LOADER_PACKAGES_DIRECTORY,
+          'Keep Through Library',
+        ),
+      ),
+    ).toBe(true);
+    expectSentinelUnchanged();
+  });
+
+  it('rejects stale or forged managed file-library deletion descriptors', async () => {
+    const source = path.join(incomingRoot, 'Managed Revision');
+    writeFile(path.join(source, 'Managed.dll'), fakePluginDLL('original'));
+    await importD2RLoaderPluginSources(appRoot, [source]);
+
+    const item = readD2RLoaderPluginInventory(appRoot, []).plugins.find(
+      ({ packageName }) => packageName === 'Managed Revision',
+    );
+    if (item == null || item.deletionSource.sourceType !== 'managed') {
+      throw new Error('Expected managed inventory item.');
+    }
+    const managedFilePath = path.join(
+      appRoot,
+      D2R_LOADER_PACKAGES_DIRECTORY,
+      'Managed Revision',
+      'source',
+      item.deletionSource.sourcePath,
+    );
+    writeFile(managedFilePath, fakePluginDLL('changed externally'));
+
+    const staleError = captureError(() =>
+      deleteD2RLoaderPluginSource(appRoot, item.deletionSource, item.sha256),
+    );
+    expect(isD2RLoaderPluginEditConflictError(staleError)).toBe(true);
+    expect(
+      existsSync(
+        path.join(appRoot, D2R_LOADER_PACKAGES_DIRECTORY, 'Managed Revision'),
+      ),
+    ).toBe(true);
+    writeFile(managedFilePath, fakePluginDLL('original'));
+    expect(() =>
+      deleteD2RLoaderPluginSource(
+        appRoot,
+        {
+          ...item.deletionSource,
+          sourcePath: path.join('..', '..', 'outside', 'sentinel.txt'),
+        },
+        item.sha256,
+      ),
+    ).toThrow(/no longer exists/i);
+    expectSentinelUnchanged();
+  });
+
+  it('deletes an exact mod plugin source inside a mod MPQ directory', () => {
+    const modID = 'MPQ Plugin Mod';
+    const mpqRoot = path.join(appRoot, 'mods', modID, 'Package.mpq');
+    const deletePath = path.join(
+      mpqRoot,
+      'd2rloader',
+      'plugins',
+      'delete-me.dll',
+    );
+    const keepPath = path.join(mpqRoot, 'd2rloader', 'plugins', 'keep-me.dll');
+    writeFile(path.join(mpqRoot, 'modinfo.json'), '{}');
+    mkdirSync(path.join(mpqRoot, 'data'), { recursive: true });
+    writeFile(deletePath, 'delete');
+    writeFile(keepPath, 'keep');
+
+    const inventory = readD2RLoaderPluginInventory(appRoot, [modID]);
+    const item = inventory.plugins.find(({ name }) => name === 'delete-me.dll');
+    if (item == null || item.deletionSource.sourceType !== 'mod') {
+      throw new Error('Expected MPQ-backed mod inventory item.');
+    }
+    expect(item.deletionSource).toEqual({
+      category: 'plugins',
+      loaderRootPath: path.join('Package.mpq', 'd2rloader'),
+      modID,
+      sourcePath: 'delete-me.dll',
+      sourceType: 'mod',
+    });
+
+    deleteD2RLoaderPluginSource(appRoot, item.deletionSource, item.sha256);
+
+    expect(existsSync(deletePath)).toBe(false);
+    expect(readFileSync(keepPath, 'utf8')).toBe('keep');
+    expect(
+      readD2RLoaderPluginInventory(appRoot, [modID]).plugins.map(
+        ({ name }) => name,
+      ),
+    ).toEqual(['keep-me.dll']);
+    expectSentinelUnchanged();
+  });
+
+  it('rejects stale and escaping mod file-library deletions', () => {
+    const modID = 'Protected Mod';
+    const filePath = path.join(
+      appRoot,
+      'mods',
+      modID,
+      'd2rloader',
+      'plugins',
+      'protected.dll',
+    );
+    writeFile(filePath, 'original');
+    const item = readD2RLoaderPluginInventory(appRoot, [modID]).plugins[0];
+    if (item == null || item.deletionSource.sourceType !== 'mod') {
+      throw new Error('Expected mod inventory item.');
+    }
+    const deletionSource = item.deletionSource;
+
+    writeFile(filePath, 'changed externally');
+    const staleError = captureError(() =>
+      deleteD2RLoaderPluginSource(appRoot, deletionSource, item.sha256),
+    );
+    expect(isD2RLoaderPluginEditConflictError(staleError)).toBe(true);
+    expect(readFileSync(filePath, 'utf8')).toBe('changed externally');
+
+    expect(() =>
+      deleteD2RLoaderPluginSource(
+        appRoot,
+        {
+          ...deletionSource,
+          sourcePath: path.join(
+            '..',
+            '..',
+            '..',
+            '..',
+            'outside',
+            'sentinel.txt',
+          ),
+        },
+        item.sha256,
+      ),
+    ).toThrow(/invalid mod plugin source path/i);
+    expect(() =>
+      deleteD2RLoaderPluginSource(
+        appRoot,
+        {
+          ...deletionSource,
+          loaderRootPath: path.join('..', '..', 'outside'),
+        },
+        item.sha256,
+      ),
+    ).toThrow(/invalid D2RLoader root/i);
     expectSentinelUnchanged();
   });
 

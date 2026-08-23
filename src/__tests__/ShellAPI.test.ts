@@ -1,5 +1,10 @@
-import { dialog } from 'electron';
-import { selectDirectory } from '../main/ShellAPI';
+import { dialog, shell } from 'electron';
+import { openPath, selectDirectory } from '../main/ShellAPI';
+import { stat } from 'fs/promises';
+
+jest.mock('fs/promises', () => ({
+  stat: jest.fn(),
+}));
 
 jest.mock('electron', () => ({
   dialog: {
@@ -7,11 +12,14 @@ jest.mock('electron', () => ({
   },
   shell: {
     openExternal: jest.fn(),
+    openPath: jest.fn(),
     showItemInFolder: jest.fn(),
   },
 }));
 
 const showOpenDialog = dialog.showOpenDialog as jest.Mock;
+const shellOpenPath = shell.openPath as jest.Mock;
+const statPath = stat as jest.Mock;
 
 describe('ShellAPI selectDirectory', () => {
   beforeEach(() => {
@@ -43,5 +51,38 @@ describe('ShellAPI selectDirectory', () => {
     expect(showOpenDialog).toHaveBeenCalledWith({
       properties: ['openDirectory', 'createDirectory'],
     });
+  });
+});
+
+describe('ShellAPI openPath', () => {
+  beforeEach(() => {
+    shellOpenPath.mockReset();
+    statPath.mockReset().mockResolvedValue({ isDirectory: () => true });
+  });
+
+  it('opens a directory directly in the system file explorer', async () => {
+    shellOpenPath.mockResolvedValue('');
+
+    await expect(openPath('C:\\D2RMM\\d2rloader')).resolves.toBeUndefined();
+    expect(shellOpenPath).toHaveBeenCalledWith('C:\\D2RMM\\d2rloader');
+  });
+
+  it('rejects when Electron reports that the path could not be opened', async () => {
+    shellOpenPath.mockResolvedValue(
+      'The system cannot find the path specified.',
+    );
+
+    await expect(openPath('C:\\missing')).rejects.toThrow(
+      'The system cannot find the path specified.',
+    );
+  });
+
+  it('rejects files instead of asking the operating system to execute them', async () => {
+    statPath.mockResolvedValue({ isDirectory: () => false });
+
+    await expect(openPath('C:\\untrusted.exe')).rejects.toThrow(
+      'Path is not a directory',
+    );
+    expect(shellOpenPath).not.toHaveBeenCalled();
   });
 });

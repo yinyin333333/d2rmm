@@ -1,8 +1,10 @@
 import ElectronUtilsAPI from 'renderer/ElectronUtilsAPI';
 import ModUpdaterAPI from 'renderer/ModUpdaterAPI';
+import { useInstallationOperation } from 'renderer/react/context/InstallContext';
 import { useMods } from 'renderer/react/context/ModsContext';
 import useToast from 'renderer/react/hooks/useToast';
 import { useCallback, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export type ModDropZoneHandlers = {
   isDraggingOver: boolean;
@@ -14,7 +16,10 @@ export type ModDropZoneHandlers = {
 
 export default function useModDropZone(): ModDropZoneHandlers {
   const showToast = useToast();
+  const { t } = useTranslation();
   const [, refreshMods] = useMods();
+  const { finishOperation, tryStartOperation, updateOperation } =
+    useInstallationOperation();
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   // useRef (not state) so depth is mutated synchronously without triggering renders
   const dragDepth = useRef(0);
@@ -80,39 +85,74 @@ export default function useModDropZone(): ModDropZoneHandlers {
         return;
       }
 
+      const operationToken = tryStartOperation(
+        t('install.progress.installingDrop', {
+          name: installable[0].file.name,
+          current: 1,
+          total: installable.length,
+        }),
+      );
+      if (operationToken == null) {
+        showToast({
+          duration: 4000,
+          severity: 'info',
+          title: t('install.disabled.activeOperation'),
+        });
+        return;
+      }
+
       // Install sequentially to avoid race conditions when multiple items share a modID
       (async () => {
-        for (const item of installable) {
-          const itemPath = ElectronUtilsAPI.getPathForFile(item.file);
-          const modID =
-            item.kind === 'zip'
-              ? item.file.name.replace(/\.zip$/i, '')
-              : item.file.name;
-          try {
-            if (item.kind === 'zip') {
-              await ModUpdaterAPI.installModFromZip(itemPath);
-            } else {
-              await ModUpdaterAPI.installModFromFolder(itemPath);
+        try {
+          for (const [index, item] of installable.entries()) {
+            const itemPath = ElectronUtilsAPI.getPathForFile(item.file);
+            const modID =
+              item.kind === 'zip'
+                ? item.file.name.replace(/\.zip$/i, '')
+                : item.file.name;
+            updateOperation(operationToken, {
+              label: t('install.progress.installingDrop', {
+                name: item.file.name,
+                current: index + 1,
+                total: installable.length,
+              }),
+              progress: null,
+            });
+            try {
+              if (item.kind === 'zip') {
+                await ModUpdaterAPI.installModFromZip(itemPath);
+              } else {
+                await ModUpdaterAPI.installModFromFolder(itemPath);
+              }
+              const mods = await refreshMods([modID]);
+              const mod = mods.find((m) => m.id === modID);
+              showToast({
+                severity: 'success',
+                title: `${mod?.info.name ?? modID} installed!`,
+                duration: 5000,
+              });
+            } catch (error) {
+              showToast({
+                severity: 'error',
+                title: `Failed to install ${modID}`,
+                description:
+                  error instanceof Error ? error.message : String(error),
+              });
             }
-            const mods = await refreshMods([modID]);
-            const mod = mods.find((m) => m.id === modID);
-            showToast({
-              severity: 'success',
-              title: `${mod?.info.name ?? modID} installed!`,
-              duration: 5000,
-            });
-          } catch (error) {
-            showToast({
-              severity: 'error',
-              title: `Failed to install ${modID}`,
-              description:
-                error instanceof Error ? error.message : String(error),
-            });
           }
+        } finally {
+          finishOperation(operationToken);
         }
       })().catch(console.error);
     },
-    [showToast, refreshMods],
+    [
+      finishOperation,
+      refreshMods,
+      showToast,
+      tryStartOperation,
+      t,
+      updateOperation,
+    ],
   );
 
   return { isDraggingOver, onDragEnter, onDragLeave, onDragOver, onDrop };

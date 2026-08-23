@@ -1,7 +1,6 @@
 import type {
   D2RLoaderPluginEditableJSON,
   D2RLoaderPluginInventoryItem,
-  D2RLoaderPluginPackageSummary,
 } from 'bridge/D2RLoaderPluginAPI';
 import BridgeAPI from 'renderer/BridgeAPI';
 import ShellAPI from 'renderer/ShellAPI';
@@ -12,7 +11,6 @@ import {
 } from 'renderer/react/context/DialogContext';
 import { useIsInstalling } from 'renderer/react/context/InstallContext';
 import useToast from 'renderer/react/hooks/useToast';
-import { type TFunction } from 'i18next';
 import { isD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -85,15 +83,21 @@ function groupInventoryItems(
 function EditableInventoryFile({
   disabled,
   item,
+  onDelete,
 }: {
   disabled: boolean;
   item: D2RLoaderPluginInventoryItem;
+  onDelete: (item: D2RLoaderPluginInventoryItem) => Promise<void>;
 }): JSX.Element {
   const { t } = useTranslation();
   const editorID = useId();
   const showToast = useToast();
-  const { readEditableJSON, saveEditableJSON, setEditableJSONDirty } =
-    useD2RLoaderPluginManager();
+  const {
+    hasUnsavedEdits,
+    readEditableJSON,
+    saveEditableJSON,
+    setEditableJSONDirty,
+  } = useD2RLoaderPluginManager();
   const [document, setDocument] = useState<D2RLoaderPluginEditableJSON | null>(
     null,
   );
@@ -334,6 +338,11 @@ function EditableInventoryFile({
               {t('plugins.editor.edit')}
             </Button>
           ) : null}
+          <InventoryDeleteAction
+            disabled={disabled || hasUnsavedEdits || isLoading || isSaving}
+            item={item}
+            onDelete={onDelete}
+          />
         </Stack>
       </ListItem>
       {isEditable ? (
@@ -470,10 +479,12 @@ function InventoryGroupCard({
   defaultExpanded,
   disabled,
   group,
+  onDelete,
 }: {
   defaultExpanded: boolean;
   disabled: boolean;
   group: InventoryGroup;
+  onDelete: (item: D2RLoaderPluginInventoryItem) => Promise<void>;
 }): JSX.Element {
   const { t } = useTranslation();
   const filesID = useId();
@@ -552,7 +563,11 @@ function InventoryGroupCard({
                   listStyle: 'none',
                 }}
               >
-                <EditableInventoryFile disabled={disabled} item={item} />
+                <EditableInventoryFile
+                  disabled={disabled}
+                  item={item}
+                  onDelete={onDelete}
+                />
               </Box>
             ))}
           </List>
@@ -566,11 +581,13 @@ function InventorySection({
   disabled,
   emptyText,
   items,
+  onDelete,
   title,
 }: {
   disabled: boolean;
   emptyText: string;
   items: D2RLoaderPluginInventoryItem[];
+  onDelete: (item: D2RLoaderPluginInventoryItem) => Promise<void>;
   title: string;
 }): JSX.Element {
   const groups = useMemo(() => groupInventoryItems(items), [items]);
@@ -594,6 +611,7 @@ function InventorySection({
               defaultExpanded={items.length <= 200 && groups.length <= 20}
               disabled={disabled}
               group={group}
+              onDelete={onDelete}
             />
           ))}
         </Stack>
@@ -602,89 +620,22 @@ function InventorySection({
   );
 }
 
-function packageDetails(
-  packageInfo: D2RLoaderPluginPackageSummary,
-  t: TFunction,
-): string {
-  const details = [
-    t('plugins.package.count.plugins', {
-      count: packageInfo.pluginFiles.length,
-    }),
-    t('plugins.package.count.patches', {
-      count: packageInfo.patchFiles.length,
-    }),
-  ];
-  if (packageInfo.configFiles.length > 0) {
-    details.push(
-      t('plugins.package.count.configs', {
-        count: packageInfo.configFiles.length,
-      }),
-    );
-  }
-  if (packageInfo.dataFiles.length > 0) {
-    details.push(
-      t('plugins.package.count.data', { count: packageInfo.dataFiles.length }),
-    );
-  }
-  if (packageInfo.unmappedFiles.length > 0) {
-    details.push(
-      t('plugins.package.count.preserved', {
-        count: packageInfo.unmappedFiles.length,
-      }),
-    );
-  }
-  return details.join(' • ');
-}
-
-function PackageTargets({
-  packageInfo,
-}: {
-  packageInfo: D2RLoaderPluginPackageSummary;
-}): JSX.Element {
-  const { t } = useTranslation();
-  const groups = [
-    ['plugins.category.plugins', 'd2rloader', packageInfo.pluginFiles],
-    ['plugins.category.patches', 'd2rloader', packageInfo.patchFiles],
-    ['plugins.category.configs', 'd2rloader', packageInfo.configFiles],
-    ['plugins.package.target.modData', 'MPQ data', packageInfo.dataFiles],
-    ['plugins.package.target.preserved', 'storage', packageInfo.unmappedFiles],
-  ] as const;
-  return (
-    <Stack spacing={0.5}>
-      {groups.map(([label, root, files]) =>
-        files.length === 0 ? null : (
-          <Typography
-            key={label}
-            color={
-              label === 'plugins.package.target.preserved'
-                ? 'warning.main'
-                : 'text.secondary'
-            }
-            sx={{ overflowWrap: 'anywhere' }}
-            variant="caption"
-          >
-            {t(label)}: {files.map((file) => `${root}/${file}`).join(', ')}
-          </Typography>
-        ),
-      )}
-    </Stack>
-  );
-}
-
-function PackageDeleteDialog({
+function InventoryDeleteDialog({
+  item,
   onDelete,
-  packageName,
 }: {
-  onDelete: (packageName: string) => Promise<void>;
-  packageName: string;
+  item: D2RLoaderPluginInventoryItem;
+  onDelete: (item: D2RLoaderPluginInventoryItem) => Promise<void>;
 }): JSX.Element {
   const { t } = useTranslation();
   const { close, isOpen } = useDialogContext();
   const dialogTitleID = useId();
+  const packageName = item.packageName ?? item.sourceName;
+  const isManaged = item.sourceType === 'managed';
   const onConfirm = useCallback(() => {
     close();
-    onDelete(packageName).catch(console.error);
-  }, [close, onDelete, packageName]);
+    onDelete(item).catch(console.error);
+  }, [close, item, onDelete]);
   return (
     <Dialog
       aria-labelledby={dialogTitleID}
@@ -694,11 +645,20 @@ function PackageDeleteDialog({
     >
       <DialogContent>
         <DialogContentText id={dialogTitleID}>
-          {t('plugins.package.delete.confirm', { package: packageName })}
+          {isManaged
+            ? t('plugins.package.delete.confirm', { package: packageName })
+            : t('plugins.file.delete.confirm.mod', {
+                file: item.name,
+                source: item.sourceName,
+              })}
         </DialogContentText>
         <br />
         <DialogContentText>
-          {t('plugins.package.delete.description')}
+          {t(
+            isManaged
+              ? 'plugins.package.delete.description'
+              : 'plugins.file.delete.description.mod',
+          )}
         </DialogContentText>
       </DialogContent>
       <DialogActions>
@@ -711,115 +671,43 @@ function PackageDeleteDialog({
   );
 }
 
-function PackageDeleteAction({
+function InventoryDeleteAction({
   disabled,
+  item,
   onDelete,
-  packageName,
 }: {
   disabled: boolean;
-  onDelete: (packageName: string) => Promise<void>;
-  packageName: string;
+  item: D2RLoaderPluginInventoryItem;
+  onDelete: (item: D2RLoaderPluginInventoryItem) => Promise<void>;
 }): JSX.Element {
   const { t } = useTranslation();
+  const packageName = item.packageName ?? item.sourceName;
+  const label =
+    item.sourceType === 'managed'
+      ? t('plugins.file.delete.tooltip.managed', {
+          file: item.name,
+          package: packageName,
+        })
+      : t('plugins.file.delete.tooltip.mod', {
+          file: item.name,
+          source: item.sourceName,
+        });
   const [openDialog] = useDialog(
-    <PackageDeleteDialog onDelete={onDelete} packageName={packageName} />,
+    <InventoryDeleteDialog item={item} onDelete={onDelete} />,
   );
   return (
-    <Tooltip
-      title={t('plugins.package.delete.tooltip', { package: packageName })}
-    >
+    <Tooltip title={label}>
       <span>
         <IconButton
-          aria-label={t('plugins.package.delete.tooltip', {
-            package: packageName,
-          })}
+          aria-label={label}
           disabled={disabled}
           onClick={openDialog}
+          size="small"
         >
-          <DeleteOutline />
+          <DeleteOutline fontSize="small" />
         </IconButton>
       </span>
     </Tooltip>
-  );
-}
-
-function ManagedPackageCard({
-  disabled,
-  onDelete,
-  packageInfo,
-}: {
-  disabled: boolean;
-  onDelete: (packageName: string) => Promise<void>;
-  packageInfo: D2RLoaderPluginPackageSummary;
-}): JSX.Element {
-  const { t } = useTranslation();
-  const [showDetails, setShowDetails] = useState(false);
-  const detailsID = useId();
-  return (
-    <Paper
-      sx={{
-        borderLeft: 4,
-        borderLeftColor: 'primary.main',
-        overflow: 'hidden',
-      }}
-      variant="outlined"
-    >
-      <Stack alignItems="center" direction="row" spacing={1} sx={{ p: 1.5 }}>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{ fontWeight: 600 }} variant="subtitle1">
-            {packageInfo.name}
-          </Typography>
-          <Typography color="text.secondary" variant="body2">
-            {packageDetails(packageInfo, t)}
-          </Typography>
-        </Box>
-        <Button
-          aria-controls={detailsID}
-          aria-expanded={showDetails}
-          aria-label={t(
-            showDetails
-              ? 'plugins.package.details.hideAria'
-              : 'plugins.package.details.showAria',
-            { package: packageInfo.name },
-          )}
-          endIcon={
-            <ExpandMore
-              sx={{
-                transform: showDetails ? 'rotate(180deg)' : 'rotate(0deg)',
-                transition: (theme) => theme.transitions.create('transform'),
-              }}
-            />
-          }
-          onClick={() => setShowDetails((visible) => !visible)}
-          size="small"
-        >
-          {t('plugins.package.details.action')}
-        </Button>
-        <PackageDeleteAction
-          disabled={disabled}
-          onDelete={onDelete}
-          packageName={packageInfo.name}
-        />
-      </Stack>
-      {packageInfo.warnings.length > 0 ? (
-        <Alert severity="warning" sx={{ borderRadius: 0 }}>
-          {packageInfo.warnings.join(' ')}
-        </Alert>
-      ) : null}
-      <Collapse in={showDetails} timeout="auto" unmountOnExit={true}>
-        <Divider />
-        <Box
-          aria-label={t('plugins.package.targetsAria', {
-            package: packageInfo.name,
-          })}
-          id={detailsID}
-          role="region"
-          sx={{ p: 1.5 }}
-        >
-          <PackageTargets packageInfo={packageInfo} />
-        </Box>
-      </Collapse>
-    </Paper>
   );
 }
 
@@ -828,7 +716,7 @@ export default function ModManagerPlugins(): JSX.Element {
   const showToast = useToast();
   const [isInstalling] = useIsInstalling();
   const {
-    deletePackage,
+    deleteSource,
     error,
     hasUnsavedEdits,
     inventory,
@@ -837,9 +725,6 @@ export default function ModManagerPlugins(): JSX.Element {
     isMutating,
     refresh,
   } = useD2RLoaderPluginManager();
-  const [workspaceView, setWorkspaceView] = useState<'files' | 'packages'>(
-    'files',
-  );
   const [fileCategory, setFileCategory] = useState<
     'plugins' | 'patches' | 'configs'
   >('plugins');
@@ -851,7 +736,7 @@ export default function ModManagerPlugins(): JSX.Element {
   const onOpenManagedRoot = useCallback(async () => {
     try {
       await BridgeAPI.createDirectory(inventory.managedRoot);
-      await ShellAPI.showItemInFolder(inventory.managedRoot);
+      await ShellAPI.openPath(inventory.managedRoot);
     } catch (caught) {
       showToast({
         severity: 'error',
@@ -861,25 +746,37 @@ export default function ModManagerPlugins(): JSX.Element {
     }
   }, [inventory.managedRoot, showToast, t]);
 
-  const onDeletePackage = useCallback(
-    async (packageName: string) => {
+  const onDeleteItem = useCallback(
+    async (item: D2RLoaderPluginInventoryItem) => {
+      const isManaged = item.sourceType === 'managed';
+      const sourceName = item.packageName ?? item.sourceName;
       try {
-        await deletePackage(packageName);
+        await deleteSource(item.deletionSource, item.sha256);
         showToast({
           duration: 4000,
           severity: 'success',
-          title: t('plugins.toast.deleted', { package: packageName }),
+          title: isManaged
+            ? t('plugins.toast.deleted', { package: sourceName })
+            : t('plugins.toast.fileDeleted', {
+                file: item.name,
+                source: sourceName,
+              }),
         });
       } catch (caught) {
         showToast({
           severity: 'error',
-          title: t('plugins.toast.deleteFailed', { package: packageName }),
+          title: isManaged
+            ? t('plugins.toast.deleteFailed', { package: sourceName })
+            : t('plugins.toast.fileDeleteFailed', {
+                file: item.name,
+                source: sourceName,
+              }),
           description:
             caught instanceof Error ? caught.message : String(caught),
         });
       }
     },
-    [deletePackage, showToast, t],
+    [deleteSource, showToast, t],
   );
 
   const categoryItems = inventory[fileCategory];
@@ -923,7 +820,6 @@ export default function ModManagerPlugins(): JSX.Element {
         : fileCategory === 'patches'
           ? t('plugins.empty.patches')
           : t('plugins.empty.configs');
-  const isPackageActionDisabled = hasUnsavedEdits || isInstalling || isMutating;
   const isEditorActionDisabled = isInstalling || isMutating;
   const workspaceStatus =
     error != null
@@ -1100,152 +996,103 @@ export default function ModManagerPlugins(): JSX.Element {
 
         <Paper sx={{ mt: 2, overflow: 'hidden' }} variant="outlined">
           {isLoading ? <LinearProgress /> : null}
-          <Tabs
-            aria-label={t('plugins.workspace.aria')}
-            onChange={(_event, value) =>
-              setWorkspaceView(value as 'files' | 'packages')
-            }
-            value={workspaceView}
-          >
-            <Tab
-              label={t('plugins.workspace.files', { count: totalFileCount })}
-              value="files"
-            />
-            <Tab
-              disabled={hasUnsavedEdits}
-              label={t('plugins.workspace.packages', {
-                count: inventory.packages.length,
-              })}
-              value="packages"
-            />
-          </Tabs>
+          <Box sx={{ px: 2, py: 1.5 }}>
+            <Typography variant="h6">
+              {t('plugins.workspace.files', { count: totalFileCount })}
+            </Typography>
+          </Box>
           <Divider />
+          <Box sx={{ p: 2 }}>
+            <Stack
+              alignItems={{ md: 'center', xs: 'stretch' }}
+              direction={{ md: 'row', xs: 'column' }}
+              spacing={1.5}
+            >
+              <TextField
+                disabled={hasUnsavedEdits}
+                fullWidth={true}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Search fontSize="small" />
+                    </InputAdornment>
+                  ),
+                }}
+                inputProps={{ 'aria-label': t('plugins.search.aria') }}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={t('plugins.search.placeholder')}
+                size="small"
+                value={searchQuery}
+              />
+              <ToggleButtonGroup
+                aria-label={t('plugins.sourceFilter.aria')}
+                exclusive={true}
+                onChange={(_event, value: typeof sourceFilter | null) => {
+                  if (value != null) setSourceFilter(value);
+                }}
+                size="small"
+                value={sourceFilter}
+              >
+                <ToggleButton disabled={hasUnsavedEdits} value="all">
+                  {t('plugins.sourceFilter.all')}
+                </ToggleButton>
+                <ToggleButton disabled={hasUnsavedEdits} value="managed">
+                  D2RMM
+                </ToggleButton>
+                <ToggleButton disabled={hasUnsavedEdits} value="mod">
+                  {t('plugins.sourceFilter.mods')}
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Stack>
 
-          {workspaceView === 'files' ? (
-            <>
-              <Box sx={{ p: 2 }}>
-                <Stack
-                  alignItems={{ md: 'center', xs: 'stretch' }}
-                  direction={{ md: 'row', xs: 'column' }}
-                  spacing={1.5}
-                >
-                  <TextField
-                    disabled={hasUnsavedEdits}
-                    fullWidth={true}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <Search fontSize="small" />
-                        </InputAdornment>
-                      ),
-                    }}
-                    inputProps={{ 'aria-label': t('plugins.search.aria') }}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder={t('plugins.search.placeholder')}
-                    size="small"
-                    value={searchQuery}
-                  />
-                  <ToggleButtonGroup
-                    aria-label={t('plugins.sourceFilter.aria')}
-                    exclusive={true}
-                    onChange={(_event, value: typeof sourceFilter | null) => {
-                      if (value != null) setSourceFilter(value);
-                    }}
-                    size="small"
-                    value={sourceFilter}
-                  >
-                    <ToggleButton disabled={hasUnsavedEdits} value="all">
-                      {t('plugins.sourceFilter.all')}
-                    </ToggleButton>
-                    <ToggleButton disabled={hasUnsavedEdits} value="managed">
-                      D2RMM
-                    </ToggleButton>
-                    <ToggleButton disabled={hasUnsavedEdits} value="mod">
-                      {t('plugins.sourceFilter.mods')}
-                    </ToggleButton>
-                  </ToggleButtonGroup>
-                </Stack>
-
-                <Tabs
-                  aria-label={t('plugins.category.aria')}
-                  onChange={(_event, value) =>
-                    setFileCategory(value as 'plugins' | 'patches' | 'configs')
-                  }
-                  sx={{ mt: 1.5 }}
-                  value={fileCategory}
-                  variant="scrollable"
-                >
-                  <Tab
-                    disabled={hasUnsavedEdits && fileCategory !== 'plugins'}
-                    label={`${t('plugins.category.plugins')} · ${inventory.plugins.length}`}
-                    value="plugins"
-                  />
-                  <Tab
-                    disabled={hasUnsavedEdits && fileCategory !== 'patches'}
-                    label={`${t('plugins.category.patches')} · ${inventory.patches.length}`}
-                    value="patches"
-                  />
-                  <Tab
-                    disabled={hasUnsavedEdits && fileCategory !== 'configs'}
-                    label={`${t('plugins.category.configs')} · ${inventory.configs.length}`}
-                    value="configs"
-                  />
-                </Tabs>
-                <Typography
-                  color="text.secondary"
-                  sx={{ mt: 1 }}
-                  variant="caption"
-                >
-                  {t('plugins.category.showing', {
-                    category: categoryTitle,
-                    shown: visibleItems.length,
-                    sources: new Set(
-                      visibleItems.map(
-                        (item) => `${item.sourceType}:${item.sourceName}`,
-                      ),
-                    ).size,
-                    total: categoryItems.length,
-                  })}
-                </Typography>
-              </Box>
-              <Divider />
-              <Box sx={{ p: 2 }}>
-                <InventorySection
-                  disabled={isEditorActionDisabled}
-                  emptyText={categoryEmptyText}
-                  items={visibleItems}
-                  title={categoryTitle}
-                />
-              </Box>
-            </>
-          ) : (
-            <Box sx={{ p: 2 }}>
-              <Alert severity="info" sx={{ mb: 2 }}>
-                {t('plugins.package.help')}
-              </Alert>
-              {inventory.packages.length === 0 ? (
-                <Paper sx={{ p: 3, textAlign: 'center' }} variant="outlined">
-                  <Typography sx={{ fontWeight: 600 }}>
-                    {t('plugins.package.empty.title')}
-                  </Typography>
-                  <Typography color="text.secondary" variant="body2">
-                    {t('plugins.package.empty.description')}
-                  </Typography>
-                </Paper>
-              ) : (
-                <Stack spacing={1.5}>
-                  {inventory.packages.map((packageInfo) => (
-                    <ManagedPackageCard
-                      key={packageInfo.name}
-                      disabled={isPackageActionDisabled}
-                      onDelete={onDeletePackage}
-                      packageInfo={packageInfo}
-                    />
-                  ))}
-                </Stack>
-              )}
-            </Box>
-          )}
+            <Tabs
+              aria-label={t('plugins.category.aria')}
+              onChange={(_event, value) =>
+                setFileCategory(value as 'plugins' | 'patches' | 'configs')
+              }
+              sx={{ mt: 1.5 }}
+              value={fileCategory}
+              variant="scrollable"
+            >
+              <Tab
+                disabled={hasUnsavedEdits && fileCategory !== 'plugins'}
+                label={`${t('plugins.category.plugins')} · ${inventory.plugins.length}`}
+                value="plugins"
+              />
+              <Tab
+                disabled={hasUnsavedEdits && fileCategory !== 'patches'}
+                label={`${t('plugins.category.patches')} · ${inventory.patches.length}`}
+                value="patches"
+              />
+              <Tab
+                disabled={hasUnsavedEdits && fileCategory !== 'configs'}
+                label={`${t('plugins.category.configs')} · ${inventory.configs.length}`}
+                value="configs"
+              />
+            </Tabs>
+            <Typography color="text.secondary" sx={{ mt: 1 }} variant="caption">
+              {t('plugins.category.showing', {
+                category: categoryTitle,
+                shown: visibleItems.length,
+                sources: new Set(
+                  visibleItems.map(
+                    (item) => `${item.sourceType}:${item.sourceName}`,
+                  ),
+                ).size,
+                total: categoryItems.length,
+              })}
+            </Typography>
+          </Box>
+          <Divider />
+          <Box sx={{ p: 2 }}>
+            <InventorySection
+              disabled={isEditorActionDisabled}
+              emptyText={categoryEmptyText}
+              items={visibleItems}
+              onDelete={onDeleteItem}
+              title={categoryTitle}
+            />
+          </Box>
         </Paper>
       </Box>
     </Box>

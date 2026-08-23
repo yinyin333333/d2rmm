@@ -3,7 +3,10 @@ import { useD2RLoaderPluginManager } from 'renderer/react/context/D2RLoaderPlugi
 import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import { useSanitizedGamePath } from 'renderer/react/context/GamePathContext';
 import { useInstallBeforeRun } from 'renderer/react/context/InstallBeforeRunContext';
-import { useIsInstalling } from 'renderer/react/context/InstallContext';
+import {
+  useInstallationOperation,
+  useIsInstalling,
+} from 'renderer/react/context/InstallContext';
 import {
   useIsInstallConfigChanged,
   useIsLoadingMods,
@@ -37,6 +40,7 @@ export default function RunGameButton(_props: Props): JSX.Element {
     isOutputModeChanged,
   } = useD2RLoaderPluginManager();
   const [isInstalling] = useIsInstalling();
+  const { operation } = useInstallationOperation();
   const isLoadingMods = useIsLoadingMods();
 
   const gamePath = useSanitizedGamePath();
@@ -61,6 +65,19 @@ export default function RunGameButton(_props: Props): JSX.Element {
     d2rLoaderSettings.useD2RLoader && (isLoadingPlugins || isMutatingPlugins);
   const isPluginStateUnsafe =
     d2rLoaderSettings.useD2RLoader && (hasUnsavedEdits || !isInventoryCurrent);
+  const disabledReason = isLoadingMods
+    ? t('install.disabled.loadingMods')
+    : isPluginStateLoading
+      ? t('install.disabled.loadingPlugins')
+      : isPluginStateUnsafe
+        ? t(
+            hasUnsavedEdits
+              ? 'install.disabled.unsavedPlugins'
+              : 'install.disabled.stalePlugins',
+          )
+        : isInstalling
+          ? operation.label || t('install.disabled.activeOperation')
+          : '';
 
   const onInstallMods = useInstallMods();
 
@@ -114,16 +131,15 @@ export default function RunGameButton(_props: Props): JSX.Element {
     t,
   ]);
 
-  const tooltipText = isPluginStateUnsafe
-    ? hasUnsavedEdits
-      ? 'Save or cancel D2RLoader JSON edits before running the game.'
-      : 'Refresh the D2RLoader plugin list before running the game.'
+  const tooltipText = disabledReason
+    ? disabledReason
     : hasPendingInstallation
       ? `${t('run.tooltip', { command })} ${t('run.tooltip.unsaved')}`
       : t('run.tooltip', { command });
 
   const button = (
     <Button
+      aria-busy={isInstalling}
       disabled={
         isLoadingMods ||
         isPluginStateLoading ||

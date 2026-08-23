@@ -6,6 +6,25 @@ import webpack from 'webpack';
 import { dependencies as externals } from '../../release/app/package.json';
 import webpackPaths from './webpack.paths';
 
+export const createTypeScriptRule = (
+  preserveDynamicImports = false,
+): webpack.RuleSetRule => ({
+  test: /\.[jt]sx?$/,
+  exclude: /node_modules/,
+  use: {
+    loader: 'ts-loader',
+    options: {
+      // Remove this line to enable type checking in webpack builds
+      transpileOnly: true,
+      // The root tsconfig emits CommonJS for the Electron main process. Renderer
+      // bundles must leave import() intact so webpack can create async chunks.
+      ...(preserveDynamicImports
+        ? { compilerOptions: { module: 'esnext' } }
+        : {}),
+    },
+  },
+});
+
 const gitCommitHash = (() => {
   try {
     return execSync('git rev-parse --short HEAD').toString().trim();
@@ -20,19 +39,7 @@ const configuration: webpack.Configuration = {
   stats: 'errors-only',
 
   module: {
-    rules: [
-      {
-        test: /\.[jt]sx?$/,
-        exclude: /node_modules/,
-        use: {
-          loader: 'ts-loader',
-          options: {
-            // Remove this line to enable type checking in webpack builds
-            transpileOnly: true,
-          },
-        },
-      },
-    ],
+    rules: [createTypeScriptRule()],
   },
 
   output: {

@@ -8,6 +8,8 @@ const mockProvideAPI = jest.fn();
 jest.mock('electron', () => ({
   shell: {
     openExternal: (...args: unknown[]) => mockOpenExternal(...args),
+    openPath: jest.fn().mockResolvedValue(''),
+    showItemInFolder: jest.fn(),
   },
 }));
 

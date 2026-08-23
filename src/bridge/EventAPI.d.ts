@@ -1,5 +1,11 @@
 import { SerializableType } from './Serializable';
 
+export type InstallationStatus = {
+  phase: 'installing' | 'finalizing';
+  installedModsCount?: number;
+  totalModsCount?: number;
+};
+
 // this API is not type safe - it's just arbitrary broadcasts
 // use consumeAPI / provideAPI for a type safe IPC API
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

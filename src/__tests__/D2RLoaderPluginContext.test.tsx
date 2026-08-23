@@ -13,17 +13,22 @@ import {
 
 const mockImportSources = jest.fn();
 const mockDeletePackage = jest.fn();
+const mockDeleteSource = jest.fn();
 const mockReadEditableJSON = jest.fn();
 const mockReadInventory = jest.fn();
 const mockSaveEditableJSON = jest.fn();
 let mockOutputPath = 'C:\\FakeGame\\mods\\First\\First.mpq\\data';
 let mockUseD2RLoader = false;
+let mockIsLoadingMods = false;
+let mockMods: { id: string }[] = [];
+let mockModsRevision = 1;
 let pluginManager: ReturnType<typeof useD2RLoaderPluginManager> | null = null;
 
 jest.mock('renderer/D2RLoaderPluginAPI', () => ({
   __esModule: true,
   default: {
     deletePackage: (...args: unknown[]) => mockDeletePackage(...args),
+    deleteSource: (...args: unknown[]) => mockDeleteSource(...args),
     importSources: (...args: unknown[]) => mockImportSources(...args),
     readEditableJSON: (...args: unknown[]) => mockReadEditableJSON(...args),
     readInventory: (...args: unknown[]) => mockReadInventory(...args),
@@ -32,8 +37,9 @@ jest.mock('renderer/D2RLoaderPluginAPI', () => ({
 }));
 
 jest.mock('renderer/react/context/ModsContext', () => ({
-  useMods: () => [[], jest.fn()],
-  useModsRevision: () => 1,
+  useIsLoadingMods: () => mockIsLoadingMods,
+  useMods: () => [mockMods, jest.fn()],
+  useModsRevision: () => mockModsRevision,
 }));
 
 jest.mock('renderer/react/context/D2RLoaderSettingsContext', () => ({
@@ -82,8 +88,12 @@ describe('D2RLoaderPluginContext deployment state', () => {
     pluginManager = null;
     mockOutputPath = 'C:\\FakeGame\\mods\\First\\First.mpq\\data';
     mockUseD2RLoader = false;
+    mockIsLoadingMods = false;
+    mockMods = [];
+    mockModsRevision = 1;
     mockReadInventory.mockReset();
     mockDeletePackage.mockReset();
+    mockDeleteSource.mockReset();
     mockImportSources.mockReset();
     mockReadEditableJSON.mockReset();
     mockSaveEditableJSON.mockReset();
@@ -96,6 +106,30 @@ describe('D2RLoaderPluginContext deployment state', () => {
       patches: [],
       plugins: [],
     });
+  });
+
+  it('waits for the initial mod load before scanning inventory once', async () => {
+    mockIsLoadingMods = true;
+    mockModsRevision = 0;
+    const view = render(
+      <D2RLoaderPluginContextProvider>
+        <Probe />
+      </D2RLoaderPluginContextProvider>,
+    );
+
+    expect(mockReadInventory).not.toHaveBeenCalled();
+
+    mockIsLoadingMods = false;
+    mockMods = [{ id: 'Second' }, { id: 'First' }];
+    mockModsRevision = 1;
+    view.rerender(
+      <D2RLoaderPluginContextProvider>
+        <Probe />
+      </D2RLoaderPluginContextProvider>,
+    );
+
+    await waitFor(() => expect(mockReadInventory).toHaveBeenCalledTimes(1));
+    expect(mockReadInventory).toHaveBeenCalledWith(['First', 'Second']);
   });
 
   it('marks the same package signature dirty when the output target changes', async () => {
@@ -246,6 +280,31 @@ describe('D2RLoaderPluginContext deployment state', () => {
     expect(screen.getByText('idle')).toBeTruthy();
   });
 
+  it('deletes an inventory source through the shared mutation boundary and refreshes', async () => {
+    mockDeleteSource.mockResolvedValue(undefined);
+    render(
+      <D2RLoaderPluginContextProvider>
+        <Probe />
+      </D2RLoaderPluginContextProvider>,
+    );
+    await waitFor(() => expect(pluginManager?.isLoading).toBe(false));
+    const source = {
+      category: 'plugins' as const,
+      loaderRootPath: 'Example.mpq/d2rloader',
+      modID: 'Example Mod',
+      sourcePath: 'Example.dll',
+      sourceType: 'mod' as const,
+    };
+
+    await act(async () => {
+      await pluginManager!.deleteSource(source, 'a'.repeat(64));
+    });
+
+    expect(mockDeleteSource).toHaveBeenCalledWith(source, 'a'.repeat(64));
+    expect(mockReadInventory).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('idle')).toBeTruthy();
+  });
+
   it('blocks package replacement and deletion while an editor draft is dirty', async () => {
     render(
       <D2RLoaderPluginContextProvider>
@@ -264,8 +323,21 @@ describe('D2RLoaderPluginContext deployment state', () => {
     await expect(pluginManager!.deletePackage('Package')).rejects.toThrow(
       /save or cancel/i,
     );
+    await expect(
+      pluginManager!.deleteSource(
+        {
+          category: 'plugins',
+          loaderRootPath: 'd2rloader',
+          modID: 'Example Mod',
+          sourcePath: 'Example.dll',
+          sourceType: 'mod',
+        },
+        'a'.repeat(64),
+      ),
+    ).rejects.toThrow(/save or cancel/i);
     expect(mockImportSources).not.toHaveBeenCalled();
     expect(mockDeletePackage).not.toHaveBeenCalled();
+    expect(mockDeleteSource).not.toHaveBeenCalled();
 
     act(() =>
       pluginManager!.setEditableJSONDirty('Package/settings.json', false),

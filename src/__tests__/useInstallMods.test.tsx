@@ -8,7 +8,8 @@ const mockMarkDeploymentInstalled = jest.fn();
 const mockMarkDeploymentOutdated = jest.fn();
 const mockMarkOutputModeInstalled = jest.fn();
 const mockSetInstalledMods = jest.fn();
-const mockSetIsInstalling = jest.fn();
+const mockFinishOperation = jest.fn();
+const mockTryStartOperation = jest.fn();
 const mockSetTab = jest.fn();
 const mockShowToast = jest.fn();
 let mockModsToInstall: Mod[] = [];
@@ -49,7 +50,10 @@ jest.mock('renderer/react/context/GamePathContext', () => ({
 }));
 
 jest.mock('renderer/react/context/InstallContext', () => ({
-  useIsInstalling: () => [false, mockSetIsInstalling],
+  useInstallationOperation: () => ({
+    finishOperation: mockFinishOperation,
+    tryStartOperation: mockTryStartOperation,
+  }),
 }));
 
 jest.mock('renderer/react/context/IsPreExtractedDataContext', () => ({
@@ -128,7 +132,8 @@ async function invokeInstallMods(
 }
 
 function expectInstallingRestored(): void {
-  expect(mockSetIsInstalling.mock.calls).toEqual([[true], [false]]);
+  expect(mockTryStartOperation).toHaveBeenCalledWith('Installing mods…', 0);
+  expect(mockFinishOperation).toHaveBeenCalledWith(1);
 }
 
 describe('useInstallMods installation results', () => {
@@ -147,7 +152,8 @@ describe('useInstallMods installation results', () => {
     mockMarkDeploymentOutdated.mockReset();
     mockMarkOutputModeInstalled.mockReset();
     mockSetInstalledMods.mockReset();
-    mockSetIsInstalling.mockReset();
+    mockFinishOperation.mockReset();
+    mockTryStartOperation.mockReset().mockReturnValue(1);
     mockSetTab.mockReset();
     mockShowToast.mockReset();
     jest.spyOn(console, 'debug').mockImplementation(() => {});
@@ -269,7 +275,7 @@ describe('useInstallMods installation results', () => {
       expect.objectContaining({ severity: 'warning' }),
     );
     expect(mockSetTab).toHaveBeenCalledWith('plugins');
-    expect(mockSetIsInstalling).not.toHaveBeenCalled();
+    expect(mockTryStartOperation).not.toHaveBeenCalled();
   });
 
   it('ignores a legacy saved Direct Mode value and emits only mod output options', async () => {

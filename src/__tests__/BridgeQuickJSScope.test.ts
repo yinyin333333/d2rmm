@@ -1,11 +1,17 @@
 import type { IInstallModsOptions, Mod } from 'bridge/BridgeAPI';
 import { BridgeAPI, getRuntime } from '../main/worker/BridgeAPI';
+import { InstallationRuntime } from '../main/worker/InstallationRuntime';
 
 const mockEventSend = jest.fn().mockResolvedValue(undefined);
 const mockScopeDispose = jest.fn();
 const mockScopeManage = jest.fn((value: unknown) => value);
 const mockCreateQuickJSContext = jest.fn();
 const mockGetQuickJSProxyAPI = jest.fn(() => ({}));
+const mockWatchdogDispose = jest.fn();
+const mockInstallQuickJSExecutionWatchdog = jest.fn((_runtime?: unknown) => ({
+  dispose: mockWatchdogDispose,
+  refresh: jest.fn(),
+}));
 
 jest.mock('quickjs-emscripten', () => ({
   Scope: jest.fn(() => ({
@@ -26,6 +32,8 @@ jest.mock('main/worker/quickjs', () => ({
     newContext: () => mockCreateQuickJSContext(),
   }),
   getQuickJSProxyAPI: () => mockGetQuickJSProxyAPI(),
+  installQuickJSExecutionWatchdog: (...args: unknown[]) =>
+    mockInstallQuickJSExecutionWatchdog(args[0]),
 }));
 
 jest.mock('main/worker/AppInfoAPI', () => ({
@@ -87,12 +95,15 @@ describe('BridgeAPI QuickJS scope cleanup', () => {
     mockScopeManage.mockClear();
     mockCreateQuickJSContext.mockReset();
     mockGetQuickJSProxyAPI.mockClear();
+    mockInstallQuickJSExecutionWatchdog.mockClear();
+    mockWatchdogDispose.mockClear();
 
     mockCreateQuickJSContext.mockReturnValue({
       evalCodeAsync: jest
         .fn()
         .mockRejectedValue(new Error('synthetic QuickJS runtime failure')),
       global: {},
+      runtime: {},
       setProp: jest.fn(),
       unwrapResult: jest.fn(),
     });
@@ -113,6 +124,48 @@ describe('BridgeAPI QuickJS scope cleanup', () => {
 
     expect(mockCreateQuickJSContext).toHaveBeenCalledTimes(1);
     expect(mockedSourceMapConsumer).toHaveBeenCalledTimes(1);
+    expect(mockInstallQuickJSExecutionWatchdog).toHaveBeenCalledTimes(1);
+    expect(mockWatchdogDispose).toHaveBeenCalledTimes(1);
     expect(mockScopeDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans up an interrupted mod and keeps processing later mods', async () => {
+    const rollback = jest.spyOn(
+      InstallationRuntime.prototype,
+      'rollbackModTransaction',
+    );
+    const interruptedContext = {
+      evalCodeAsync: jest.fn().mockResolvedValue({ error: {} }),
+      global: {},
+      runtime: {},
+      setProp: jest.fn(),
+      unwrapResult: jest.fn(() => {
+        throw new Error('interrupted');
+      }),
+    };
+    const successfulContext = {
+      evalCodeAsync: jest.fn().mockResolvedValue({ value: {} }),
+      global: {},
+      runtime: {},
+      setProp: jest.fn(),
+      unwrapResult: jest.fn(() => ({})),
+    };
+    mockCreateQuickJSContext
+      .mockReturnValueOnce(interruptedContext)
+      .mockReturnValueOnce(successfulContext);
+    jest.spyOn(BridgeAPI, 'readModCode').mockResolvedValue(['code', '']);
+
+    await expect(
+      BridgeAPI.installMods(
+        [mod, { ...mod, id: 'AfterInterruption' }],
+        options,
+      ),
+    ).resolves.toEqual(['AfterInterruption']);
+
+    expect(mockCreateQuickJSContext).toHaveBeenCalledTimes(2);
+    expect(mockInstallQuickJSExecutionWatchdog).toHaveBeenCalledTimes(2);
+    expect(mockWatchdogDispose).toHaveBeenCalledTimes(2);
+    expect(mockScopeDispose).toHaveBeenCalledTimes(2);
+    expect(rollback).toHaveBeenCalledTimes(1);
   });
 });

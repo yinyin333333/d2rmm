@@ -4,10 +4,15 @@ import type {
   D2RLoaderPluginEditResult,
   D2RLoaderPluginImportResult,
   D2RLoaderPluginInventory,
+  D2RLoaderPluginSource,
 } from 'bridge/D2RLoaderPluginAPI';
 import D2RLoaderPluginAPI from 'renderer/D2RLoaderPluginAPI';
 import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
-import { useMods, useModsRevision } from 'renderer/react/context/ModsContext';
+import {
+  useIsLoadingMods,
+  useMods,
+  useModsRevision,
+} from 'renderer/react/context/ModsContext';
 import { useOutputPath } from 'renderer/react/context/OutputPathContext';
 import useSavedState from 'renderer/react/hooks/useSavedState';
 import React, {
@@ -32,6 +37,10 @@ const EMPTY_INVENTORY: D2RLoaderPluginInventory = {
 
 type D2RLoaderPluginContextValue = {
   deletePackage: (packageName: string) => Promise<void>;
+  deleteSource: (
+    source: D2RLoaderPluginSource,
+    expectedSha256: string,
+  ) => Promise<void>;
   error: Error | null;
   importSources: (
     sourcePaths: string[],
@@ -68,6 +77,7 @@ export function D2RLoaderPluginContextProvider({
 }): JSX.Element {
   const [mods] = useMods();
   const modsRevision = useModsRevision();
+  const isLoadingMods = useIsLoadingMods();
   const [d2rLoaderSettings] = useD2RLoaderSettings();
   const outputPath = useOutputPath();
   const currentOutputMode = `mod:${
@@ -131,13 +141,14 @@ export function D2RLoaderPluginContextProvider({
   }, []);
 
   useEffect(() => {
+    if (isLoadingMods) return;
     refresh().catch(console.error);
-  }, [modsRevision, refresh]);
+  }, [isLoadingMods, modsRevision, refresh]);
 
   const runMutation = useCallback(
     async <T,>(operation: () => Promise<T>): Promise<T> => {
       if (mutationPending.current) {
-        throw new Error('Another D2RLoader package change is still running.');
+        throw new Error('Another D2RLoader change is still running.');
       }
       mutationPending.current = true;
       setIsMutating(true);
@@ -181,6 +192,24 @@ export function D2RLoaderPluginContextProvider({
       }
       return runMutation(async () => {
         await D2RLoaderPluginAPI.deletePackage(packageName);
+        if (isMounted.current) setHasUnrefreshedMutation(true);
+        await refresh().catch(console.error);
+      });
+    },
+    [refresh, runMutation],
+  );
+
+  const deleteSource = useCallback(
+    (source: D2RLoaderPluginSource, expectedSha256: string): Promise<void> => {
+      if (dirtyEditors.current.size > 0) {
+        return Promise.reject(
+          new Error(
+            'Save or cancel all D2RLoader file edits before deleting files.',
+          ),
+        );
+      }
+      return runMutation(async () => {
+        await D2RLoaderPluginAPI.deleteSource(source, expectedSha256);
         if (isMounted.current) setHasUnrefreshedMutation(true);
         await refresh().catch(console.error);
       });
@@ -254,6 +283,7 @@ export function D2RLoaderPluginContextProvider({
   const value = useMemo(
     (): D2RLoaderPluginContextValue => ({
       deletePackage,
+      deleteSource,
       error,
       hasUnsavedEdits,
       importSources,
@@ -273,6 +303,7 @@ export function D2RLoaderPluginContextProvider({
     }),
     [
       deletePackage,
+      deleteSource,
       error,
       hasUnsavedEdits,
       importSources,

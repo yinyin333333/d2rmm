@@ -1,8 +1,9 @@
 import ElectronUtilsAPI from 'renderer/ElectronUtilsAPI';
 import { useD2RLoaderPluginManager } from 'renderer/react/context/D2RLoaderPluginContext';
-import { useIsInstalling } from 'renderer/react/context/InstallContext';
+import { useInstallationOperation } from 'renderer/react/context/InstallContext';
 import useToast from 'renderer/react/hooks/useToast';
 import { useCallback, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export type D2RLoaderPluginDropZoneHandlers = {
   isDraggingOver: boolean;
@@ -28,12 +29,14 @@ function extensionOf(fileName: string): string {
 
 export default function useD2RLoaderPluginDropZone(): D2RLoaderPluginDropZoneHandlers {
   const showToast = useToast();
+  const { t } = useTranslation();
   const {
     hasUnsavedEdits = false,
     importSources,
     isMutating,
   } = useD2RLoaderPluginManager();
-  const [isInstalling] = useIsInstalling();
+  const { operation, finishOperation, tryStartOperation } =
+    useInstallationOperation();
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const dragDepth = useRef(0);
 
@@ -59,14 +62,14 @@ export default function useD2RLoaderPluginDropZone(): D2RLoaderPluginDropZoneHan
       dragDepth.current = 0;
       setIsDraggingOver(false);
 
-      if (hasUnsavedEdits || isInstalling || isMutating) {
+      if (hasUnsavedEdits || operation.active || isMutating) {
         showToast({
           duration: 4000,
           severity: 'info',
           title: hasUnsavedEdits
             ? 'Save or cancel file edits before importing packages'
-            : isInstalling
-              ? 'Wait for Install Mods to finish before importing packages'
+            : operation.active
+              ? t('install.disabled.activeOperation')
               : 'Wait for the current package change to finish',
         });
         return;
@@ -104,8 +107,21 @@ export default function useD2RLoaderPluginDropZone(): D2RLoaderPluginDropZoneHan
       }
       if (sourcePaths.length === 0) return;
 
-      void importSources(sourcePaths)
-        .then((result) => {
+      const operationToken = tryStartOperation(
+        t('install.progress.importingD2RLoaderPlugins'),
+      );
+      if (operationToken == null) {
+        showToast({
+          duration: 4000,
+          severity: 'info',
+          title: t('install.disabled.activeOperation'),
+        });
+        return;
+      }
+
+      void (async () => {
+        try {
+          const result = await importSources(sourcePaths);
           showToast({
             duration: 5000,
             severity: result.warnings.length > 0 ? 'warning' : 'success',
@@ -121,16 +137,27 @@ export default function useD2RLoaderPluginDropZone(): D2RLoaderPluginDropZoneHan
                     result.warnings.length === 1 ? '' : 's'
                   }. Review the package details in Plugins.`,
           });
-        })
-        .catch((error) => {
+        } catch (error) {
           showToast({
             severity: 'error',
             title: 'Failed to import D2RLoader package',
             description: error instanceof Error ? error.message : String(error),
           });
-        });
+        } finally {
+          finishOperation(operationToken);
+        }
+      })();
     },
-    [hasUnsavedEdits, importSources, isInstalling, isMutating, showToast],
+    [
+      finishOperation,
+      hasUnsavedEdits,
+      importSources,
+      isMutating,
+      operation.active,
+      showToast,
+      t,
+      tryStartOperation,
+    ],
   );
 
   return { isDraggingOver, onDragEnter, onDragLeave, onDragOver, onDrop };

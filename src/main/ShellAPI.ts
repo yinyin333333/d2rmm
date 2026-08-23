@@ -1,5 +1,6 @@
 import { IShellAPI } from 'bridge/ShellAPI';
 import { dialog, shell } from 'electron';
+import { stat } from 'fs/promises';
 import { provideAPI } from './IPC';
 
 type WebContents = Electron.BrowserWindow['webContents'];
@@ -31,6 +32,17 @@ function getAllowedExternalURL(url: string): URL {
 export async function openExternalURL(url: string): Promise<void> {
   const parsed = getAllowedExternalURL(url);
   await shell.openExternal(parsed.href);
+}
+
+export async function openPath(filePath: string): Promise<void> {
+  const pathStats = await stat(filePath);
+  if (!pathStats.isDirectory()) {
+    throw new Error(`Path is not a directory: ${filePath}`);
+  }
+  const error = await shell.openPath(filePath);
+  if (error !== '') {
+    throw new Error(error);
+  }
 }
 
 export async function selectDirectory(
@@ -87,6 +99,7 @@ export async function initShellAPI(): Promise<void> {
     openExternal: async (url) => {
       return openExternalURL(url);
     },
+    openPath,
     selectDirectory,
     showItemInFolder: async (path) => {
       return shell.showItemInFolder(path);
