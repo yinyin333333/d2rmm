@@ -1,10 +1,20 @@
+import releaseAsyncVariant from '@jitl/quickjs-wasmfile-release-asyncify';
 import type { ChildProcess } from 'child_process';
 import { fork } from 'child_process';
 import path from 'path';
 import {
+  Scope,
+  newQuickJSAsyncWASMModuleFromVariant,
+} from 'quickjs-emscripten-core';
+import {
   getQuickJSProxyAPI,
   installQuickJSExecutionWatchdog,
 } from '../main/worker/quickjs';
+
+const emscriptenModule =
+  require('../../node_modules/@jitl/quickjs-wasmfile-release-asyncify/dist/emscripten-module.cjs') as Awaited<
+    ReturnType<typeof releaseAsyncVariant.importModuleLoader>
+  >;
 
 type WatchdogChildResult =
   | { elapsedMs: number; status: 'interrupted' }
@@ -115,6 +125,9 @@ describe('QuickJS production execution watchdog', () => {
 
   it('refreshes after an async proxy host call settles', async () => {
     let hostFunction: ((...args: unknown[]) => Promise<unknown>) | undefined;
+    const undefinedHandle: { dup: () => unknown } = {
+      dup: jest.fn(() => undefinedHandle),
+    };
     const vm = {
       dump: jest.fn(),
       newAsyncifiedFunction: jest.fn(
@@ -125,7 +138,7 @@ describe('QuickJS production execution watchdog', () => {
       ),
       newObject: jest.fn(() => ({})),
       setProp: jest.fn(),
-      undefined: {},
+      undefined: undefinedHandle,
     };
     const scope = { manage: jest.fn((value: unknown) => value) };
     const watchdog = { refresh: jest.fn() };
@@ -139,5 +152,46 @@ describe('QuickJS production execution watchdog', () => {
     await hostFunction?.();
 
     expect(watchdog.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves null host values without retaining discarded return graphs', async () => {
+    const quickJS = await newQuickJSAsyncWASMModuleFromVariant({
+      ...releaseAsyncVariant,
+      importModuleLoader: async () => emscriptenModule,
+    });
+    const scope = new Scope();
+    const vm = scope.manage(quickJS.newContext());
+    try {
+      const api = getQuickJSProxyAPI(vm, scope, {
+        getLargeValue: async () =>
+          Array.from({ length: 500 }, (_, index) => ({ index })),
+        getNulls: async () => ({ nested: [null], scalar: null }),
+      } as never);
+      vm.setProp(vm.global, 'host', api);
+
+      const nullResult = vm.unwrapResult(
+        await vm.evalCodeAsync('JSON.stringify(host.getNulls())'),
+      );
+      expect(nullResult.consume(vm.getString)).toBe(
+        '{"nested":[null],"scalar":null}',
+      );
+
+      const getObjectCount = (): number =>
+        vm.runtime.computeMemoryUsage().consume((usageHandle) => {
+          const usage = vm.dump(usageHandle) as { obj_count: number };
+          return usage.obj_count;
+        });
+      const objectsBefore = getObjectCount();
+      vm.unwrapResult(
+        await vm.evalCodeAsync(
+          'for (let i = 0; i < 30; i += 1) host.getLargeValue();',
+        ),
+      ).dispose();
+      const objectsAfter = getObjectCount();
+
+      expect(objectsAfter - objectsBefore).toBeLessThan(100);
+    } finally {
+      scope.dispose();
+    }
   });
 });

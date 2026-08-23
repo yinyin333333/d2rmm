@@ -279,6 +279,25 @@ describe('BridgeAPI CASC storage ownership', () => {
     expect(getRuntime()).toBeNull();
   });
 
+  describe('game-file probes', () => {
+    it('closes a successfully opened file', async () => {
+      await openFakeStorage();
+
+      await expect(BridgeAPI.isGameFile('fake/data.bin')).resolves.toBe(true);
+      expect(mockCascLib.CascCloseFile).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a native file-close failure', async () => {
+      await openFakeStorage();
+      mockCascLib.CascCloseFile.mockReturnValue(false);
+
+      await expect(BridgeAPI.isGameFile('fake/data.bin')).rejects.toThrow(
+        'Failed to close file in CASC storage',
+      );
+      expect(mockCascLib.CascCloseFile).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('exact file reads', () => {
     it.each([
       ['zero bytes', 0],
