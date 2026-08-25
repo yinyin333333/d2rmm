@@ -368,6 +368,8 @@ describe('App', () => {
     }
     expect(actions[0]).toHaveClass('MuiButton-outlined');
     expect(actions[1]).toHaveClass('MuiButton-outlined');
+    expect(actions[2].parentElement).not.toHaveClass('ModList-runGameButton');
+    expect(actions[3].parentElement).toHaveClass('ModList-runGameButton');
     expect(actions[0]).toHaveClass('MuiButton-sizeMedium');
     expect(actions[1]).toHaveClass('MuiButton-sizeMedium');
     expect(document.querySelector('.MuiButtonGroup-root')).toBeNull();

@@ -162,7 +162,12 @@ export default function RunGameButton(_props: Props): JSX.Element {
 
   return (
     <Tooltip title={tooltipText}>
-      <span style={{ display: 'inline-flex' }}>{button}</span>
+      <span
+        className="ModList-runGameButton"
+        style={{ display: 'inline-flex' }}
+      >
+        {button}
+      </span>
     </Tooltip>
   );
 }
