@@ -25,6 +25,14 @@ export type D2RLoaderPluginInventoryItem = {
   id: string;
   name: string;
   packageName: string | null;
+  pluginInfo?: {
+    apiVersion: number;
+    author: string;
+    description: string;
+    id: string;
+    name: string;
+    version: string;
+  };
   relativePath: string;
   sha256: string;
   sourceName: string;

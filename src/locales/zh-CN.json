@@ -345,7 +345,7 @@
   "plugins.status.scanFailed": "扫描失败",
   "plugins.status.scanning": "扫描",
   "plugins.summary.all.label": "所有文件",
-  "plugins.summary.configs.description": "可编辑的 TOML 文件",
+  "plugins.summary.configs.description": "可编辑的 JSON/JSONC 和 TOML 文件",
   "plugins.summary.configs.label": "配置文件",
   "plugins.summary.patches.description": "内存补丁定义",
   "plugins.summary.patches.label": "补丁文件",

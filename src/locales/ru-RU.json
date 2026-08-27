@@ -345,7 +345,7 @@
   "plugins.status.scanFailed": "Сканирование не удалось",
   "plugins.status.scanning": "Сканирование",
   "plugins.summary.all.label": "Все файлы",
-  "plugins.summary.configs.description": "Редактируемые файлы TOML",
+  "plugins.summary.configs.description": "Редактируемые файлы JSON/JSONC и TOML",
   "plugins.summary.configs.label": "Конфигурационные файлы",
   "plugins.summary.patches.description": "Определения патчей памяти",
   "plugins.summary.patches.label": "Файлы исправлений",

@@ -345,7 +345,7 @@
   "plugins.status.scanFailed": "Échec de l'analyse",
   "plugins.status.scanning": "Numérisation",
   "plugins.summary.all.label": "Tous les fichiers",
-  "plugins.summary.configs.description": "Fichiers TOML modifiables",
+  "plugins.summary.configs.description": "Fichiers JSON/JSONC et TOML modifiables",
   "plugins.summary.configs.label": "Fichiers de configuration",
   "plugins.summary.patches.description": "Définitions des correctifs de mémoire",
   "plugins.summary.patches.label": "Fichiers de correctifs",

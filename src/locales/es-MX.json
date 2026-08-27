@@ -345,7 +345,7 @@
   "plugins.status.scanFailed": "Error de escaneo",
   "plugins.status.scanning": "Escaneo",
   "plugins.summary.all.label": "Todos los archivos",
-  "plugins.summary.configs.description": "Archivos editables TOML",
+  "plugins.summary.configs.description": "Archivos JSON/JSONC y TOML editables",
   "plugins.summary.configs.label": "Archivos de configuración",
   "plugins.summary.patches.description": "Definiciones de parches de memoria",
   "plugins.summary.patches.label": "Archivos de parche",
