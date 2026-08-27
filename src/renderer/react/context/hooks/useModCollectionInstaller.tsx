@@ -1,9 +1,9 @@
 import type { ModConfigValue } from 'bridge/ModConfigValue';
 import ModUpdaterAPI from 'renderer/ModUpdaterAPI';
 import {
+  useSaveModConfig,
   useSectionHeaders,
   useSetItemsOrder,
-  useSetModConfig,
 } from 'renderer/react/context/ModsContext';
 import { INexusAuthState } from 'renderer/react/context/NexusModsContext';
 import useModInstaller from 'renderer/react/context/hooks/useModInstaller';
@@ -15,7 +15,7 @@ export default function useModCollectionInstaller(authState: INexusAuthState) {
   const showToast = useToast();
   const [, setSectionHeaders] = useSectionHeaders();
   const setItemsOrder = useSetItemsOrder();
-  const setModConfig = useSetModConfig();
+  const saveModConfig = useSaveModConfig();
 
   return useCallback(
     async ({
@@ -74,7 +74,7 @@ export default function useModCollectionInstaller(authState: INexusAuthState) {
         // Restore the mod's config if the collection embedded one
         const config = modConfigs[nexusModId];
         if (config != null) {
-          setModConfig(modId, config);
+          await saveModConfig(modId, config);
         }
 
         const category =
@@ -132,7 +132,7 @@ export default function useModCollectionInstaller(authState: INexusAuthState) {
     [
       authState.apiKey,
       installMod,
-      setModConfig,
+      saveModConfig,
       setSectionHeaders,
       setItemsOrder,
       showToast,

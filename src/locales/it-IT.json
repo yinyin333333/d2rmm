@@ -345,7 +345,7 @@
   "plugins.status.scanFailed": "Scansione non riuscita",
   "plugins.status.scanning": "Scansione",
   "plugins.summary.all.label": "Tutti i file",
-  "plugins.summary.configs.description": "File TOML modificabili",
+  "plugins.summary.configs.description": "File JSON/JSONC e TOML modificabili",
   "plugins.summary.configs.label": "File di configurazione",
   "plugins.summary.patches.description": "Definizioni delle patch di memoria",
   "plugins.summary.patches.label": "File di patch",

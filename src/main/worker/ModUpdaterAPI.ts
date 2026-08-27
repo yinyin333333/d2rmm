@@ -879,7 +879,7 @@ export async function initModUpdaterAPI(): Promise<void> {
       });
     },
     installModFromZip: async (zipFilePath) => {
-      const modID = path.basename(zipFilePath, '.zip');
+      const modID = path.basename(zipFilePath).replace(/\.zip$/i, '');
       const appRootPath = getAppPath();
       return withModInstallLock(appRootPath, modID, () =>
         installFromZipPathUnlocked(zipFilePath, modID, appRootPath),

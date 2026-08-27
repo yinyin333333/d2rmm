@@ -35,6 +35,7 @@ import { createD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEd
 import { getAppPath } from './AppInfoAPI';
 import { inspectZipArchive } from './ArchiveResourceGuard';
 import { D2R_LOADER_CONFIG_FILE } from './D2RLoader';
+import { inspectD2RLoaderPluginPE } from './D2RLoaderPluginPE';
 import { provideAPI } from './IPC';
 import type { InstallationRuntime } from './InstallationRuntime';
 import { getDataModRootPath } from './ModAPI';
@@ -47,10 +48,6 @@ export const D2R_LOADER_PACKAGE_MANIFEST = 'manifest.json';
 
 const PACKAGE_SOURCE_DIRECTORY = 'source';
 const MANAGED_PACKAGE_OPERATION = 'D2RMM managed D2RLoader package';
-const REQUIRED_PLUGIN_EXPORTS = [
-  'D2RLoaderGetPluginInfo',
-  'D2RLoaderLoadPlugin',
-] as const;
 const PACKAGE_RESOURCE_LIMITS: ResourceLimits = {
   maxBytes: 512 * 1024 * 1024,
   maxDepth: 64,
@@ -59,14 +56,6 @@ const PACKAGE_RESOURCE_LIMITS: ResourceLimits = {
 const MAX_EDITABLE_TEXT_BYTES = 4 * 1024 * 1024;
 const D2R_LOADER_DIRECTORY_README = 'D2RMM-PLUGINS-README.txt';
 const D2R_LOADER_MAIN_CONFIG_FILE = D2R_LOADER_CONFIG_FILE.fileName;
-const COMMUNITY_PACK_CONFIG_FILE = 'D2RPlugins.json';
-const COMMUNITY_PACK_PLUGIN_DLLS = [
-  'plugin-items.dll',
-  'plugin-levels.dll',
-  'plugin-misc.dll',
-  'plugin-quests.dll',
-  'plugin-skills.dll',
-] as const;
 const WINDOWS_RESERVED_PACKAGE_NAME =
   /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
 const WINDOWS_INVALID_PACKAGE_CHARACTERS = /[<>:"/\\|?*]/;
@@ -230,6 +219,10 @@ function isPluginTOMLPath(filePath: string): boolean {
     path.extname(filePath).toLowerCase() === '.toml' &&
     path.basename(filePath).toLowerCase() !== D2R_LOADER_MAIN_CONFIG_FILE
   );
+}
+
+function isPluginConfigPath(filePath: string): boolean {
+  return isPluginTOMLPath(filePath) || /\.jsonc?$/i.test(filePath);
 }
 
 function isPreservedDocumentationFile(fileName: string): boolean {
@@ -901,81 +894,49 @@ async function preparePathSource(sourcePath: string): Promise<PreparedSource> {
   }
 }
 
-function isNamedFile(file: CollectedSourceFile, expectedName: string): boolean {
-  return (
-    file.relativePath.split(/[\\/]+/).length === 1 &&
-    path.basename(file.relativePath).toLowerCase() ===
-      expectedName.toLowerCase()
-  );
-}
-
-function isCommunityPackFolderPair(
+function isPluginConfigFolderPair(
   pluginsPath: string,
   configPath: string,
 ): boolean {
   const pluginsParent = path.dirname(pluginsPath);
   return (
     pathKey(pluginsParent) === pathKey(path.dirname(configPath)) &&
-    path.basename(pluginsParent).toLowerCase() ===
-      D2R_LOADER_PACKAGES_DIRECTORY &&
     path.basename(pluginsPath).toLowerCase() === 'plugins' &&
     path.basename(configPath).toLowerCase() === 'config'
   );
 }
 
-function prepareCommunityPackFolderPair(
+function preparePluginConfigFolderPair(
   pluginsPath: string,
   configPath: string,
 ): PreparedSource | null {
-  if (!isCommunityPackFolderPair(pluginsPath, configPath)) return null;
+  if (!isPluginConfigFolderPair(pluginsPath, configPath)) return null;
 
   assertSafeSourceDirectory(pluginsPath);
   assertSafeSourceDirectory(configPath);
   const pluginFiles = collectSourceFiles(pluginsPath);
   const configFiles = collectSourceFiles(configPath);
-  const knownPluginFiles = new Set(
-    pluginFiles
-      .filter((file) =>
-        COMMUNITY_PACK_PLUGIN_DLLS.some((name) => isNamedFile(file, name)),
-      )
-      .map((file) => path.basename(file.relativePath).toLowerCase()),
-  );
-  const configFile = configFiles.find((file) =>
-    isNamedFile(file, COMMUNITY_PACK_CONFIG_FILE),
-  );
-  if (
-    COMMUNITY_PACK_PLUGIN_DLLS.some(
-      (name) => !knownPluginFiles.has(name.toLowerCase()),
-    ) ||
-    configFile == null ||
-    !isPluginCompanionJSON(readBoundedFile(configFile.absolutePath))
-  ) {
-    return null;
-  }
-
-  const validPluginFiles = pluginFiles.filter(
+  const hasValidPlugin = pluginFiles.some(
     (file) =>
       path.extname(file.relativePath).toLowerCase() === '.dll' &&
       hasRequiredPluginExports(readBoundedFile(file.absolutePath)),
   );
-  if (
-    !COMMUNITY_PACK_PLUGIN_DLLS.every((name) =>
-      validPluginFiles.some((file) => isNamedFile(file, name)),
-    )
-  ) {
-    return null;
-  }
+  if (!hasValidPlugin) return null;
 
-  const packageName = path.basename(path.dirname(path.dirname(pluginsPath)));
+  const commonParent = path.dirname(pluginsPath);
+  const packageName =
+    path.basename(commonParent).toLowerCase() === D2R_LOADER_PACKAGES_DIRECTORY
+      ? path.basename(path.dirname(commonParent))
+      : path.basename(commonParent);
   const files = [
     ...pluginFiles.map((file) => ({
       ...file,
-      relativePath: path.join('d2rloader', 'plugins', file.relativePath),
+      relativePath: path.join('plugins', file.relativePath),
       sourceRelativePath: file.relativePath,
     })),
     ...configFiles.map((file) => ({
       ...file,
-      relativePath: path.join('d2rloader', 'config', file.relativePath),
+      relativePath: path.join('config', file.relativePath),
       sourceRelativePath: file.relativePath,
     })),
   ];
@@ -1046,9 +1007,7 @@ function isRecognizedLoosePluginDLL(filePath: string): boolean {
 }
 
 function hasRequiredPluginExports(buffer: Buffer): boolean {
-  return REQUIRED_PLUGIN_EXPORTS.every(
-    (exportName) => buffer.indexOf(Buffer.from(exportName, 'ascii')) >= 0,
-  );
+  return inspectD2RLoaderPluginPE(buffer)?.hasRequiredExports === true;
 }
 
 function decodeStrictUTF8(
@@ -1250,15 +1209,26 @@ function getCanonicalLoaderTarget(
 ): { role: D2RLoaderPackageFileRole; targetPath: string } | null {
   const segments = relativePath.split(/[\\/]+/).filter(Boolean);
   const lowerSegments = segments.map((segment) => segment.toLowerCase());
-  let loaderIndex = lowerSegments.lastIndexOf('d2rloader');
-  if (sourceRootName.toLowerCase() === 'd2rloader') {
-    loaderIndex = -1;
-  }
-  const targetSegments = segments.slice(loaderIndex + 1);
-  const category = targetSegments[0]?.toLowerCase();
-  if (loaderIndex < 0 && sourceRootName.toLowerCase() !== 'd2rloader') {
+  const sourceRootLower = sourceRootName.toLowerCase();
+  const loaderIndex = lowerSegments.lastIndexOf('d2rloader');
+  const isLoaderCategory = (value: string | undefined): boolean =>
+    value === 'plugins' || value === 'patches' || value === 'config';
+  let targetSegments: string[];
+  if (sourceRootLower === 'd2rloader') {
+    targetSegments = segments;
+  } else if (loaderIndex >= 0) {
+    targetSegments = segments.slice(loaderIndex + 1);
+  } else if (isLoaderCategory(lowerSegments[0])) {
+    targetSegments = segments;
+  } else if (
+    lowerSegments[0] === sourceRootLower &&
+    isLoaderCategory(lowerSegments[1])
+  ) {
+    targetSegments = segments.slice(1);
+  } else {
     return null;
   }
+  const category = targetSegments[0]?.toLowerCase();
   if (targetSegments.length < 2) {
     return null;
   }
@@ -1309,6 +1279,15 @@ function createPackageManifest(
     .filter((file) => path.extname(file.relativePath).toLowerCase() === '.dll')
     .map((file) => readBoundedFile(file.absolutePath))
     .filter(hasRequiredPluginExports);
+  const referencedConfigFileNames = new Set<string>();
+  for (const buffer of dllBuffers) {
+    const inspection = inspectD2RLoaderPluginPE(buffer);
+    for (const fileName of inspection?.referencedConfigFileNames ?? []) {
+      if (fileName !== 'modinfo.json') {
+        referencedConfigFileNames.add(fileName);
+      }
+    }
+  }
   const validPluginDLLs = files.filter(
     (file) =>
       path.extname(file.relativePath).toLowerCase() === '.dll' &&
@@ -1372,6 +1351,18 @@ function createPackageManifest(
         sha256,
         sourcePath: file.relativePath,
         targetPath: canonical.targetPath,
+        targetRoot: 'd2rloader',
+      };
+    } else if (
+      isJSONFile &&
+      referencedConfigFileNames.has(fileName.toLowerCase()) &&
+      isPluginCompanionJSON(buffer)
+    ) {
+      return {
+        role: 'config',
+        sha256,
+        sourcePath: file.relativePath,
+        targetPath: path.join('config', fileName),
         targetRoot: 'd2rloader',
       };
     } else if (isJSONFile) {
@@ -1679,7 +1670,7 @@ export async function importD2RLoaderPluginSources(
   const individualSources: string[] = [];
   const looseFilesByParent = new Map<string, string[]>();
   const preparedSources: PreparedSource[] = [];
-  const communityPackSources = new Set<string>();
+  const pairedFolderSources = new Set<string>();
   const directorySources = sourcePaths
     .map((sourcePath) => path.resolve(sourcePath))
     .filter((sourcePath) => {
@@ -1692,14 +1683,14 @@ export async function importD2RLoaderPluginSources(
     const configPath = directorySources.find(
       (candidate) =>
         path.basename(candidate).toLowerCase() === 'config' &&
-        isCommunityPackFolderPair(pluginsPath, candidate),
+        isPluginConfigFolderPair(pluginsPath, candidate),
     );
     if (configPath == null) continue;
-    const prepared = prepareCommunityPackFolderPair(pluginsPath, configPath);
+    const prepared = preparePluginConfigFolderPair(pluginsPath, configPath);
     if (prepared == null) continue;
     preparedSources.push(prepared);
-    communityPackSources.add(pathKey(pluginsPath));
-    communityPackSources.add(pathKey(configPath));
+    pairedFolderSources.add(pathKey(pluginsPath));
+    pairedFolderSources.add(pathKey(configPath));
   }
   for (const sourcePath of sourcePaths) {
     const absolutePath = path.resolve(sourcePath);
@@ -1713,7 +1704,7 @@ export async function importD2RLoaderPluginSources(
       stat.isDirectory() ||
       path.extname(absolutePath).toLowerCase() === '.zip'
     ) {
-      if (communityPackSources.has(pathKey(absolutePath))) continue;
+      if (pairedFolderSources.has(pathKey(absolutePath))) continue;
       individualSources.push(absolutePath);
       continue;
     }
@@ -1964,7 +1955,7 @@ function getEditableManifestFile(
   const isEditableJSON =
     file != null &&
     /\.jsonc?$/i.test(file.sourcePath) &&
-    (file.role === 'patch' || file.role === 'plugin');
+    (file.role === 'config' || file.role === 'patch' || file.role === 'plugin');
   const isEditableTOML =
     file != null && isPluginTOMLPath(file.sourcePath) && file.role === 'config';
   if (
@@ -2322,8 +2313,7 @@ function resolveModEditableSource(
     /\.toml$/i.test(source.sourcePath) &&
     path.basename(source.sourcePath).toLowerCase() !==
       D2R_LOADER_MAIN_CONFIG_FILE;
-  const isJSON =
-    source.category !== 'config' && /\.jsonc?$/i.test(source.sourcePath);
+  const isJSON = /\.jsonc?$/i.test(source.sourcePath);
   if (!isTOML && !isJSON) {
     throw new Error(
       `Mod file is not an editable plugin JSON/JSONC or plugin TOML file: "${source.sourcePath}".`,
@@ -2709,6 +2699,9 @@ function inventoryItem(
   editableSourcePath: string | null = null,
   editableSource: D2RLoaderPluginEditableSource | null = null,
 ): D2RLoaderPluginInventoryItem {
+  const pluginInfo = /\.dll$/i.test(relativePath)
+    ? inspectD2RLoaderPluginPE(readBoundedFile(filePath))?.pluginInfo
+    : null;
   return {
     deletionSource,
     editableSource,
@@ -2716,6 +2709,18 @@ function inventoryItem(
     id: `${sourceType}:${sourceName}:${editableSourcePath ?? relativePath}`,
     name: path.basename(relativePath),
     packageName,
+    ...(pluginInfo == null
+      ? {}
+      : {
+          pluginInfo: {
+            apiVersion: pluginInfo.apiVersion,
+            author: pluginInfo.author,
+            description: pluginInfo.description,
+            id: pluginInfo.id,
+            name: pluginInfo.name,
+            version: pluginInfo.version,
+          },
+        }),
     relativePath,
     sha256,
     sourceName,
@@ -2759,7 +2764,7 @@ function listInventoryFiles(
         });
         const editableSourcePath =
           location.category === 'config'
-            ? isPluginTOMLPath(relativePath)
+            ? isPluginConfigPath(relativePath)
               ? relativePath
               : null
             : /\.jsonc?$/i.test(relativePath)
@@ -2914,7 +2919,7 @@ export function readD2RLoaderPluginInventory(
             category: 'config',
             loaderRootPath,
             modID,
-          }).filter(({ relativePath }) => isPluginTOMLPath(relativePath)),
+          }).filter(({ relativePath }) => isPluginConfigPath(relativePath)),
         );
       }
     }
@@ -2925,8 +2930,8 @@ export function readD2RLoaderPluginInventory(
     const manifest = readPackageManifest(packagePath);
     packages.push(manifestToSummary(manifest));
     for (const file of manifest.files) {
-      const isPluginTOML =
-        file.role === 'config' && isPluginTOMLPath(file.sourcePath);
+      const isPluginConfig =
+        file.role === 'config' && isPluginConfigPath(file.sourcePath);
       let sourceHash: string | null = null;
       let sourcePath: string | null = null;
       if (file.targetRoot != null && file.targetPath != null) {
@@ -2943,7 +2948,7 @@ export function readD2RLoaderPluginInventory(
         const targetKey = `${file.targetRoot}:${pathKey(file.targetPath)}`;
         const inventoryVisible =
           file.targetRoot === 'd2rloader' &&
-          (file.role === 'plugin' || file.role === 'patch' || isPluginTOML);
+          (file.role === 'plugin' || file.role === 'patch' || isPluginConfig);
         const existing = managedTargets.get(targetKey);
         if (
           existing != null &&
@@ -2972,7 +2977,7 @@ export function readD2RLoaderPluginInventory(
       if (
         file.targetRoot !== 'd2rloader' ||
         file.targetPath == null ||
-        (file.role !== 'plugin' && file.role !== 'patch' && !isPluginTOML)
+        (file.role !== 'plugin' && file.role !== 'patch' && !isPluginConfig)
       ) {
         continue;
       }
@@ -2994,7 +2999,7 @@ export function readD2RLoaderPluginInventory(
         ? file.targetPath.slice(categoryPrefix.length)
         : path.basename(file.targetPath);
       const editableSourcePath =
-        isPluginTOML ||
+        isPluginConfig ||
         (file.role !== 'config' && /\.jsonc?$/i.test(file.sourcePath))
           ? file.sourcePath
           : null;

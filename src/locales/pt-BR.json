@@ -345,7 +345,7 @@
   "plugins.status.scanFailed": "Falha na verificação",
   "plugins.status.scanning": "Digitalizando",
   "plugins.summary.all.label": "Todos os arquivos",
-  "plugins.summary.configs.description": "Arquivos TOML editáveis",
+  "plugins.summary.configs.description": "Arquivos JSON/JSONC e TOML editáveis",
   "plugins.summary.configs.label": "Arquivos de configuração",
   "plugins.summary.patches.description": "Definições de patch de memória",
   "plugins.summary.patches.label": "Arquivos de correção",

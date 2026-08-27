@@ -345,7 +345,7 @@
   "plugins.status.scanFailed": "스캔 실패",
   "plugins.status.scanning": "검색 중",
   "plugins.summary.all.label": "모든 파일",
-  "plugins.summary.configs.description": "편집 가능한 TOML 파일",
+  "plugins.summary.configs.description": "편집 가능한 JSON/JSONC 및 TOML 파일",
   "plugins.summary.configs.label": "구성 파일",
   "plugins.summary.patches.description": "메모리 패치 정의",
   "plugins.summary.patches.label": "패치 파일",

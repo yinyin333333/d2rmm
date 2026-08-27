@@ -217,7 +217,20 @@ export function spawnNewWorker(
         );
         return;
       }
-      closeReadyWorker();
+      if (phase !== 'ready') {
+        return;
+      }
+      if (worker.killed) {
+        closeReadyWorker();
+        return;
+      }
+
+      // An unexpected IPC disconnect normally precedes the exit event. Stop
+      // routing immediately, but retain the terminal listeners so onExit can
+      // report the catastrophic failure instead of silently losing the worker.
+      unregisterTransport();
+      workers.delete(worker);
+      killWorker();
     };
 
     try {
@@ -226,8 +239,12 @@ export function spawnNewWorker(
         ? fork('./src/main/worker/worker.ts', [], {
             execArgv: ['-r', 'ts-node/register/transpile-only'],
             env: workerEnv,
+            serialization: 'advanced',
           })
-        : fork(path.join(__dirname, 'worker.js'), [], { env: workerEnv });
+        : fork(path.join(__dirname, 'worker.js'), [], {
+            env: workerEnv,
+            serialization: 'advanced',
+          });
     } catch (error) {
       reject(error);
       return;

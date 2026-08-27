@@ -345,7 +345,7 @@
   "plugins.status.scanFailed": "スキャンに失敗しました",
   "plugins.status.scanning": "スキャン中",
   "plugins.summary.all.label": "すべてのファイル",
-  "plugins.summary.configs.description": "編集可能な TOML ファイル",
+  "plugins.summary.configs.description": "編集可能な JSON/JSONC および TOML ファイル",
   "plugins.summary.configs.label": "設定ファイル",
   "plugins.summary.patches.description": "メモリパッチ定義",
   "plugins.summary.patches.label": "パッチファイル",

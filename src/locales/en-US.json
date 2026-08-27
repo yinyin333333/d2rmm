@@ -261,7 +261,7 @@
   "plugins.status.scanFailed": "Scan failed",
   "plugins.status.scanning": "Scanning",
   "plugins.summary.all.label": "All files",
-  "plugins.summary.configs.description": "Editable TOML files",
+  "plugins.summary.configs.description": "Editable JSON/JSONC and TOML files",
   "plugins.summary.configs.label": "Config files",
   "plugins.summary.patches.description": "Memory patch definitions",
   "plugins.summary.patches.label": "Patch files",

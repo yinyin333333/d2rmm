@@ -285,7 +285,7 @@ export default function ModList(): JSX.Element {
             gap: 0.5,
             justifyContent: 'flex-end',
             '& .MuiButton-root': { px: 1.5, whiteSpace: 'nowrap' },
-            '& > span > .MuiButton-root': { px: 4 },
+            '& > .ModList-runGameButton > .MuiButton-root': { px: 4 },
           }}
         >
           <AddSectionHeaderButton />

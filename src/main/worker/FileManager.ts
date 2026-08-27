@@ -1,3 +1,4 @@
+import path from 'path';
 import { tl } from '../../shared/i18n';
 import { InstallationRuntime } from './InstallationRuntime';
 
@@ -22,7 +23,7 @@ export function getFileManagerPathIdentity(
   filePath: string,
   platform: NodeJS.Platform = process.platform,
 ): { filePath: string; key: string } {
-  const normalizedFilePath = filePath.replace(/\\/g, '/');
+  const normalizedFilePath = path.posix.normalize(filePath.replace(/\\/g, '/'));
   const effectiveFilePath =
     platform === 'win32'
       ? normalizedFilePath.toLowerCase()

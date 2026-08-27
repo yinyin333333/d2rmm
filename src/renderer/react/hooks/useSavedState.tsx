@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 function defaultSerialize<T>(value: T): string {
   return String(value);
@@ -26,6 +26,7 @@ export default function useSavedState<T>(
   serialize: (value: T) => string = defaultSerialize,
   deserialize: (value: string) => T = defaultDeserialize,
 ): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const serializeRef = useRef(serialize);
   const [value, setValue] = useState<T>(() => {
     try {
       const savedValue = localStorage.getItem(key);
@@ -37,12 +38,16 @@ export default function useSavedState<T>(
   });
 
   useEffect(() => {
+    serializeRef.current = serialize;
+  }, [serialize]);
+
+  useEffect(() => {
     try {
-      localStorage.setItem(key, serialize(value));
+      localStorage.setItem(key, serializeRef.current(value));
     } catch (e) {
       console.error(e);
     }
-  }, [key, value, serialize]);
+  }, [key, value]);
 
   return [value, setValue];
 }

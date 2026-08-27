@@ -32,6 +32,7 @@ import {
   synchronizeD2RLoaderPluginDirectory,
   type D2RLoaderPackageManifest,
 } from '../main/worker/D2RLoaderPluginAPI';
+import { createTestD2RLoaderPluginPE } from '../testFixtures/D2RLoaderPluginPEFixture';
 
 jest.mock('main/worker/CascLib', () => ({
   readCString: (buffer: Buffer) => buffer.toString('utf8'),
@@ -56,10 +57,8 @@ function fakePluginDLL(
   extraBuffer: Buffer = Buffer.alloc(0),
 ): Buffer {
   return Buffer.concat([
-    Buffer.from(
-      `MZ\0D2RLoaderGetPluginInfo\0D2RLoaderLoadPlugin\0${extraText}\0`,
-      'utf8',
-    ),
+    createTestD2RLoaderPluginPE({ includePluginInfo: false }),
+    Buffer.from(`${extraText}\0`, 'utf8'),
     extraBuffer,
   ]);
 }
@@ -570,7 +569,132 @@ describe('D2RLoader plugin package manager', () => {
     );
   });
 
-  it('combines only the recognized Community Pack plugins and config folders', async () => {
+  it('imports a package with top-level plugins and config folders', async () => {
+    const source = path.join(incomingRoot, 'RuffnecKk-All-Plugins-v1.2.0');
+    writeFile(
+      path.join(source, 'plugins', 'd2rl-ruffneckk-larzuk-sockets.dll'),
+      createTestD2RLoaderPluginPE({
+        configReference: 'ForceLarzukSockets.json',
+      }),
+    );
+    writeFile(
+      path.join(source, 'config', 'ForceLarzukSockets.json'),
+      '{"enabled":true}',
+    );
+
+    await importD2RLoaderPluginSources(appRoot, [source]);
+    const manifest = JSON.parse(
+      readFileSync(
+        path.join(
+          appRoot,
+          D2R_LOADER_PACKAGES_DIRECTORY,
+          'RuffnecKk-All-Plugins-v1.2.0',
+          D2R_LOADER_PACKAGE_MANIFEST,
+        ),
+        'utf8',
+      ),
+    ) as D2RLoaderPackageManifest;
+    expect(manifest.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'plugin',
+          targetPath: path.join('plugins', 'd2rl-ruffneckk-larzuk-sockets.dll'),
+        }),
+        expect.objectContaining({
+          role: 'config',
+          targetPath: path.join('config', 'ForceLarzukSockets.json'),
+        }),
+      ]),
+    );
+    const inventory = readD2RLoaderPluginInventory(appRoot, []);
+    expect(inventory.plugins[0].pluginInfo).toEqual(
+      expect.objectContaining({
+        apiVersion: 3,
+        id: 'test-plugin',
+        name: 'Test Plugin',
+        version: '1.2.3',
+      }),
+    );
+    const configItem = inventory.configs.find(
+      ({ name }) => name === 'ForceLarzukSockets.json',
+    );
+    expect(configItem?.editableSourcePath).toBe(
+      path.join('config', 'ForceLarzukSockets.json'),
+    );
+    const openedConfig = readD2RLoaderPluginPackageJSON(
+      appRoot,
+      'RuffnecKk-All-Plugins-v1.2.0',
+      path.join('config', 'ForceLarzukSockets.json'),
+    );
+    expect(openedConfig).toMatchObject({
+      contents: '{"enabled":true}',
+      format: 'json',
+      role: 'config',
+    });
+    const savedConfig = saveD2RLoaderPluginPackageJSON(
+      appRoot,
+      'RuffnecKk-All-Plugins-v1.2.0',
+      path.join('config', 'ForceLarzukSockets.json'),
+      openedConfig.sha256,
+      '{"enabled":false}',
+    );
+    expect(
+      readD2RLoaderPluginPackageJSON(
+        appRoot,
+        'RuffnecKk-All-Plugins-v1.2.0',
+        path.join('config', 'ForceLarzukSockets.json'),
+      ),
+    ).toMatchObject({
+      contents: '{"enabled":false}',
+      role: 'config',
+      sha256: savedConfig.sha256,
+    });
+  });
+
+  it('routes a loose JSON file to config when a companion DLL names it', async () => {
+    const source = path.join(incomingRoot, 'Loose Larzuk');
+    writeFile(
+      path.join(source, 'Larzuk.dll'),
+      createTestD2RLoaderPluginPE({
+        configReference: 'ForceLarzukSockets.json',
+      }),
+    );
+    writeFile(path.join(source, 'ForceLarzukSockets.json'), '{"enabled":true}');
+    writeFile(path.join(source, 'layout.json'), '{"layout":true}');
+
+    await importD2RLoaderPluginSources(appRoot, [source]);
+    const manifest = JSON.parse(
+      readFileSync(
+        path.join(
+          appRoot,
+          D2R_LOADER_PACKAGES_DIRECTORY,
+          'Loose Larzuk',
+          D2R_LOADER_PACKAGE_MANIFEST,
+        ),
+        'utf8',
+      ),
+    ) as D2RLoaderPackageManifest;
+    expect(
+      manifest.files.find(
+        ({ sourcePath }) => sourcePath === 'ForceLarzukSockets.json',
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        role: 'config',
+        targetPath: path.join('config', 'ForceLarzukSockets.json'),
+      }),
+    );
+    expect(
+      manifest.files.find(({ sourcePath }) => sourcePath === 'layout.json'),
+    ).toEqual(
+      expect.objectContaining({
+        role: 'plugin',
+        targetPath: path.join('plugins', 'layout.json'),
+      }),
+    );
+  });
+
+  it('combines sibling plugins and config folders without package-name rules', async () => {
     const root = path.join(incomingRoot, 'Community-Pack-1.0.0');
     const plugins = path.join(root, 'd2rloader', 'plugins');
     const config = path.join(root, 'd2rloader', 'config');
@@ -633,7 +757,30 @@ describe('D2RLoader plugin package manager', () => {
       unrelatedPlugins,
       unrelatedConfig,
     ]);
-    expect(unrelatedResult.packages).toEqual(['plugins', 'config']);
+    expect(unrelatedResult.packages).toEqual(['Unrelated Bundle']);
+    const unrelatedManifest = JSON.parse(
+      readFileSync(
+        path.join(
+          appRoot,
+          D2R_LOADER_PACKAGES_DIRECTORY,
+          'Unrelated Bundle',
+          D2R_LOADER_PACKAGE_MANIFEST,
+        ),
+        'utf8',
+      ),
+    ) as D2RLoaderPackageManifest;
+    expect(unrelatedManifest.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'plugin',
+          targetPath: path.join('plugins', 'one.dll'),
+        }),
+        expect.objectContaining({
+          role: 'config',
+          targetPath: path.join('config', 'settings.toml'),
+        }),
+      ]),
+    );
   });
 
   it('maps a same-stem valid DLL and MPQ dropped from the plugins folder', async () => {
@@ -1013,6 +1160,48 @@ describe('D2RLoader plugin package manager', () => {
       )?.data,
     ).toEqual(Buffer.from(editedTOML));
     expectSentinelUnchanged();
+  });
+
+  it('reads and atomically edits JSON config provided by a mod', () => {
+    const modID = 'JSON Config Mod';
+    const configPath = path.join(
+      appRoot,
+      'mods',
+      modID,
+      'd2rloader',
+      'config',
+      'ForceLarzukSockets.json',
+    );
+    writeFile(configPath, '{"enabled":true}');
+
+    const inventory = readD2RLoaderPluginInventory(appRoot, [modID]);
+    const item = inventory.configs.find(
+      ({ name }) => name === 'ForceLarzukSockets.json',
+    );
+    expect(item?.editableSource).toEqual({
+      category: 'config',
+      loaderRootPath: 'd2rloader',
+      modID,
+      sourcePath: 'ForceLarzukSockets.json',
+      sourceType: 'mod',
+    });
+    if (item?.editableSource == null) {
+      throw new Error('Expected editable mod JSON config.');
+    }
+    const opened = readD2RLoaderPluginSourceJSON(appRoot, item.editableSource);
+    expect(opened).toMatchObject({
+      contents: '{"enabled":true}',
+      format: 'json',
+      role: 'config',
+    });
+    const saved = saveD2RLoaderPluginSourceJSON(
+      appRoot,
+      item.editableSource,
+      opened.sha256,
+      '{"enabled":false}',
+    );
+    expect(readFileSync(configPath, 'utf8')).toBe('{"enabled":false}');
+    expect(saved.sha256).not.toBe(opened.sha256);
   });
 
   it('keeps d2rloader.toml outside plugin TOML editing and deployment', async () => {

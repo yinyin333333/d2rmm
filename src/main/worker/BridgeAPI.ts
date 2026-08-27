@@ -619,7 +619,12 @@ export const BridgeAPI: IBridgeAPI = {
         return false;
       }
 
-      getCascLib().CascCloseFile(fileOut[0]);
+      if (!getCascLib().CascCloseFile(fileOut[0])) {
+        throw te('worker.bridgeapi.extractFileToMemory.closeFailed', {
+          filePath,
+          cascError: String(getLastCascLibError()),
+        });
+      }
     } catch (e) {
       throw te('worker.bridgeapi.isGameFile.checkFailed', null, e);
     }
@@ -730,12 +735,21 @@ export const BridgeAPI: IBridgeAPI = {
       if (existsSync(filePath)) {
         const entries = readdirSync(filePath, { withFileTypes: true });
         return entries
-          .filter(
-            (entry) =>
-              entry.isDirectory() ||
-              (entry.isSymbolicLink() &&
-                statSync(path.join(filePath, entry.name)).isDirectory()),
-          )
+          .filter((entry) => {
+            if (entry.isDirectory()) {
+              return true;
+            }
+            if (!entry.isSymbolicLink()) {
+              return false;
+            }
+            try {
+              return statSync(path.join(filePath, entry.name)).isDirectory();
+            } catch {
+              // A broken/inaccessible link is not a mod, but it should not
+              // prevent the other mod directories from being discovered.
+              return false;
+            }
+          })
           .map((entry) => entry.name);
       }
       return [];
@@ -1832,7 +1846,7 @@ const config = JSON.parse(D2RMM.getConfigJSON());
               );
               sourceMapConsumer.destroy();
             }
-            console.error(te('worker.mod.runtimeError', null, error));
+            console.error(tl('worker.mod.runtimeError'), error);
           }
         } finally {
           scope.dispose();

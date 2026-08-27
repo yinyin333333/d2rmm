@@ -287,9 +287,17 @@ function EditableInventoryFile({
         }}
       >
         <ListItemText
-          primary={item.name}
+          primary={
+            item.pluginInfo == null
+              ? item.name
+              : `${item.pluginInfo.name} (${item.pluginInfo.version})`
+          }
           secondary={
-            item.relativePath === item.name ? undefined : item.relativePath
+            item.pluginInfo == null
+              ? item.relativePath === item.name
+                ? undefined
+                : item.relativePath
+              : `${item.name} · ${item.pluginInfo.id} · API ${item.pluginInfo.apiVersion}`
           }
           sx={{
             flex: 1,

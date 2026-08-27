@@ -31,6 +31,20 @@ describe('platform path policies', () => {
     expect(lower.key).not.toBe(upper.key);
   });
 
+  it('uses one FileManager identity for lexically equivalent mod paths', () => {
+    const canonical = getFileManagerPathIdentity(
+      'global/excel/foo.txt',
+      'win32',
+    );
+
+    expect(
+      getFileManagerPathIdentity('global/excel/./foo.txt', 'win32'),
+    ).toEqual(canonical);
+    expect(
+      getFileManagerPathIdentity('global/data/../excel/foo.txt', 'win32'),
+    ).toEqual(canonical);
+  });
+
   it('uses the home itself when USERPROFILE is unavailable', () => {
     const home = path.resolve('fake-home', 'alice');
     expect(getDefaultBaseSavesPath(undefined, home)).toBe(

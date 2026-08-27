@@ -141,7 +141,6 @@ export function getQuickJSProxyAPI<T extends AsyncSerializableAPI<T>>(
           try {
             return getHandleForValue(
               vm,
-              scope,
               // @ts-ignore: TypeScript can't recurse deeply enough for this
               await api[key](...args.map(vm.dump)),
             );
@@ -159,10 +158,21 @@ export function getQuickJSProxyAPI<T extends AsyncSerializableAPI<T>>(
 
 function getHandleForValue<T>(
   vm: QuickJSAsyncContext,
+  value: T,
+): QuickJSHandle {
+  return Scope.withScope((valueScope) =>
+    getScopedHandleForValue(vm, valueScope, value).dup(),
+  );
+}
+
+function getScopedHandleForValue<T>(
+  vm: QuickJSAsyncContext,
   scope: Scope,
   value: T,
 ): QuickJSHandle {
-  if (value instanceof Error) {
+  if (value === null) {
+    return vm.null;
+  } else if (value instanceof Error) {
     return scope.manage(vm.newError(value.message));
   } else if (typeof value === 'boolean') {
     return value ? vm.true : vm.false;
@@ -173,13 +183,17 @@ function getHandleForValue<T>(
   } else if (Array.isArray(value)) {
     const arrayHandle = scope.manage(vm.newArray());
     for (let i = 0; i < value.length; i++) {
-      vm.setProp(arrayHandle, i, getHandleForValue(vm, scope, value[i]));
+      vm.setProp(arrayHandle, i, getScopedHandleForValue(vm, scope, value[i]));
     }
     return arrayHandle;
-  } else if (typeof value === 'object' && value !== null) {
+  } else if (typeof value === 'object') {
     const objectHandle = scope.manage(vm.newObject());
     for (const key in value) {
-      vm.setProp(objectHandle, key, getHandleForValue(vm, scope, value[key]));
+      vm.setProp(
+        objectHandle,
+        key,
+        getScopedHandleForValue(vm, scope, value[key]),
+      );
     }
     return objectHandle;
   } else {

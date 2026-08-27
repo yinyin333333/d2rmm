@@ -6,8 +6,8 @@ import { render } from '@testing-library/react';
 const mockGetCollectionModConfigs = jest.fn();
 const mockGetCollectionRevision = jest.fn();
 const mockInstallMod = jest.fn();
+const mockSaveModConfig = jest.fn();
 const mockSetItemsOrder = jest.fn();
-const mockSetModConfig = jest.fn();
 const mockSetSectionHeaders = jest.fn();
 const mockShowToast = jest.fn();
 
@@ -31,8 +31,8 @@ jest.mock('renderer/react/context/ModsContext', () => ({
     { nextIndex: 0, headers: [] },
     mockSetSectionHeaders,
   ],
+  useSaveModConfig: () => mockSaveModConfig,
   useSetItemsOrder: () => mockSetItemsOrder,
-  useSetModConfig: () => mockSetModConfig,
 }));
 
 jest.mock('renderer/react/hooks/useToast', () => ({
@@ -90,14 +90,15 @@ describe('useModCollectionInstaller failure boundaries', () => {
     mockGetCollectionModConfigs.mockReset();
     mockGetCollectionRevision.mockReset();
     mockInstallMod.mockReset();
+    mockSaveModConfig.mockReset();
     mockSetItemsOrder.mockReset();
-    mockSetModConfig.mockReset();
     mockSetSectionHeaders.mockReset();
     mockShowToast.mockReset();
 
     mockGetCollectionRevision.mockResolvedValue(COLLECTION);
     mockGetCollectionModConfigs.mockResolvedValue({});
     mockInstallMod.mockResolvedValue('installed-mod');
+    mockSaveModConfig.mockResolvedValue(undefined);
     mockSetItemsOrder.mockImplementation((update) => update([]));
     mockSetSectionHeaders.mockImplementation((update) =>
       update({ nextIndex: 0, headers: [] }),
@@ -122,7 +123,7 @@ describe('useModCollectionInstaller failure boundaries', () => {
       nexusModID: '123',
       nexusFileID: 456,
     });
-    expect(mockSetModConfig).not.toHaveBeenCalled();
+    expect(mockSaveModConfig).not.toHaveBeenCalled();
     expect(mockSetSectionHeaders).toHaveBeenCalledTimes(1);
     expect(console.warn).toHaveBeenCalledWith(
       expect.stringContaining('fake-collection'),
@@ -139,7 +140,7 @@ describe('useModCollectionInstaller failure boundaries', () => {
 
     await renderUseModCollectionInstaller()(COLLECTION_ARGS);
 
-    expect(mockSetModConfig).toHaveBeenCalledWith(
+    expect(mockSaveModConfig).toHaveBeenCalledWith(
       'installed-mod',
       embeddedConfig,
     );
@@ -153,7 +154,7 @@ describe('useModCollectionInstaller failure boundaries', () => {
       renderUseModCollectionInstaller()(COLLECTION_ARGS),
     ).rejects.toBe(installError);
 
-    expect(mockSetModConfig).not.toHaveBeenCalled();
+    expect(mockSaveModConfig).not.toHaveBeenCalled();
     expect(mockSetSectionHeaders).not.toHaveBeenCalled();
   });
 
@@ -162,9 +163,7 @@ describe('useModCollectionInstaller failure boundaries', () => {
     mockGetCollectionModConfigs.mockResolvedValue({
       123: { enabled: true },
     });
-    mockSetModConfig.mockImplementation(() => {
-      throw configError;
-    });
+    mockSaveModConfig.mockRejectedValue(configError);
 
     await expect(
       renderUseModCollectionInstaller()(COLLECTION_ARGS),

@@ -120,6 +120,14 @@ const mockInventory = {
       id: 'managed:eezstreet:plugin-items.dll',
       name: 'plugin-items.dll',
       packageName: 'eezstreet-plugin-pack-2.0',
+      pluginInfo: {
+        apiVersion: 3,
+        author: 'Example Author',
+        description: 'Example plugin',
+        id: 'plugin-items',
+        name: 'Items Plus',
+        version: '2.0.0',
+      },
       relativePath: 'plugin-items.dll',
       sha256: 'b'.repeat(64),
       sourceName: 'eezstreet-plugin-pack-2.0',
@@ -257,6 +265,10 @@ describe('ModManagerPlugins', () => {
       screen.getAllByText('D2RMM package: eezstreet-plugin-pack-2.0'),
     ).toHaveLength(1);
     expect(screen.getByText('Mod: Example Mod')).toBeInTheDocument();
+    expect(screen.getByText('Items Plus (2.0.0)')).toBeInTheDocument();
+    expect(
+      screen.getByText('plugin-items.dll · plugin-items · API 3'),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole('button', {
         name: 'Edit D2RPlugins.json from D2RMM package eezstreet-plugin-pack-2.0',

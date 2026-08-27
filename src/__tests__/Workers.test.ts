@@ -24,8 +24,12 @@ jest.mock('main/IPC', () => ({
 
 class FakeChildProcess extends EventEmitter {
   connected = true;
+  killed = false;
 
-  kill = jest.fn(() => true);
+  kill = jest.fn(() => {
+    this.killed = true;
+    return true;
+  });
 }
 
 function asChildProcess(worker: FakeChildProcess): ChildProcess {
@@ -75,6 +79,11 @@ describe('spawnNewWorker', () => {
 
     expect(mockMarkWorkerReady).toHaveBeenCalledTimes(1);
     expect(mockMarkWorkerReady).toHaveBeenCalledWith(asChildProcess(worker));
+    expect(mockFork).toHaveBeenCalledWith(
+      './src/main/worker/worker.ts',
+      [],
+      expect.objectContaining({ serialization: 'advanced' }),
+    );
 
     worker.emit('exit', 0, null);
     expect(getWorkers()).not.toContain(asChildProcess(worker));
@@ -144,5 +153,45 @@ describe('spawnNewWorker', () => {
     expect(worker.kill).toHaveBeenCalledTimes(1);
     expect(mockUnregisterWorker).toHaveBeenCalledTimes(1);
     expect(getWorkers()).not.toContain(asChildProcess(worker));
+  });
+
+  it('reports an unexpected ready-worker disconnect when the child exits', async () => {
+    const worker = new FakeChildProcess();
+    mockFork.mockReturnValue(asChildProcess(worker));
+    const result = spawnNewWorker({ readyTimeoutMs: 1_000 });
+
+    worker.emit('spawn');
+    worker.emit('message', { control: 'worker-ready' });
+    await expect(result).resolves.toBeUndefined();
+
+    worker.connected = false;
+    worker.emit('disconnect');
+    expect(mockUnregisterWorker).toHaveBeenCalledTimes(1);
+    expect(worker.kill).toHaveBeenCalledTimes(1);
+    expect(getWorkers()).not.toContain(asChildProcess(worker));
+
+    worker.emit('exit', 1, 'SIGTERM');
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'main.worker.catastrophicFailure' }),
+    );
+  });
+
+  it('does not report a disconnect caused by an intentional worker kill', async () => {
+    const worker = new FakeChildProcess();
+    mockFork.mockReturnValue(asChildProcess(worker));
+    const result = spawnNewWorker({ readyTimeoutMs: 1_000 });
+
+    worker.emit('spawn');
+    worker.emit('message', { control: 'worker-ready' });
+    await expect(result).resolves.toBeUndefined();
+
+    worker.killed = true;
+    worker.connected = false;
+    worker.emit('disconnect');
+    worker.emit('exit', 0, 'SIGTERM');
+
+    expect(mockUnregisterWorker).toHaveBeenCalledTimes(1);
+    expect(worker.kill).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
   });
 });
