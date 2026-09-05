@@ -17,7 +17,7 @@ let loadedQuickJSAsyncWASMModule: QuickJSAsyncWASMModule | null;
 
 // This budget applies only while QuickJS is executing JavaScript. Async host
 // calls refresh the deadline immediately before control returns to the VM.
-export const QUICKJS_CONTINUOUS_EXECUTION_TIMEOUT_MS = 30_000;
+export const QUICKJS_CONTINUOUS_EXECUTION_TIMEOUT_MS = 5 * 60_000;
 
 export interface QuickJSExecutionWatchdog {
   dispose(): void;
