@@ -6,7 +6,7 @@ import {
   useIsInstalling,
   useInstallationOperation,
 } from 'renderer/react/context/InstallContext';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -25,6 +25,8 @@ export default function AppUpdateButton(): JSX.Element | null {
   const [status, setStatus] = useState<AppUpdateStatus | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [handoff, setHandoff] = useState(false);
+  const cancelled = useRef(false);
   const [error, setError] = useState('');
   const [isInstalling] = useIsInstalling();
   const { tryStartOperation, finishOperation } = useInstallationOperation();
@@ -40,6 +42,7 @@ export default function AppUpdateButton(): JSX.Element | null {
   }, [busy]);
   if (!status?.supported) return null;
   const check = async () => {
+    cancelled.current = false;
     setOpen(true);
     setBusy(true);
     setError('');
@@ -54,13 +57,17 @@ export default function AppUpdateButton(): JSX.Element | null {
   const install = async () => {
     const token = tryStartOperation(t('appUpdate.title'));
     if (token == null) return;
+    cancelled.current = false;
     flushSync(() => {
       setBusy(true);
       setError('');
     });
     try {
       await flushUpdateState();
+      if (cancelled.current) throw new Error('Update cancelled.');
       await AppUpdaterAPI.prepare();
+      if (cancelled.current) throw new Error('Update cancelled.');
+      setHandoff(true);
       await flushUpdateState();
       await drainForUpdate();
       flushSync(() => {});
@@ -71,7 +78,18 @@ export default function AppUpdateButton(): JSX.Element | null {
       resumeAfterUpdateFailure();
       setError(String(failure));
       setBusy(false);
+      setHandoff(false);
       finishOperation(token);
+    }
+  };
+  const close = async () => {
+    if (handoff) return;
+    cancelled.current = true;
+    try {
+      await AppUpdaterAPI.cancel();
+      setOpen(false);
+    } catch (failure) {
+      setError(String(failure));
     }
   };
   return (
@@ -85,9 +103,11 @@ export default function AppUpdateButton(): JSX.Element | null {
         {t('appUpdate.title')}
       </Button>
       <Dialog
-        disableEscapeKeyDown={busy}
+        disableEscapeKeyDown={handoff}
         fullWidth={true}
-        onClose={busy ? undefined : () => setOpen(false)}
+        onClose={() => {
+          void close();
+        }}
         open={open}
       >
         <DialogTitle>{t('appUpdate.title')}</DialogTitle>
@@ -119,7 +139,12 @@ export default function AppUpdateButton(): JSX.Element | null {
           )}
         </DialogContent>
         <DialogActions>
-          <Button disabled={busy} onClick={() => setOpen(false)}>
+          <Button
+            disabled={handoff}
+            onClick={() => {
+              void close();
+            }}
+          >
             {t('appUpdate.close')}
           </Button>
           {status.version && (

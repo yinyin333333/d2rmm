@@ -79,8 +79,21 @@ function WriteNewFile([string]$target, [string]$contents) {
     $stream.Flush($true)
   } finally { $stream.Dispose() }
 }
-function Rollback {
+function Rollback($previous) {
   Report 'restoring' 'Restoring the previous program files...'
+  $previousFiles = @{}
+  foreach ($file in $previous.files) { $previousFiles[$file.path] = $file }
+  # Validate every available backup before consuming any of them. A missing
+  # backup is valid only if the rename never happened (or was already undone).
+  foreach ($entry in $script:journal) {
+    if (!$entry.existed) { continue }
+    $sourceRoot = $job.root
+    if ([IO.File]::Exists((SafePath (Join-Path $work 'backup') $entry.name))) { $sourceRoot = Join-Path $work 'backup' }
+    if ($entry.name -ceq $manifestName) {
+      $candidate = ReadManifest $sourceRoot $job.oldVersion
+      if ((ConvertTo-Json $candidate -Depth 5 -Compress) -cne (ConvertTo-Json $previous -Depth 5 -Compress)) { throw 'Previous manifest changed' }
+    } else { CheckFile $sourceRoot $previousFiles[$entry.name] }
+  }
   for ($i = $script:journal.Count - 1; $i -ge 0; $i--) {
     $entry = $script:journal[$i]
     $target = SafePath $job.root $entry.name
@@ -92,6 +105,9 @@ function Rollback {
       [IO.File]::Move($backup, $target)
     } elseif (!$entry.existed -and [IO.File]::Exists($target)) { [IO.File]::Delete($target) }
   }
+  $restored = ReadManifest $job.root $job.oldVersion
+  if ((ConvertTo-Json $restored -Depth 5 -Compress) -cne (ConvertTo-Json $previous -Depth 5 -Compress)) { throw 'Restored manifest differs from previous manifest' }
+  foreach ($file in $previous.files) { CheckFile $job.root $file }
 }
 function RemoveEmptyDirectories([string]$directory) {
   foreach ($entry in Get-ChildItem -LiteralPath $directory -Force) {
@@ -150,10 +166,7 @@ try {
           (!$entry.existed -and (!$newOwned.ContainsKey($entry.name) -or $oldOwned.ContainsKey($entry.name)))) { throw 'Invalid recovery journal path or ownership' }
       $journalNames[$entry.name] = $true
     }
-    if ($journal.Count -eq 0) {
-      foreach ($file in $recoveryOld.files) { CheckFile $job.root $file }
-    }
-    Rollback
+    Rollback $recoveryOld
     Remove-Item -LiteralPath $lock
     $ownsLock = $false
     Report 'restored' 'Previous program restored. You may start D2RMM again.'
@@ -266,7 +279,7 @@ try {
   if ($Recover) { $ownsLock = $false }
   foreach ($stream in $locks) { $stream.Dispose() }; $locks = @()
   if (!$Recover -and !$committed -and $journal.Count -gt 0) {
-    try { Rollback } catch { $failure += "`r`nRESTORE FAILED: $($_.Exception). Run updater.ps1 -Plan `"$Plan`" -Recover"; $ownsLock = $false }
+    try { Rollback $old } catch { $failure += "`r`nRESTORE FAILED: $($_.Exception). Run updater.ps1 -Plan `"$Plan`" -Recover"; $ownsLock = $false }
   }
   if ($ownsLock) { Remove-Item -LiteralPath $lock -ErrorAction SilentlyContinue }
   Report 'failed' "$failure`r`nLog: $log"

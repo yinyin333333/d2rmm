@@ -8,6 +8,7 @@ import {
   downloadPackage,
   selectRelease,
   stagePackage,
+  updateRequestSignal,
   validateInstallation,
   UpdateRelease,
 } from './AppUpdatePackage';
@@ -28,9 +29,10 @@ let state: AppUpdateStatus = {
 let selection: ReturnType<typeof selectRelease> = null;
 let work: string | null = null;
 let busy = false;
+let operation: AbortController | null = null;
 let quitting = false;
 export function isAppUpdateBusy(): boolean {
-  return busy && !quitting;
+  return ['starting', 'waiting'].includes(state.phase) && !quitting;
 }
 async function setStatus(
   phase: string,
@@ -65,14 +67,10 @@ export function initAppUpdaterAPI(): void {
     ready: confirmUpdatedStartup,
     status: async () => state,
     cancel: async () => {
-      if (
-        quitting ||
-        !['prepared', 'failed', 'available', 'current', 'idle'].includes(
-          state.phase,
-        )
-      )
+      if (quitting || ['starting', 'waiting'].includes(state.phase))
         throw new Error('Update handoff is in progress.');
-      busy = false;
+      operation?.abort(new Error('Update cancelled before shutdown.'));
+      if (operation == null) busy = false;
       resumeAfterUpdateFailure();
       await setStatus('failed', 'Update cancelled before shutdown.');
     },
@@ -80,28 +78,31 @@ export function initAppUpdaterAPI(): void {
       requireSupported();
       if (busy) throw new Error('An update is already running.');
       busy = true;
+      const controller = new AbortController();
+      operation = controller;
       try {
         await setStatus('checking');
         const response = await fetch(
           'https://api.github.com/repos/yinyin333333/d2rmm/releases?per_page=100',
           {
             headers: { Accept: 'application/vnd.github+json' },
-            signal: AbortSignal.timeout(30000),
+            signal: updateRequestSignal(30000, controller.signal),
           },
         );
         if (!response.ok) throw new Error(`GitHub: HTTP ${response.status}`);
-        selection = selectRelease(
-          (await response.json()) as UpdateRelease[],
-          app.getVersion(),
-        );
+        const releases = (await response.json()) as UpdateRelease[];
+        controller.signal.throwIfAborted();
+        selection = selectRelease(releases, app.getVersion());
         state.version = selection?.version ?? null;
         await setStatus(selection == null ? 'current' : 'available');
+        controller.signal.throwIfAborted();
         return state;
       } catch (error) {
         await setStatus('failed', String(error));
         throw error;
       } finally {
         busy = false;
+        operation = null;
       }
     },
     prepare: async () => {
@@ -109,9 +110,17 @@ export function initAppUpdaterAPI(): void {
       if (busy || selection == null)
         throw new Error('Check for an update first.');
       busy = true;
+      const controller = new AbortController();
+      operation = controller;
       try {
         await assertNoLinks(root);
-        await validateInstallation(root, app.getVersion(), process.arch);
+        await validateInstallation(
+          root,
+          app.getVersion(),
+          process.arch,
+          controller.signal,
+        );
+        controller.signal.throwIfAborted();
         work = await fs.mkdtemp(path.join(root, '.d2rmm-update-'));
         state.log = path.join(work, 'download.log');
         await setStatus('downloading');
@@ -121,19 +130,27 @@ export function initAppUpdaterAPI(): void {
           (progress) => {
             state = { ...state, progress };
           },
+          controller.signal,
         );
+        controller.signal.throwIfAborted();
         await setStatus('validating');
         await stagePackage(
           path.join(work, 'release.zip'),
           path.join(work, 'stage'),
           selection.version,
           process.arch,
+          controller.signal,
         );
+        controller.signal.throwIfAborted();
         await setStatus('prepared');
+        controller.signal.throwIfAborted();
       } catch (error) {
-        busy = false;
         await setStatus('failed', String(error));
         throw error;
+      } finally {
+        if (controller.signal.aborted || state.phase !== 'prepared')
+          busy = false;
+        operation = null;
       }
     },
     install: async () => {

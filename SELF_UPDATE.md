@@ -5,6 +5,10 @@ selects the newest canonical numeric version, including GitHub prereleases
 (the repository publishes its current version as a prerelease). Releases marked
 `#alias`, drafts, older versions, and assets with different names are excluded.
 The confirmation identifies the version and explains the restart.
+Release checks, downloads and validation can be cancelled by closing the update
+dialog, and do not block normal application exit. Closing is blocked only during
+the settings drain and installation handoff; main-process exit protection starts
+when the installation handoff begins.
 
 Windows ZIP names accept spaces or dots between `D2RMM`, `Custom`, and the
 version (for example, `D2RMM Custom 1.9.8.zip` or GitHub's
@@ -61,9 +65,12 @@ Owned file/directory shape changes are supported; directories containing
 unknown files are not removed. Ordinary mid-apply failures restore old files.
 
 An empty recovery journal is saved before the installation lock is published.
-If the helper is interrupted before replacing files, recovery verifies the old
-program files before removing the lock. A second helper cannot overwrite an
-existing job's journal.
+Recovery checks backup sizes and hashes against the previous manifest before
+restoring them. If a backup is missing, the installed file must already match the
+previous version. Both automatic rollback and manual recovery verify every old
+program file and the restored manifest before removing the lock. Failed recovery
+retains the lock and reports failure. A second helper cannot overwrite an existing
+job's journal.
 
 The helper displays progress and failure details after D2RMM closes. Logs are
 in the installation's `.d2rmm-update-<random>` directory: `download.log`,

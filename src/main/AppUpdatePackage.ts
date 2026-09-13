@@ -53,11 +53,27 @@ export function selectRelease(
   }
   return null;
 }
+export function updateRequestSignal(
+  timeout: number,
+  signal?: AbortSignal,
+): AbortSignal {
+  // Electron 35 supports any(); the project's older DOM declarations omit it.
+  const signals = AbortSignal as typeof AbortSignal & {
+    any(signals: AbortSignal[]): AbortSignal;
+  };
+  return signals.any([
+    ...(signal == null ? [] : [signal]),
+    AbortSignal.timeout(timeout),
+  ]);
+}
 export async function downloadPackage(
   asset: ReleaseAsset,
   destination: string,
   progress: (percent: number) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
+  const requestSignal = updateRequestSignal(10 * 60 * 1000, signal);
+  requestSignal.throwIfAborted();
   const url = new URL(asset.browser_download_url);
   if (
     url.origin !== 'https://github.com' ||
@@ -68,7 +84,7 @@ export async function downloadPackage(
   )
     throw new Error('Invalid release asset.');
   const response = await fetch(url, {
-    signal: AbortSignal.timeout(10 * 60 * 1000),
+    signal: requestSignal,
   });
   if (!response.ok || response.body == null)
     throw new Error(`Download failed: HTTP ${response.status}`);
@@ -82,7 +98,9 @@ export async function downloadPackage(
     hash.update(chunk);
     progress(Math.min(100, (received / asset.size) * 100));
   });
-  await pipeline(source, createWriteStream(destination, { flags: 'wx' }));
+  await pipeline(source, createWriteStream(destination, { flags: 'wx' }), {
+    signal: requestSignal,
+  });
   if (received !== asset.size) throw new Error('Incomplete download.');
   const checksum = hash.digest('hex');
   if (asset.digest != null && asset.digest !== `sha256:${checksum}`)
@@ -96,7 +114,9 @@ export async function stagePackage(
   stage: string,
   version: string,
   arch: string,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const zip = await new Promise<ZipFile>((resolve, reject) =>
     open(
       zipPath,
@@ -113,6 +133,7 @@ export async function stagePackage(
       zip.on('end', resolve);
       zip.on('entry', (entry: Entry) => {
         try {
+          signal?.throwIfAborted();
           const name = entry.fileName.replace(/\/$/, '');
           const mode = (entry.externalFileAttributes >>> 16) & 0o170000;
           if (
@@ -186,6 +207,7 @@ export async function stagePackage(
     );
     await fs.mkdir(stage, { recursive: false });
     for (const entry of entries) {
+      signal?.throwIfAborted();
       const name = entry.fileName.slice(prefix.length);
       if (entry.fileName.endsWith('/')) continue;
       if (name === MANIFEST) continue;
@@ -206,9 +228,11 @@ export async function stagePackage(
       await pipeline(
         await readEntry(entry),
         createWriteStream(target, { flags: 'wx' }),
+        { signal },
       );
       const hash = createHash('sha256');
-      for await (const chunk of createReadStream(target)) hash.update(chunk);
+      for await (const chunk of createReadStream(target, { signal }))
+        hash.update(chunk);
       if (hash.digest('hex') !== file.sha256)
         throw new Error(`Corrupt program file: ${name}`);
       expected.delete(name);
@@ -249,16 +273,19 @@ export async function validateInstallation(
   root: string,
   version: string,
   arch: string,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const manifest = validateManifest(
     JSON.parse(await fs.readFile(path.join(root, MANIFEST), 'utf8')),
     version,
     arch,
   );
   for (const file of manifest.files) {
+    signal?.throwIfAborted();
     const target = path.join(root, file.path);
     await assertNoLinks(target);
-    const data = await fs.readFile(target);
+    const data = await fs.readFile(target, { signal });
     if (data.length !== file.size || digest(data) !== file.sha256)
       throw new Error(`Installed program file changed: ${file.path}`);
   }

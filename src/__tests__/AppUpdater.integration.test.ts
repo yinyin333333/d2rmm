@@ -371,6 +371,64 @@ windows('real Windows updater in isolated installations', () => {
     await f.programPreserved();
     await f.preserved();
   }, 30000);
+  test.each(['missing', 'corrupt', 'already restored'])(
+    'checks %s backups after a real interrupted replacement',
+    async (condition) => {
+      const f = await fixture();
+      await f.createPlan([]);
+      const { done } = f.start(['-CrashAfterInstall', '2']);
+      await until(() => exists(path.join(f.work, 'ready')));
+      await fs.writeFile(path.join(f.work, 'authorize'), 'yes');
+      expect(await done).toBe(99);
+      const backup = path.join(f.work, 'backup/resources/app.asar');
+      const target = path.join(f.root, 'resources/app.asar');
+      if (condition === 'corrupt') {
+        // Same size, different hash.
+        await fs.writeFile(backup, 'bad application');
+      } else {
+        if (condition === 'already restored') await fs.copyFile(backup, target);
+        await fs.unlink(backup);
+      }
+      const recovery = f.start(['-Recover']);
+      const success = condition === 'already restored';
+      expect(await recovery.done).toBe(success ? 0 : 1);
+      expect(await exists(path.join(f.root, '.d2rmm-update-lock'))).toBe(
+        !success,
+      );
+      const status = JSON.parse(
+        await fs.readFile(path.join(f.work, 'status.json'), 'utf8'),
+      );
+      expect(status.phase).toBe(success ? 'restored' : 'failed');
+      if (success) await f.programPreserved();
+      else expect(await fs.readFile(target, 'utf8')).toBe('new application');
+      await f.preserved();
+    },
+    30000,
+  );
+  test.each([false, true])(
+    'validates all old files after a journal-before-rename interruption (unrecorded corruption: %s)',
+    async (corrupt) => {
+      const f = await fixture();
+      await f.createPlan([]);
+      await fs.writeFile(path.join(f.root, '.d2rmm-update-lock'), f.plan);
+      await fs.writeFile(
+        path.join(f.work, 'journal.json'),
+        JSON.stringify([{ name: 'resources/app.asar', existed: true }]),
+      );
+      if (corrupt)
+        await fs.writeFile(
+          path.join(f.root, 'resources/obsolete.bin'),
+          'corrupt',
+        );
+      expect(await f.start(['-Recover']).done).toBe(corrupt ? 1 : 0);
+      expect(await exists(path.join(f.root, '.d2rmm-update-lock'))).toBe(
+        corrupt,
+      );
+      if (!corrupt) await f.programPreserved();
+      await f.preserved();
+    },
+    30000,
+  );
   test('retains staged files and rollback bytes when the restarted program exits without acknowledgement', async () => {
     const f = await fixture();
     await f.createPlan([]);
