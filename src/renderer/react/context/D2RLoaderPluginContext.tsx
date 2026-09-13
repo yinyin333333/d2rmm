@@ -7,6 +7,7 @@ import type {
   D2RLoaderPluginSource,
 } from 'bridge/D2RLoaderPluginAPI';
 import D2RLoaderPluginAPI from 'renderer/D2RLoaderPluginAPI';
+import { registerUpdateFlusher } from 'renderer/UpdateBarrier';
 import { useD2RLoaderSettings } from 'renderer/react/context/D2RLoaderSettingsContext';
 import {
   useIsLoadingMods,
@@ -104,6 +105,20 @@ export function D2RLoaderPluginContextProvider({
   const [error, setError] = useState<Error | null>(null);
   const scanGeneration = useRef(0);
   const mutationPending = useRef(false);
+  useEffect(
+    () =>
+      registerUpdateFlusher(() => {
+        if (dirtyEditors.current.size > 0)
+          throw new Error(
+            'Save or cancel unsaved plugin JSON edits before updating D2RMM.',
+          );
+        if (mutationPending.current)
+          throw new Error(
+            'Wait for the plugin operation to finish before updating D2RMM.',
+          );
+      }, -1),
+    [],
+  );
   const isMounted = useRef(true);
 
   useEffect(

@@ -7,6 +7,12 @@ import { markWorkerReady, registerWorker, unregisterWorker } from './IPC';
 import { getCurrentLocale } from './i18n';
 
 const workers: Set<ChildProcess> = new Set();
+const liveProcesses: Set<ChildProcess> = new Set();
+export function getLiveWorkerPids(): number[] {
+  return [...liveProcesses].flatMap((worker) =>
+    worker.pid == null ? [] : [worker.pid],
+  );
+}
 
 // Worker startup only performs local IPC/API, QuickJS WASM, and CascLib setup.
 // Two minutes is deliberately a generous hang guard rather than a performance
@@ -245,6 +251,8 @@ export function spawnNewWorker(
             env: workerEnv,
             serialization: 'advanced',
           });
+      worker.once('spawn', () => liveProcesses.add(worker));
+      worker.once('exit', () => liveProcesses.delete(worker));
     } catch (error) {
       reject(error);
       return;

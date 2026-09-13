@@ -10,7 +10,15 @@ import os from 'os';
 import path from 'path';
 import packageManifest from '../../package.json';
 
+jest.mock(
+  '../../.erb/scripts/build-update-launcher',
+  () => (destination: string) => {
+    require('fs').writeFileSync(destination, 'launcher fixture');
+  },
+);
+
 type HookContext = {
+  arch: number;
   appOutDir: string;
   outDir: string;
   packager: {
@@ -47,7 +55,13 @@ describe('packaging hook phase and platform boundaries', () => {
       'import x from "x";\ntype A = 1;',
     );
     writeFileSync(path.join(outDir, 'config-schema.json'), '{"ok":true}');
+    if (platform === 'win32') {
+      mkdirSync(path.join(appOutDir, 'resources'));
+      writeFileSync(path.join(appOutDir, 'D2RMM Custom.exe'), 'unsigned exe');
+      writeFileSync(path.join(appOutDir, 'resources/app.asar'), 'app');
+    }
     return {
+      arch: 1,
       appOutDir,
       outDir,
       packager: {
@@ -109,6 +123,10 @@ describe('packaging hook phase and platform boundaries', () => {
   it('wraps Windows output only after generated resources are present', async () => {
     const hookContext = context('win32');
     await afterPack(hookContext);
+    writeFileSync(
+      path.join(hookContext.appOutDir, 'D2RMM Custom.exe'),
+      'final signed exe',
+    );
     await afterSign(hookContext);
     const wrappedRoot = path.join(hookContext.appOutDir, 'D2RMM Test 1.2.3');
 
@@ -116,6 +134,21 @@ describe('packaging hook phase and platform boundaries', () => {
       'win32',
     );
     expect(existsSync(path.join(wrappedRoot, 'types.d.ts'))).toBe(true);
+    const manifest = JSON.parse(
+      readFileSync(path.join(wrappedRoot, '.d2rmm-program.json'), 'utf8'),
+    );
+    expect(
+      manifest.files.find(
+        (file: { path: string }) => file.path === 'D2RMM Custom.exe',
+      ).sha256,
+    ).toBe(
+      require('../updater/manifest').digest(Buffer.from('final signed exe')),
+    );
+    expect(
+      manifest.files.some((file: { path: string }) =>
+        file.path.startsWith('mods/'),
+      ),
+    ).toBe(false);
     expect(
       existsSync(path.join(wrappedRoot, 'mods', 'config-schema.json')),
     ).toBe(true);

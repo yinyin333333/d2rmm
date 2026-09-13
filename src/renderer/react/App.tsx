@@ -1,5 +1,6 @@
 import ShellAPI from 'renderer/ShellAPI';
 import 'renderer/css/App.css';
+import AppUpdateButton from 'renderer/react/AppUpdateButton';
 import D2RLoaderDownloadButton from 'renderer/react/D2RLoaderDownloadButton';
 import ErrorBoundary from 'renderer/react/ErrorBoundary';
 import InstallationProgressBar from 'renderer/react/InstallationProgressBar';
@@ -192,6 +193,7 @@ function RootRoute() {
               {t('tabs.discord')}
             </Button>
             <D2RLoaderDownloadButton />
+            <AppUpdateButton />
           </Box>
           <Box sx={{ flex: 1 }} />
           <InstallationProgressBar />

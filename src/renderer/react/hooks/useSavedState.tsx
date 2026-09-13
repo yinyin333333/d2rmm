@@ -1,3 +1,4 @@
+import { registerUpdateFlusher } from 'renderer/UpdateBarrier';
 import { useEffect, useRef, useState } from 'react';
 
 function defaultSerialize<T>(value: T): string {
@@ -36,6 +37,16 @@ export default function useSavedState<T>(
       return initialValue;
     }
   });
+  const latest = useRef({ key, value, serialize });
+  latest.current = { key, value, serialize };
+  useEffect(
+    () =>
+      registerUpdateFlusher(() => {
+        const current = latest.current;
+        localStorage.setItem(current.key, current.serialize(current.value));
+      }, 2),
+    [],
+  );
 
   useEffect(() => {
     serializeRef.current = serialize;

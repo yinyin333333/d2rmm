@@ -5,6 +5,7 @@ import type {
   ModConfigValue,
 } from 'bridge/ModConfigValue';
 import BridgeAPI from 'renderer/BridgeAPI';
+import { registerUpdateFlusher } from 'renderer/UpdateBarrier';
 import { parseBinding } from 'renderer/react/BindingsParser';
 import {
   getAbsoluteIndexFromRenderedIndex,
@@ -273,6 +274,24 @@ export function ModsContextProvider({
   const latestAppliedConfigMutationByID = useRef(new Map<string, number>());
   const latestPersistedConfigMutationByID = useRef(new Map<string, number>());
   const configPersistenceQueueByID = useRef(new Map<string, Promise<void>>());
+  useEffect(
+    () =>
+      registerUpdateFlusher(async () => {
+        await Promise.all(configPersistenceQueueByID.current.values());
+        for (const [
+          id,
+          generation,
+        ] of latestAppliedConfigMutationByID.current) {
+          if (
+            generation >
+            (latestPersistedConfigMutationByID.current.get(id) ?? 0)
+          ) {
+            throw new Error(`Mod settings have not been saved: ${id}`);
+          }
+        }
+      }),
+    [],
+  );
 
   useEffect(() => {
     startupMark('renderer', 'first ModList load scheduled after first paint');
