@@ -5,6 +5,7 @@ export type AppUpdateStatus = {
   progress: number | null;
   version: string | null;
   log: string | null;
+  cleanupError?: string;
 };
 export interface IAppUpdaterAPI {
   status(): Promise<AppUpdateStatus>;

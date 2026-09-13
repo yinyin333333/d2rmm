@@ -72,25 +72,83 @@ async function openUpdate() {
   );
   fireEvent.click(screen.getByRole('button', { name: 'appUpdate.install' }));
 }
-test('closing during preparation cancels and prevents a late completion from installing', async () => {
-  let finish!: () => void;
-  (AppUpdaterAPI.prepare as jest.Mock).mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  await openUpdate();
-  await waitFor(() => expect(AppUpdaterAPI.prepare).toHaveBeenCalled());
-  fireEvent.click(screen.getByRole('button', { name: 'appUpdate.close' }));
-  await waitFor(() => expect(AppUpdaterAPI.cancel).toHaveBeenCalled());
-  await act(async () => {
-    finish();
-  });
-  expect(AppUpdaterAPI.install).not.toHaveBeenCalled();
-  expect(drainForUpdate).not.toHaveBeenCalled();
-  expect(mockFinish).toHaveBeenCalledWith('token');
-});
+test.each([false, true])(
+  'normal cancellation leaves the dialog closed (preparation rejects: %s)',
+  async (rejectPreparation) => {
+    let finish!: () => void;
+    (AppUpdaterAPI.prepare as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          finish = () =>
+            rejectPreparation
+              ? reject(new Error('Update cancelled before shutdown.'))
+              : resolve();
+        }),
+    );
+    await openUpdate();
+    await waitFor(() => expect(AppUpdaterAPI.prepare).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'appUpdate.close' }));
+    await waitFor(() => expect(AppUpdaterAPI.cancel).toHaveBeenCalled());
+    await act(async () => {
+      finish();
+    });
+    expect(AppUpdaterAPI.install).not.toHaveBeenCalled();
+    expect(drainForUpdate).not.toHaveBeenCalled();
+    expect(mockFinish).toHaveBeenCalledWith('token');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  },
+);
+test.each([false, true])(
+  'shows late cleanup failure after closing during preparation (delayed cancel acknowledgement: %s)',
+  async (delayedCancel) => {
+    let fail!: (error: Error) => void;
+    (AppUpdaterAPI.prepare as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    let acknowledge!: () => void;
+    if (delayedCancel)
+      (AppUpdaterAPI.cancel as jest.Mock).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            acknowledge = resolve;
+          }),
+      );
+    await openUpdate();
+    await waitFor(() => expect(AppUpdaterAPI.prepare).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'appUpdate.close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const directory = 'C:\\D2RMM\\.d2rmm-update-cancelled';
+    const message = `Could not remove cancelled update files: ${directory}\nFile locked`;
+    (AppUpdaterAPI.status as jest.Mock).mockResolvedValue({
+      supported: true,
+      phase: 'failed',
+      version: '1.1.0',
+      progress: null,
+      log: null,
+      message,
+      cleanupError: message,
+    });
+    await act(async () => {
+      fail(new Error(message));
+    });
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain(directory);
+    expect(screen.getByRole('alert').textContent).toContain('File locked');
+    if (delayedCancel) {
+      await act(async () => {
+        acknowledge();
+      });
+      expect(screen.getByRole('dialog')).toBeTruthy();
+    }
+    expect(AppUpdaterAPI.install).not.toHaveBeenCalled();
+    // The reopened error can be acknowledged normally.
+    fireEvent.click(screen.getByRole('button', { name: 'appUpdate.close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  },
+);
 test('protects closing during the settings drain and releases it on handoff failure', async () => {
   (AppUpdaterAPI.prepare as jest.Mock).mockResolvedValueOnce(undefined);
   let finish!: () => void;

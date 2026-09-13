@@ -244,11 +244,44 @@ windows('Windows update cancellation and handoff', () => {
     (fs.rm as jest.Mock).mockRejectedValueOnce(new Error('file locked'));
     await expect(api.cancel()).rejects.toThrow('file locked');
     expect((await api.status()).message).toContain(directory);
+    expect((await api.status()).cleanupError).toContain(directory);
     expect((await api.status()).log).toBeNull();
     (fs.appendFile as jest.Mock).mockClear();
     await api.check();
     expect(fs.appendFile).not.toHaveBeenCalled();
+    expect((await api.status()).cleanupError).toBeUndefined();
   });
+
+  test.each(['downloading', 'validating'])(
+    'exposes cleanup failure after cancelling during %s',
+    async (phase) => {
+      await api.check();
+      let entered!: () => void;
+      let finish!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const task = phase === 'downloading' ? downloadPackage : stagePackage;
+      (task as jest.Mock).mockImplementationOnce(() => {
+        entered();
+        return new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      });
+      const preparing = api.prepare();
+      await started;
+      (fs.rm as jest.Mock).mockRejectedValueOnce(new Error('file locked'));
+      await api.cancel();
+      expect(fs.rm).not.toHaveBeenCalled();
+      finish();
+      await expect(preparing).rejects.toThrow('file locked');
+      await api.cancel(); // renderer error handling must preserve the failure
+      const status = await api.status();
+      expect(status.cleanupError).toContain(directory);
+      expect(status.cleanupError).toContain('file locked');
+      expect(status.log).toBeNull();
+    },
+  );
 
   test('cancels a retry during initial validation without deleting the earlier failed job', async () => {
     await api.check();

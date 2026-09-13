@@ -13,7 +13,9 @@ Explicit cancellation before handoff removes that attempt's download, staging
 files and logs after its pending file operations finish. New attempts wait until
 cleanup finishes. Failed validation and handoff jobs remain available for diagnosis;
 closing their error dialog does not delete them. If cancellation cleanup fails,
-the error identifies the directory for manual cleanup.
+the update dialog reopens with the error and directory for manual cleanup, even
+when cleanup finishes after the user has closed the dialog. Successful
+cancellation leaves the dialog closed.
 
 Windows ZIP names accept spaces or dots between `D2RMM`, `Custom`, and the
 version (for example, `D2RMM Custom 1.9.8.zip` or GitHub's

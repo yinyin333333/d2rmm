@@ -77,6 +77,12 @@ export default function AppUpdateButton(): JSX.Element | null {
       await AppUpdaterAPI.cancel().catch(console.error);
       resumeAfterUpdateFailure();
       setError(String(failure));
+      const latest = await AppUpdaterAPI.status().catch(() => null);
+      if (latest?.cleanupError != null) {
+        setStatus(latest);
+        setError(latest.cleanupError);
+        setOpen(true);
+      }
       setBusy(false);
       setHandoff(false);
       finishOperation(token);
@@ -85,11 +91,14 @@ export default function AppUpdateButton(): JSX.Element | null {
   const close = async () => {
     if (handoff) return;
     cancelled.current = true;
+    // Close before awaiting IPC so a late acknowledgement cannot hide a
+    // cleanup error that the preparation failure handler has just displayed.
+    setOpen(false);
     try {
       await AppUpdaterAPI.cancel();
-      setOpen(false);
     } catch (failure) {
       setError(String(failure));
+      setOpen(true);
     }
   };
   return (

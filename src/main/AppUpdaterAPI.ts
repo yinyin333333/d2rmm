@@ -41,7 +41,7 @@ async function setStatus(
   message = '',
   progress: number | null = null,
 ): Promise<void> {
-  state = { ...state, phase, message, progress };
+  state = { ...state, phase, message, progress, cleanupError: undefined };
   if (work != null)
     await fs.appendFile(
       path.join(work, 'download.log'),
@@ -69,6 +69,7 @@ async function discardPreparation(directory: string): Promise<void> {
     await updateFS.rm(target, { recursive: true, force: true });
   } catch (error) {
     state.message += `\nCould not remove cancelled update files: ${directory}\n${String(error)}`;
+    state.cleanupError = state.message;
     throw new Error(state.message);
   }
 }
@@ -161,6 +162,7 @@ export function initAppUpdaterAPI(): void {
       // Previous failed jobs remain on disk, but never belong to this attempt.
       work = null;
       state.log = null;
+      state.cleanupError = undefined;
       state.phase = 'validating';
       state.progress = null;
       try {
