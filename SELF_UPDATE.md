@@ -9,6 +9,11 @@ Release checks, downloads and validation can be cancelled by closing the update
 dialog, and do not block normal application exit. Closing is blocked only during
 the settings drain and installation handoff; main-process exit protection starts
 when the installation handoff begins.
+Explicit cancellation before handoff removes that attempt's download, staging
+files and logs after its pending file operations finish. New attempts wait until
+cleanup finishes. Failed validation and handoff jobs remain available for diagnosis;
+closing their error dialog does not delete them. If cancellation cleanup fails,
+the error identifies the directory for manual cleanup.
 
 Windows ZIP names accept spaces or dots between `D2RMM`, `Custom`, and the
 version (for example, `D2RMM Custom 1.9.8.zip` or GitHub's

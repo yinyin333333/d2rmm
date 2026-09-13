@@ -13,6 +13,7 @@ import {
   UpdateRelease,
 } from './AppUpdatePackage';
 import { freezeForUpdate, provideAPI, resumeAfterUpdateFailure } from './IPC';
+import { fs as updateFS } from './UpdateFileSystem';
 import { getLiveWorkerPids, getWorkers } from './Workers';
 
 const root = path.dirname(process.execPath);
@@ -30,6 +31,7 @@ let selection: ReturnType<typeof selectRelease> = null;
 let work: string | null = null;
 let busy = false;
 let operation: AbortController | null = null;
+let cancellation: Promise<void> | null = null;
 let quitting = false;
 export function isAppUpdateBusy(): boolean {
   return ['starting', 'waiting'].includes(state.phase) && !quitting;
@@ -50,6 +52,26 @@ function requireSupported(): void {
   if (!supported)
     throw new Error('Self-update requires the packaged Windows x64 ZIP.');
 }
+async function discardPreparation(directory: string): Promise<void> {
+  // Detach logging before removing files; later checks must not recreate this job.
+  if (work === directory) {
+    work = null;
+    state.log = null;
+  }
+  try {
+    const target = path.resolve(directory);
+    if (
+      path.dirname(target) !== root ||
+      !path.basename(target).startsWith('.d2rmm-update-')
+    )
+      throw new Error('Invalid update cleanup directory.');
+    await assertNoLinks(target);
+    await updateFS.rm(target, { recursive: true, force: true });
+  } catch (error) {
+    state.message += `\nCould not remove cancelled update files: ${directory}\n${String(error)}`;
+    throw new Error(state.message);
+  }
+}
 export function blockInterruptedUpdate(): boolean {
   if (supported && existsSync(path.join(root, '.d2rmm-update-lock'))) {
     dialog.showErrorBox(
@@ -69,10 +91,33 @@ export function initAppUpdaterAPI(): void {
     cancel: async () => {
       if (quitting || ['starting', 'waiting'].includes(state.phase))
         throw new Error('Update handoff is in progress.');
+      if (cancellation != null) return cancellation;
+      // The renderer also calls cancel() after errors. Preserve failed jobs and
+      // their diagnostics; only an explicit cancellation of live work discards it.
+      if (state.phase === 'failed') return;
+      const prepared =
+        state.phase === 'prepared' && operation == null ? work : null;
       operation?.abort(new Error('Update cancelled before shutdown.'));
-      if (operation == null) busy = false;
       resumeAfterUpdateFailure();
-      await setStatus('failed', 'Update cancelled before shutdown.');
+      state = {
+        ...state,
+        phase: 'failed',
+        message: 'Update cancelled before shutdown.',
+        progress: null,
+      };
+      // Running operations own their file handles and perform cleanup in finally.
+      // Avoid racing their final log write with an independent cancellation log.
+      if (operation != null) return;
+      busy = true;
+      try {
+        if (prepared != null) {
+          cancellation = discardPreparation(prepared);
+          await cancellation;
+        }
+      } finally {
+        cancellation = null;
+        busy = false;
+      }
     },
     check: async () => {
       requireSupported();
@@ -112,6 +157,12 @@ export function initAppUpdaterAPI(): void {
       busy = true;
       const controller = new AbortController();
       operation = controller;
+      let jobDirectory: string | null = null;
+      // Previous failed jobs remain on disk, but never belong to this attempt.
+      work = null;
+      state.log = null;
+      state.phase = 'validating';
+      state.progress = null;
       try {
         await assertNoLinks(root);
         await validateInstallation(
@@ -121,7 +172,8 @@ export function initAppUpdaterAPI(): void {
           controller.signal,
         );
         controller.signal.throwIfAborted();
-        work = await fs.mkdtemp(path.join(root, '.d2rmm-update-'));
+        jobDirectory = await fs.mkdtemp(path.join(root, '.d2rmm-update-'));
+        work = jobDirectory;
         state.log = path.join(work, 'download.log');
         await setStatus('downloading');
         await downloadPackage(
@@ -148,15 +200,21 @@ export function initAppUpdaterAPI(): void {
         await setStatus('failed', String(error));
         throw error;
       } finally {
-        if (controller.signal.aborted || state.phase !== 'prepared')
-          busy = false;
-        operation = null;
+        try {
+          if (controller.signal.aborted && jobDirectory != null)
+            await discardPreparation(jobDirectory);
+        } finally {
+          if (controller.signal.aborted || state.phase !== 'prepared')
+            busy = false;
+          operation = null;
+        }
       }
     },
     install: async () => {
       requireSupported();
       if (
         !busy ||
+        operation != null ||
         state.phase !== 'prepared' ||
         work == null ||
         selection == null
