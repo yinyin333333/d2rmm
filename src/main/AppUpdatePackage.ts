@@ -44,8 +44,10 @@ export function selectRelease(
     .filter(({ version }) => compareVersions(version, current) < 0)
     .sort((a, b) => compareVersions(a.version, b.version));
   for (const { version, assets } of candidates) {
+    // GitHub replaces spaces in uploaded asset names with dots.
     const matching = assets.filter(
-      (asset) => asset.name === `D2RMM Custom ${version}.zip`,
+      (asset) =>
+        asset.name.replace(/ /g, '.') === `D2RMM.Custom.${version}.zip`,
     );
     if (matching.length === 1) return { version, asset: matching[0] };
   }

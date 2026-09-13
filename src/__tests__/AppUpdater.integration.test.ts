@@ -108,7 +108,10 @@ windows('real Windows updater in isolated installations', () => {
       path.join(root, 'resources/user-added.txt'),
       path.join(root, 'user-added.tmp'),
     );
-    generateManifest(root, '1.0.0', 'x64');
+    const oldManifest = generateManifest(root, '1.0.0', 'x64');
+    const oldManifestBytes = await fs.readFile(
+      path.join(root, '.d2rmm-program.json'),
+    );
     await fs.rename(
       path.join(root, 'user-added.tmp'),
       path.join(root, 'resources/user-added.txt'),
@@ -177,7 +180,25 @@ windows('real Windows updater in isolated installations', () => {
       for (const [name, hash] of hashes)
         expect(digest(await fs.readFile(path.join(root, name)))).toBe(hash);
     };
-    return { root, stage, work, plan, createPlan, start, preserved };
+    const programPreserved = async () => {
+      for (const file of oldManifest.files)
+        expect(digest(await fs.readFile(path.join(root, file.path)))).toBe(
+          file.sha256,
+        );
+      expect(await fs.readFile(path.join(root, '.d2rmm-program.json'))).toEqual(
+        oldManifestBytes,
+      );
+    };
+    return {
+      root,
+      stage,
+      work,
+      plan,
+      createPlan,
+      start,
+      preserved,
+      programPreserved,
+    };
   }
   test('waits for actual exit, updates only owned files, adds directories, removes obsolete files, restarts with cwd', async () => {
     const f = await fixture();
@@ -268,7 +289,9 @@ windows('real Windows updater in isolated installations', () => {
     await until(() => exists(path.join(f.work, 'ready')));
     await fs.writeFile(path.join(f.work, 'authorize'), 'yes');
     expect(await done).toBe(1);
-    expect(await exists(path.join(f.work, 'journal.json'))).toBe(false);
+    expect(
+      JSON.parse(await fs.readFile(path.join(f.work, 'journal.json'), 'utf8')),
+    ).toEqual([]);
     expect(
       await fs.readFile(
         path.join(f.root, 'resources/runtime/user.dat'),
@@ -277,7 +300,48 @@ windows('real Windows updater in isolated installations', () => {
     ).toBe('keep');
     await f.preserved();
   }, 30000);
-  test('recovers an abruptly terminated partial application using the actual journal', async () => {
+  test.each(['before authorization', 'while waiting for processes'])(
+    'recovers an interrupted handoff %s without changing program or user bytes',
+    async (phase) => {
+      const f = await fixture();
+      const old =
+        phase === 'while waiting for processes'
+          ? spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'])
+          : null;
+      if (old != null) children.push(old);
+      await f.createPlan(old == null ? [] : [old.pid!]);
+      const helper = f.start();
+      await until(() => exists(path.join(f.work, 'ready')));
+      if (old != null) {
+        await fs.writeFile(path.join(f.work, 'authorize'), 'yes');
+        await until(async () =>
+          (await fs.readFile(path.join(f.work, 'update.log'), 'utf8')).includes(
+            '[waiting]',
+          ),
+        );
+      }
+      expect(
+        JSON.parse(
+          await fs.readFile(path.join(f.work, 'journal.json'), 'utf8'),
+        ),
+      ).toEqual([]);
+      helper.child.kill();
+      await helper.done;
+      if (old != null)
+        await new Promise<void>((resolve) => {
+          old.once('exit', () => resolve());
+          old.kill();
+        });
+      expect(await exists(path.join(f.root, '.d2rmm-update-lock'))).toBe(true);
+      const recovery = f.start(['-Recover']);
+      expect(await recovery.done).toBe(0);
+      expect(await exists(path.join(f.root, '.d2rmm-update-lock'))).toBe(false);
+      await f.programPreserved();
+      await f.preserved();
+    },
+    30000,
+  );
+  test('preserves an interrupted nonempty journal against another helper and recovers the partial application', async () => {
     const f = await fixture('file-to-directory');
     await f.createPlan([]);
     const { done } = f.start(['-CrashAfterInstall', '3']);
@@ -285,6 +349,16 @@ windows('real Windows updater in isolated installations', () => {
     await fs.writeFile(path.join(f.work, 'authorize'), 'yes');
     expect(await done).toBe(99);
     expect(await exists(path.join(f.root, '.d2rmm-update-lock'))).toBe(true);
+    const journal = await fs.readFile(path.join(f.work, 'journal.json'));
+    expect(JSON.parse(journal.toString('utf8')).length).toBeGreaterThan(0);
+    const second = f.start();
+    expect(await second.done).toBe(1);
+    expect(await fs.readFile(path.join(f.work, 'journal.json'))).toEqual(
+      journal,
+    );
+    expect(
+      await fs.readFile(path.join(f.root, '.d2rmm-update-lock'), 'utf8'),
+    ).toBe(f.plan);
     const recovered = f.start(['-Recover']);
     expect(await recovered.done).toBe(0);
     expect(
@@ -294,6 +368,32 @@ windows('real Windows updater in isolated installations', () => {
       await fs.readFile(path.join(f.root, 'resources/runtime'), 'utf8'),
     ).toBe('old runtime');
     expect(await exists(path.join(f.root, '.d2rmm-update-lock'))).toBe(false);
+    await f.programPreserved();
+    await f.preserved();
+  }, 30000);
+  test('retains staged files and rollback bytes when the restarted program exits without acknowledgement', async () => {
+    const f = await fixture();
+    await f.createPlan([]);
+    await fs.unlink(path.join(f.root, 'fixture-ack.json'));
+    const { done } = f.start();
+    await until(() => exists(path.join(f.work, 'ready')));
+    await fs.writeFile(path.join(f.work, 'authorize'), 'yes');
+    expect(await done).toBe(1);
+    const status = JSON.parse(
+      await fs.readFile(path.join(f.work, 'status.json'), 'utf8'),
+    );
+    expect(status.phase).toBe('failed');
+    expect(status.message).toContain('Updated program did not confirm startup');
+    expect(await exists(path.join(f.work, 'restarted.json'))).toBe(false);
+    expect(
+      await fs.readFile(path.join(f.work, 'backup/resources/app.asar'), 'utf8'),
+    ).toBe('old application');
+    expect(
+      await fs.readFile(path.join(f.stage, 'resources/app.asar'), 'utf8'),
+    ).toBe('new application');
+    expect(
+      await fs.readFile(path.join(f.root, 'resources/app.asar'), 'utf8'),
+    ).toBe('new application');
     await f.preserved();
   }, 30000);
   test('rejects an unowned destination before changing the old executable', async () => {
@@ -331,7 +431,7 @@ windows('real Windows updater in isolated installations', () => {
     expect(await exists(path.join(f.root, '.d2rmm-update-lock'))).toBe(false);
     await f.preserved();
   }, 30000);
-  test('a locked program file prevents replacement before the journal starts', async () => {
+  test('a locked program file prevents recording or applying any replacement', async () => {
     const f = await fixture();
     await f.createPlan([]);
     const signal = path.join(f.work, 'file-locked');
@@ -351,7 +451,9 @@ windows('real Windows updater in isolated installations', () => {
     await until(() => exists(path.join(f.work, 'ready')));
     await fs.writeFile(path.join(f.work, 'authorize'), 'yes');
     expect(await done).toBe(1);
-    expect(await exists(path.join(f.work, 'journal.json'))).toBe(false);
+    expect(
+      JSON.parse(await fs.readFile(path.join(f.work, 'journal.json'), 'utf8')),
+    ).toEqual([]);
     holder.kill();
     await delay(100);
     expect(
@@ -369,7 +471,9 @@ windows('real Windows updater in isolated installations', () => {
     await until(() => exists(path.join(f.work, 'ready')));
     await fs.writeFile(path.join(f.work, 'authorize'), 'yes');
     expect(await done).toBe(1);
-    expect(await exists(path.join(f.work, 'journal.json'))).toBe(false);
+    expect(
+      JSON.parse(await fs.readFile(path.join(f.work, 'journal.json'), 'utf8')),
+    ).toEqual([]);
     expect(await fs.readFile(path.join(external, 'keep'), 'utf8')).toBe(
       'outside data',
     );
@@ -389,11 +493,37 @@ windows('real Windows updater in isolated installations', () => {
     expect(await first.done).toBe(1);
     await f.preserved();
   }, 30000);
-  test('a corrupt recovery journal leaves the interrupted-installation lock in place', async () => {
+  test.each([
+    { name: 'missing', contents: null },
+    { name: 'malformed', contents: '{interrupted' },
+    { name: 'null', contents: 'null' },
+    { name: 'object', contents: '{}' },
+  ])(
+    'a $name recovery journal leaves the interrupted-installation lock in place',
+    async ({ contents }) => {
+      const f = await fixture();
+      await f.createPlan([]);
+      await fs.writeFile(path.join(f.root, '.d2rmm-update-lock'), f.plan);
+      if (contents != null)
+        await fs.writeFile(path.join(f.work, 'journal.json'), contents);
+      const recovery = f.start(['-Recover']);
+      expect(await recovery.done).toBe(1);
+      expect(
+        await fs.readFile(path.join(f.root, '.d2rmm-update-lock'), 'utf8'),
+      ).toBe(f.plan);
+      await f.preserved();
+    },
+    30000,
+  );
+  test('an empty journal cannot unlock an installation whose old program bytes changed', async () => {
     const f = await fixture();
     await f.createPlan([]);
     await fs.writeFile(path.join(f.root, '.d2rmm-update-lock'), f.plan);
-    await fs.writeFile(path.join(f.work, 'journal.json'), '{interrupted');
+    await fs.writeFile(path.join(f.work, 'journal.json'), '[]');
+    await fs.writeFile(
+      path.join(f.root, 'resources/app.asar'),
+      'partial update',
+    );
     const recovery = f.start(['-Recover']);
     expect(await recovery.done).toBe(1);
     expect(

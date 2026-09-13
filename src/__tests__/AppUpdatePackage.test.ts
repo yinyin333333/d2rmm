@@ -14,7 +14,7 @@ import { digest, safeName, isProgram } from '../updater/manifest';
 
 global.setImmediate = nodeSetImmediate;
 
-test('selects newest canonical preview release and excludes compatibility aliases', () => {
+describe('release asset selection', () => {
   const release = (version: string, body = ''): UpdateRelease => ({
     tag_name: `v${version}`,
     draft: false,
@@ -22,19 +22,68 @@ test('selects newest canonical preview release and excludes compatibility aliase
     body,
     assets: [
       {
-        name: `D2RMM Custom ${version}.zip`,
+        name: `D2RMM.Custom.${version}.zip`,
         browser_download_url: '',
         size: 1,
       },
     ],
   });
-  expect(
-    selectRelease(
-      [release('1.2.0'), release('1.3.0'), release('9.0.0', '#alias')],
-      '1.1.0',
-    )?.version,
-  ).toBe('1.3.0');
-  expect(selectRelease([release('1.2.0')], '1.2.0')).toBeNull();
+  test('selects newest canonical preview release and excludes aliases and current or older versions', () => {
+    expect(
+      selectRelease(
+        [release('1.2.0'), release('1.3.0'), release('9.0.0', '#alias')],
+        '1.1.0',
+      )?.version,
+    ).toBe('1.3.0');
+    expect(
+      selectRelease([release('1.1.0'), release('1.2.0')], '1.2.0'),
+    ).toBeNull();
+  });
+
+  test.each([
+    'D2RMM Custom 1.9.8.zip',
+    'D2RMM.Custom.1.9.8.zip',
+    'D2RMM Custom.1.9.8.zip',
+    'D2RMM.Custom 1.9.8.zip',
+  ])('accepts %s and preserves the original asset and download URL', (name) => {
+    const candidate = release('1.9.8');
+    const url = `https://github.com/yinyin333333/d2rmm/releases/download/v1.9.8/${encodeURIComponent(name)}`;
+    const asset = { ...candidate.assets[0], name, browser_download_url: url };
+    candidate.assets = [asset];
+
+    const selected = selectRelease([candidate], '1.9.7');
+
+    expect(selected?.version).toBe('1.9.8');
+    expect(selected?.asset).toBe(asset);
+    expect(selected?.asset.browser_download_url).toBe(url);
+  });
+
+  test.each([
+    'D2RMM.Custom.1.9.7.zip',
+    'D2RMM.Custom.1.9.80.zip',
+    'D2RMM.1.9.8.zip',
+    'Other.Custom.1.9.8.zip',
+    'D2RMM.Custom.1.9.8.arm64.zip',
+    'D2RMM.Custom.1.9.8.linux.zip',
+    'D2RMM.Custom.1.9.8.dmg',
+    'D2RMM.Custom.1.9.8.tar.gz',
+    'D2RMM.Custom.1.9.8.zip.exe',
+  ])('rejects nonmatching asset %s', (name) => {
+    const candidate = release('1.9.8');
+    candidate.assets[0].name = name;
+
+    expect(selectRelease([candidate], '1.9.7')).toBeNull();
+  });
+
+  test.each(['D2RMM.Custom.1.9.8.zip', 'D2RMM Custom 1.9.8.zip'])(
+    'rejects an ambiguous second matching asset named %s',
+    (name) => {
+      const candidate = release('1.9.8');
+      candidate.assets.push({ ...candidate.assets[0], name });
+
+      expect(selectRelease([candidate], '1.9.7')).toBeNull();
+    },
+  );
 });
 test.each([
   '../escape',

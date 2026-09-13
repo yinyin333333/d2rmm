@@ -71,6 +71,14 @@ function SaveJournal {
   if ([IO.File]::Exists($journalPath)) { [IO.File]::Replace($temporary, $journalPath, "$journalPath.previous") }
   else { [IO.File]::Move($temporary, $journalPath) }
 }
+function WriteNewFile([string]$target, [string]$contents) {
+  $stream = [IO.File]::Open($target, 'CreateNew', 'Write', 'None')
+  try {
+    $bytes = $utf8.GetBytes($contents)
+    $stream.Write($bytes, 0, $bytes.Length)
+    $stream.Flush($true)
+  } finally { $stream.Dispose() }
+}
 function Rollback {
   Report 'restoring' 'Restoring the previous program files...'
   for ($i = $script:journal.Count - 1; $i -ge 0; $i--) {
@@ -126,6 +134,8 @@ try {
     if ((Get-Content -LiteralPath $lock -Raw -Encoding UTF8) -cne $Plan) { throw 'Recovery does not own the installation lock' }
     $ownsLock = $true
     $journal = Get-Content -LiteralPath $journalPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($journal -isnot [Array]) { throw 'Invalid recovery journal' }
+    $journal = @($journal)
     $oldManifestRoot = $job.root
     if ([IO.File]::Exists((Join-Path (Join-Path $work 'backup') $manifestName))) { $oldManifestRoot = Join-Path $work 'backup' }
     $recoveryOld = ReadManifest $oldManifestRoot $job.oldVersion
@@ -140,6 +150,9 @@ try {
           (!$entry.existed -and (!$newOwned.ContainsKey($entry.name) -or $oldOwned.ContainsKey($entry.name)))) { throw 'Invalid recovery journal path or ownership' }
       $journalNames[$entry.name] = $true
     }
+    if ($journal.Count -eq 0) {
+      foreach ($file in $recoveryOld.files) { CheckFile $job.root $file }
+    }
     Rollback
     Remove-Item -LiteralPath $lock
     $ownsLock = $false
@@ -151,9 +164,13 @@ try {
       $null = $tracked.Handle
       $handles += $tracked
     }
-    $lockStream = [IO.File]::Open($lock, 'CreateNew', 'Write', 'None')
+    # CreateNew prevents another helper for this job from erasing a live journal.
+    # Publish the lock only after its plan path and the empty journal are durable.
+    WriteNewFile $journalPath '[]'
+    $pendingLock = SafePath $work 'lock.tmp'
+    WriteNewFile $pendingLock $Plan
+    [IO.File]::Move($pendingLock, $lock)
     $ownsLock = $true
-    $bytes = $utf8.GetBytes($Plan); $lockStream.Write($bytes, 0, $bytes.Length); $lockStream.Dispose()
     Report 'ready' 'Updater ready. Waiting for settings to finish and D2RMM to close...'
     [IO.File]::WriteAllText((Join-Path $work 'ready'), 'ready', $utf8)
     $deadline = [DateTime]::UtcNow.AddSeconds(120)

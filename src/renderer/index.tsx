@@ -1,5 +1,4 @@
 import { initAppInfoAPI } from 'renderer/AppInfoAPI';
-import AppUpdaterAPI from 'renderer/AppUpdaterAPI';
 import { initConsoleAPI } from 'renderer/ConsoleAPI';
 import { initEventAPI } from 'renderer/EventAPI';
 import { initIPC } from 'renderer/IPC';
@@ -39,8 +38,6 @@ async function start(): Promise<void> {
   await startupMeasure('renderer', 'initUI', initUI);
   console.debug('[renderer] Initialized');
   startupMark('renderer', 'renderer initialized');
-  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-  await AppUpdaterAPI.ready();
 }
 
 start().then().catch(console.error);

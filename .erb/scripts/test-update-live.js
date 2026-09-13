@@ -207,7 +207,8 @@ async function closeFixture() {
   );
   await first.page.send('Page.reload');
   await delay(1500);
-  const assetURL = `https://github.com/yinyin333333/d2rmm/releases/download/v${version}/D2RMM%20Custom%20${version}.zip`;
+  const assetName = `D2RMM.Custom.${version}.zip`;
+  const assetURL = `https://github.com/yinyin333333/d2rmm/releases/download/v${version}/${assetName}`;
   const release = {
     tag_name: `v${version}`,
     draft: false,
@@ -215,7 +216,7 @@ async function closeFixture() {
     body: 'test canonical release',
     assets: [
       {
-        name: `D2RMM Custom ${version}.zip`,
+        name: assetName,
         browser_download_url: assetURL,
         size: fs.statSync(archive).size,
         digest: `sha256:${digest(fs.readFileSync(archive))}`,

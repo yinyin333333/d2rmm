@@ -6,6 +6,11 @@ selects the newest canonical numeric version, including GitHub prereleases
 `#alias`, drafts, older versions, and assets with different names are excluded.
 The confirmation identifies the version and explains the restart.
 
+Windows ZIP names accept spaces or dots between `D2RMM`, `Custom`, and the
+version (for example, `D2RMM Custom 1.9.8.zip` or GitHub's
+`D2RMM.Custom.1.9.8.zip`). The filename version must match the release tag;
+releases with multiple matching ZIP assets are skipped as ambiguous.
+
 Self-update is available only in packaged Windows x64 builds. macOS, Linux and
 development builds retain their existing functionality without an apply button.
 The first version containing this updater must be installed manually; it cannot
@@ -55,14 +60,23 @@ journaled backup, creates new directories, and installs the executable last.
 Owned file/directory shape changes are supported; directories containing
 unknown files are not removed. Ordinary mid-apply failures restore old files.
 
+An empty recovery journal is saved before the installation lock is published.
+If the helper is interrupted before replacing files, recovery verifies the old
+program files before removing the lock. A second helper cannot overwrite an
+existing job's journal.
+
 The helper displays progress and failure details after D2RMM closes. Logs are
 in the installation's `.d2rmm-update-<random>` directory: `download.log`,
 `launcher.log`, `helper.log`, `update.log`, and `status.json`. A successful restart must confirm
-the expected application version and the same user-data location after renderer
-initialization. The updater then deletes its ZIP, staged files and backup.
+the expected application version and the same user-data location after the
+active application view successfully mounts. An initial rendering error or a
+pending lazy view does not confirm startup. The updater then deletes its ZIP,
+staged files and backup.
 Small diagnostic files are retained. On failed validation or failed restart,
 staged files/backups are retained for diagnosis; these directories may require
 manual cleanup after the failure is resolved.
+If the newly installed application fails to start, it remains installed and the
+previous files remain in the backup; there is no automatic rollback after restart.
 
 For an abrupt interruption, `.d2rmm-update-lock` blocks another application
 startup and contains the exact `plan.json` path. Close any updater window and
