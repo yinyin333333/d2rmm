@@ -48,6 +48,19 @@ const PENDING_REQUESTS = new PendingRequestRegistry<
 
 let REQUEST_COUNT = 0;
 const REQUEST_SESSION_ID = uuidv4();
+let updateFrozen = false;
+export function resumeAfterUpdateFailure(): void {
+  updateFrozen = false;
+}
+export async function drainForUpdate(): Promise<void> {
+  const deadline = Date.now() + 60000;
+  while (PENDING_REQUESTS.size > 0) {
+    if (Date.now() > deadline)
+      throw new Error('Pending work did not finish. Update cancelled.');
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  updateFrozen = true;
+}
 
 export function provideAPI<T extends AsyncSerializableAPI<T>>(
   namespace: string,
@@ -162,6 +175,8 @@ export function consumeAPI<T, TLocalAPI extends object = Record<string, never>>(
         return target[api as keyof typeof target];
       }
       return (...args: SerializableType[]) => {
+        if (updateFrozen && namespace !== 'AppUpdaterAPI')
+          return Promise.reject(new Error('D2RMM is preparing to update.'));
         const id = `renderer:${REQUEST_SESSION_ID}:${REQUEST_COUNT++}`;
         const request: IPCMessageRequest = {
           id,

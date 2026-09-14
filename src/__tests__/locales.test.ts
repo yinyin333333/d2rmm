@@ -53,7 +53,9 @@ describe('locale normalization', () => {
       const english = resources[DEFAULT_LOCALE].translation;
       const translation = resources[locale].translation;
       const uiKeys = Object.keys(english).filter((key) =>
-        /^(d2rLoader|install|modlist|plugins|run|settings|tabs)\./.test(key),
+        /^(appUpdate|d2rLoader|install|modlist|plugins|run|settings|tabs)\./.test(
+          key,
+        ),
       );
       const placeholders = (value: string): string[] =>
         Array.from(value.matchAll(/{{\s*([^}]+?)\s*}}/g), (match) =>

@@ -6,6 +6,11 @@ import 'regenerator-runtime/runtime';
 import { tl } from '../shared/i18n';
 import { startupMark, startupMeasure } from '../shared/startupProfiler';
 import { initAppInfoAPI } from './AppInfoAPI';
+import {
+  blockInterruptedUpdate,
+  initAppUpdaterAPI,
+  isAppUpdateBusy,
+} from './AppUpdaterAPI';
 import { initConsoleAPI } from './ConsoleAPI';
 import { initEventAPI } from './EventAPI';
 import { initIPC } from './IPC';
@@ -26,6 +31,7 @@ import { resolveHtmlPath } from './util';
 import { CURRENT_VERSION } from './version';
 
 (async () => {
+  if (blockInterruptedUpdate()) return;
   captureNxmProtocolEvents(process.argv);
   startupMark('main', 'main process entry');
   const isSingleInstance = app.requestSingleInstanceLock();
@@ -189,6 +195,9 @@ import { CURRENT_VERSION } from './version';
       markNxmProtocolRendererUnavailable();
       mainWindow = null;
     });
+    mainWindow.on('close', (event) => {
+      if (isAppUpdateBusy()) event.preventDefault();
+    });
 
     const documentURL = resolveHtmlPath('index.html');
     configureWebContentsSecurity(mainWindow.webContents, documentURL);
@@ -211,6 +220,10 @@ import { CURRENT_VERSION } from './version';
 
   let isSafeToQuit = false;
   app.on('before-quit', (event) => {
+    if (isAppUpdateBusy()) {
+      event.preventDefault();
+      return;
+    }
     if (!isSafeToQuit) {
       event.preventDefault();
       const timeoutID = setTimeout(() => {
@@ -252,6 +265,7 @@ import { CURRENT_VERSION } from './version';
     .whenReady()
     .then(async () => {
       await i18nInitialization;
+      initAppUpdaterAPI();
       startupMark('main', 'app.whenReady resolved');
       await createWindow();
       app.on('activate', () => {

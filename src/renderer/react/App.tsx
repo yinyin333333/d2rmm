@@ -1,9 +1,15 @@
+import AppUpdaterAPI from 'renderer/AppUpdaterAPI';
 import ShellAPI from 'renderer/ShellAPI';
 import 'renderer/css/App.css';
+import AppStartupBoundary, {
+  AppStartupReady,
+} from 'renderer/react/AppStartupBoundary';
 import D2RLoaderDownloadButton from 'renderer/react/D2RLoaderDownloadButton';
-import ErrorBoundary from 'renderer/react/ErrorBoundary';
 import InstallationProgressBar from 'renderer/react/InstallationProgressBar';
-import { D2RLoaderPluginContextProvider } from 'renderer/react/context/D2RLoaderPluginContext';
+import {
+  D2RLoaderPluginContextProvider,
+  useD2RLoaderPluginManager,
+} from 'renderer/react/context/D2RLoaderPluginContext';
 import { D2RLoaderSettingsContextProvider } from 'renderer/react/context/D2RLoaderSettingsContext';
 import {
   DialogManagerContextProvider,
@@ -15,7 +21,10 @@ import { InstallBeforeRunContextProvider } from 'renderer/react/context/InstallB
 import { InstallContextProvider } from 'renderer/react/context/InstallContext';
 import { IsPreExtractedDataContextProvider } from 'renderer/react/context/IsPreExtractedDataContext';
 import { LogsProvider } from 'renderer/react/context/LogContext';
-import { ModsContextProvider } from 'renderer/react/context/ModsContext';
+import {
+  ModsContextProvider,
+  useIsLoadingMods,
+} from 'renderer/react/context/ModsContext';
 import { NexusModsContextProvider } from 'renderer/react/context/NexusModsContext';
 import { NormalizeCRLFOnInstallContextProvider } from 'renderer/react/context/NormalizeCRLFOnInstallContext';
 import { OutputModNameContextProvider } from 'renderer/react/context/OutputModNameContext';
@@ -46,6 +55,7 @@ import TabPanel from '@mui/lab/TabPanel';
 import { Box, Button, Divider, Tab, Typography } from '@mui/material';
 
 const DISCORD_INVITE_URL = 'https://discord.gg/eEHT2kcBMf';
+const confirmUpdatedStartup = () => AppUpdaterAPI.ready();
 const ModManagerLogs = lazy(() => import('renderer/react/ModManagerLogs'));
 const ModManagerPlugins = lazy(
   () => import('renderer/react/ModManagerPlugins'),
@@ -126,6 +136,8 @@ function PersistentTabPanelBox({
 function RootRoute() {
   const { t } = useTranslation();
   const [tab, setTab] = useTabState();
+  const isLoadingMods = useIsLoadingMods();
+  const plugins = useD2RLoaderPluginManager();
   const modDropZone = useModDropZone();
   const pluginDropZone = useD2RLoaderPluginDropZone();
   const dropZone = tab === 'plugins' ? pluginDropZone : modDropZone;
@@ -199,11 +211,20 @@ function RootRoute() {
         <Divider />
         <TabPanelBox value="mods">
           <ModList />
+          <AppStartupReady ready={!isLoadingMods} />
         </TabPanelBox>
         <PersistentTabPanelBox value="plugins">
           {hasVisitedPlugins || tab === 'plugins' ? (
             <Suspense fallback={<LazyTabFallback label={t('tabs.plugins')} />}>
               <ModManagerPlugins />
+              <AppStartupReady
+                ready={
+                  tab === 'plugins' &&
+                  !isLoadingMods &&
+                  !plugins.isLoading &&
+                  plugins.error == null
+                }
+              />
             </Suspense>
           ) : null}
         </PersistentTabPanelBox>
@@ -211,6 +232,7 @@ function RootRoute() {
           {tab === 'settings' ? (
             <Suspense fallback={<LazyTabFallback label={t('tabs.settings')} />}>
               <ModManagerSettings />
+              <AppStartupReady ready={!isLoadingMods} />
             </Suspense>
           ) : null}
         </TabPanelBox>
@@ -218,6 +240,7 @@ function RootRoute() {
           {tab === 'logs' ? (
             <Suspense fallback={<LazyTabFallback label={t('tabs.logs')} />}>
               <ModManagerLogs />
+              <AppStartupReady ready={!isLoadingMods} />
             </Suspense>
           ) : null}
         </TabPanelBox>
@@ -272,7 +295,7 @@ const CONTEXT_PROVIDERS = [
 
 export default function App() {
   return (
-    <ErrorBoundary>
+    <AppStartupBoundary onReady={confirmUpdatedStartup}>
       <Suspense fallback={null}>
         {CONTEXT_PROVIDERS.reduce(
           (children, Provider) => (
@@ -281,6 +304,6 @@ export default function App() {
           <Content />,
         )}
       </Suspense>
-    </ErrorBoundary>
+    </AppStartupBoundary>
   );
 }

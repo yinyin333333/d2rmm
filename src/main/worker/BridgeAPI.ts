@@ -49,6 +49,7 @@ import {
   updateD2RLoaderConfig,
 } from './D2RLoader';
 import { downloadAndInstallD2RLoader } from './D2RLoaderInstaller';
+import { ensureD2RLoaderMetadata } from './D2RLoaderMetadata';
 import { applyManagedD2RLoaderPackages } from './D2RLoaderPluginAPI';
 import {
   // D2RLoader prerequisite pre-application is temporarily disabled.
@@ -1868,6 +1869,7 @@ const config = JSON.parse(D2RMM.getConfigJSON());
         !runtime.options.isDryRun
       ) {
         await applyManagedD2RLoaderPackages(runtime);
+        await ensureD2RLoaderMetadata(runtime);
       }
 
       // Flush in-memory files to the generated mod output. Dry runs keep the

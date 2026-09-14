@@ -1,6 +1,7 @@
 import type { Mod } from 'bridge/BridgeAPI';
 import type { ModConfigFieldColor } from 'bridge/ModConfig';
 import type { ModConfigValue } from 'bridge/ModConfigValue';
+import { flushUpdateState } from 'renderer/UpdateBarrier';
 import { ModSettingsContextProvider } from 'renderer/react/settings/ModSettingsContext';
 import ModSettingsField from 'renderer/react/settings/ModSettingsField';
 import { act, fireEvent, render, screen } from '@testing-library/react';
@@ -65,6 +66,18 @@ function renderColorField(mod: Mod): JSX.Element {
 }
 
 describe('mod settings color autosave', () => {
+  it('flushes a color edit before the update shutdown barrier without waiting for its debounce', async () => {
+    render(renderColorField(makeMod('mod-a', { color: [1, 2, 3, 1] })));
+    fireEvent.click(screen.getByRole('button', { name: 'Pick first color' }));
+    expect(mockSetModConfig).not.toHaveBeenCalled();
+    await act(async () => {
+      await flushUpdateState();
+    });
+    expect(mockSetModConfig).toHaveBeenCalledTimes(1);
+    expect(mockSetModConfig.mock.calls[0][1]({ color: [1, 2, 3, 1] })).toEqual({
+      color: [10, 20, 30, 0.5],
+    });
+  });
   beforeEach(() => {
     jest.useFakeTimers();
     mockSetModConfig.mockReset();

@@ -12,11 +12,7 @@ function getAppContentsDir(context) {
 function copyGeneratedResources(context) {
   const appContentsDir = getAppContentsDir(context);
   const typesTarget = path.join(appContentsDir, 'types.d.ts');
-  const schemaTarget = path.join(
-    appContentsDir,
-    'mods',
-    'config-schema.json',
-  );
+  const schemaTarget = path.join(appContentsDir, 'mods', 'config-schema.json');
   fs.ensureDirSync(path.dirname(typesTarget));
   fs.ensureDirSync(path.dirname(schemaTarget));
 
@@ -36,4 +32,13 @@ function copyGeneratedResources(context) {
 exports.copyGeneratedResources = copyGeneratedResources;
 exports.default = async function afterPack(context) {
   copyGeneratedResources(context);
+  if (context.packager.platform.nodeName === 'win32') {
+    require('./.erb/scripts/build-update-launcher')(
+      path.join(context.appOutDir, 'resources/updater-launcher.exe'),
+    );
+    fs.copyFileSync(
+      path.join(__dirname, 'src/updater/updater.ps1'),
+      path.join(context.appOutDir, 'resources/updater.ps1'),
+    );
+  }
 };
