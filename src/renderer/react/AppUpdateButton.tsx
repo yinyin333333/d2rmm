@@ -108,6 +108,8 @@ export default function AppUpdateButton(): JSX.Element | null {
         onClick={() => {
           void check();
         }}
+        sx={{ mt: 2 }}
+        variant="contained"
       >
         {t('appUpdate.title')}
       </Button>
