@@ -53,6 +53,19 @@ const workers = new Map<ChildProcess, RegisteredWorker>();
 let REQUEST_COUNT = 0;
 let renderer: Renderer | null = null;
 let isRendererIPCListenerRegistered = false;
+let updateFrozen = false;
+let activeMainRendererRequests = 0;
+export function freezeForUpdate(): void {
+  if (
+    activeMainRendererRequests !== 0 ||
+    [...workers.values()].some((worker) => worker.rendererRequestIds.size !== 0)
+  )
+    throw new Error('Application work is still running.');
+  updateFrozen = true;
+}
+export function resumeAfterUpdateFailure(): void {
+  updateFrozen = false;
+}
 
 export function provideAPI<T extends AsyncSerializableAPI<T>>(
   namespace: string,
@@ -354,8 +367,17 @@ function handleRendererRequest(
   message: IPCMessageRequest,
   targetRenderer: Renderer | null,
 ): void {
+  if (updateFrozen && message.namespace !== 'AppUpdaterAPI') {
+    respondToRenderer(
+      createIPCErrorResponse(message.id, new Error('Application is updating.')),
+      targetRenderer,
+    );
+    return;
+  }
   const provided = getProvidedAPI(message);
   if (provided != null) {
+    const tracked = message.namespace !== 'AppUpdaterAPI';
+    if (tracked) activeMainRendererRequests++;
     void invokeIPCHandler(provided.handler, message.args)
       .then((result) => {
         if (!provided.broadcast) {
@@ -371,6 +393,9 @@ function handleRendererRequest(
             targetRenderer,
           );
         }
+      })
+      .finally(() => {
+        if (tracked) activeMainRendererRequests--;
       });
     if (provided.broadcast) {
       forEachReadyWorker((worker) => {

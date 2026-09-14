@@ -1,6 +1,7 @@
 import type { Mod } from 'bridge/BridgeAPI';
 import type { ModConfigFieldColor } from 'bridge/ModConfig';
 import type { ModConfigSingleValue } from 'bridge/ModConfigValue';
+import { registerUpdateFlusher } from 'renderer/UpdateBarrier';
 import { parseBinding } from 'renderer/react/BindingsParser';
 import { useModSettingsContext } from 'renderer/react/settings/ModSettingsContext';
 import debounce from 'renderer/utils/debounce';
@@ -75,6 +76,10 @@ export default function ModSettingsColorSelectorField({
   const onChangeFromPropsDebounced = useMemo(
     () => debounce(onChangeFromProps, 1000),
     [onChangeFromProps],
+  );
+  useEffect(
+    () => registerUpdateFlusher(onChangeFromPropsDebounced.flush, 0),
+    [onChangeFromPropsDebounced],
   );
 
   useEffect(

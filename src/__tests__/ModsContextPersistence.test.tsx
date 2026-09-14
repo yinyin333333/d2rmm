@@ -1,5 +1,6 @@
 import type { Mod } from 'bridge/BridgeAPI';
 import type { ModConfig } from 'bridge/ModConfig';
+import { flushUpdateState } from 'renderer/UpdateBarrier';
 import {
   ModsContextProvider,
   useInstalledMods,
@@ -165,6 +166,45 @@ describe('ModsContext persistence state', () => {
       }),
     );
     consoleError.mockRestore();
+    await expect(flushUpdateState()).rejects.toThrow('have not been saved');
+  });
+  it('the update barrier waits for both active and queued configuration saves', async () => {
+    let finishFirst!: () => void;
+    let finishSecond!: () => void;
+    mockWriteModConfig
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishFirst = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishSecond = resolve;
+          }),
+      );
+    renderProvider();
+    await waitFor(() => expect(latestMods).toHaveLength(1));
+    act(() => setModConfig?.('A', { value: 'first' }));
+    await waitFor(() => expect(mockWriteModConfig).toHaveBeenCalledTimes(1));
+    act(() => setModConfig?.('A', { value: 'second' }));
+    let finished = false;
+    const barrier = flushUpdateState().then(() => {
+      finished = true;
+    });
+    await act(async () => {
+      finishFirst();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(mockWriteModConfig).toHaveBeenCalledTimes(2));
+    expect(finished).toBe(false);
+    await act(async () => {
+      finishSecond();
+      await barrier;
+    });
+    expect(finished).toBe(true);
+    expect(latestMods[0].config).toEqual({ value: 'second' });
   });
 
   it('does not let a deferred save replace a newer local edit', async () => {

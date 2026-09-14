@@ -1,4 +1,5 @@
 import type { D2RLoaderPluginImportResult } from 'bridge/D2RLoaderPluginAPI';
+import { flushUpdateState } from 'renderer/UpdateBarrier';
 import {
   D2RLoaderPluginContextProvider,
   useD2RLoaderPluginManager,
@@ -176,6 +177,7 @@ describe('D2RLoaderPluginContext deployment state', () => {
       firstImport = pluginManager!.importSources(['first.zip']);
     });
     expect(screen.getByText('mutating')).toBeTruthy();
+    await expect(flushUpdateState()).rejects.toThrow('plugin operation');
     await expect(pluginManager!.importSources(['second.zip'])).rejects.toThrow(
       'still running',
     );
@@ -317,6 +319,7 @@ describe('D2RLoaderPluginContext deployment state', () => {
       pluginManager!.setEditableJSONDirty('Package/settings.json', true),
     );
     expect(screen.getByText('draft-dirty')).toBeTruthy();
+    await expect(flushUpdateState()).rejects.toThrow('unsaved plugin JSON');
     await expect(
       pluginManager!.importSources(['replacement.zip']),
     ).rejects.toThrow(/save or cancel/i);
@@ -343,6 +346,7 @@ describe('D2RLoaderPluginContext deployment state', () => {
       pluginManager!.setEditableJSONDirty('Package/settings.json', false),
     );
     expect(screen.getByText('draft-clean')).toBeTruthy();
+    await expect(flushUpdateState()).resolves.toBeUndefined();
   });
 
   it('treats a legacy Direct Mode output token as dirty and migrates it', async () => {

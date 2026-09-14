@@ -102,6 +102,7 @@
     ],
     "afterPack": "./afterPack.js",
     "afterSign": "./afterSign.js",
+    "afterAllArtifactBuild": "./.erb/scripts/verify-update-artifacts.js",
     "publish": {
       "provider": "github",
       "owner": "yinyin333333",
@@ -123,6 +124,7 @@
   "keywords": [],
   "homepage": "https://github.com/yinyin333333/d2rmm#readme",
   "devDependencies": {
+    "@electron/asar": "^3.4.1",
     "@babel/preset-env": "^7",
     "@babel/preset-react": "^7",
     "@babel/preset-typescript": "^7",
@@ -144,6 +146,7 @@
     "@types/react-window": "^1.8.8",
     "@types/terser-webpack-plugin": "^5.0.4",
     "@types/uuid": "^10.0.0",
+    "@types/yauzl": "^2.10.3",
     "@types/webpack-env": "^1.16.3",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
@@ -228,7 +231,8 @@
     "source-map": "^0.7.4",
     "typedoc": "^0.25.13",
     "typescript-json-schema": "^0.65.1",
-    "uuid": "^10.0.0"
+    "uuid": "^10.0.0",
+    "yauzl": "^3.4.0"
   },
   "engines": {
     "node": ">=22.12.0",

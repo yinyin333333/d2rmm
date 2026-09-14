@@ -6,9 +6,12 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 
 const mockState = {
+  appUpdaterCheck: jest.fn(),
+  appUpdaterStatus: jest.fn(),
   importPluginSources: jest.fn(),
   installD2RLoader: jest.fn(),
   installMods: jest.fn(),
@@ -32,6 +35,12 @@ jest.mock('renderer/IPC', () => ({
           async (...args: unknown[]) => {
             if (api === 'getGamePath') {
               return 'C:\\Diablo II Resurrected';
+            }
+            if (api === 'check') {
+              return mockState.appUpdaterCheck(...args);
+            }
+            if (api === 'status') {
+              return mockState.appUpdaterStatus(...args);
             }
             if (api === 'getIsRegistered') {
               return true;
@@ -91,6 +100,14 @@ describe('App', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     localStorage.clear();
+    const updateStatus = {
+      phase: 'idle',
+      progress: null,
+      supported: true,
+      version: null,
+    };
+    mockState.appUpdaterCheck.mockResolvedValue(updateStatus);
+    mockState.appUpdaterStatus.mockResolvedValue(updateStatus);
     mockState.installD2RLoader.mockResolvedValue({
       status: 'installed',
       version: '1.0.1.0',
@@ -140,6 +157,27 @@ describe('App', () => {
     const logsTab = screen.getByRole('tab', { name: 'Logs' });
     fireEvent.click(logsTab);
     expect(logsTab).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('moves the D2RMM update action from the top bar into Settings', async () => {
+    render(<App />);
+
+    expect(
+      screen.queryByRole('button', { name: 'Update D2RMM' }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    const settingsNavigation = await screen.findByRole('navigation', {
+      name: 'Settings sections',
+    });
+    fireEvent.click(within(settingsNavigation).getByText('Update D2RMM'));
+
+    const updateButton = await screen.findByRole('button', {
+      name: 'Update D2RMM',
+    });
+    fireEvent.click(updateButton);
+
+    await waitFor(() => expect(mockState.appUpdaterCheck).toHaveBeenCalled());
   });
 
   it('should browse for directories from settings', async () => {

@@ -3,6 +3,7 @@ import * as React from 'react';
 type Props = {
   children: React.ReactNode;
   fallback?: (error: Error) => React.ReactNode;
+  onError?: (error: Error) => void;
 };
 
 type State = {
@@ -20,6 +21,7 @@ class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: unknown): void {
+    this.props.onError?.(error);
     console.error(error, info);
   }
 
