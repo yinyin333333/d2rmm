@@ -1785,7 +1785,8 @@ const config = JSON.parse(D2RMM.getConfigJSON());
             console.debug(
               `Mod configuration: ${JSON.stringify(runtime!.mod.config)}`,
             );
-            const vm = scope.manage(getQuickJS().newContext());
+            const vmRuntime = scope.manage(getQuickJS().newRuntime());
+            const vm = scope.manage(vmRuntime.newContext());
             const watchdog = installQuickJSExecutionWatchdog(vm.runtime);
             try {
               vm.setProp(
