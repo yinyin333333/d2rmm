@@ -25,6 +25,7 @@ export default function useInstallMods(): () => Promise<boolean> {
   const { t } = useTranslation();
   const showToast = useToast();
   const {
+    disabledSources,
     hasUnsavedEdits = false,
     isDeploymentChanged,
     isInventoryCurrent = true,
@@ -76,6 +77,7 @@ export default function useInstallMods(): () => Promise<boolean> {
         gamePath,
         isDryRun: false,
         useD2RLoader: d2rLoaderSettings.useD2RLoader,
+        disabledD2RLoaderSources: disabledSources,
         isPreExtractedData,
         mergedPath: outputPath,
         normalizeOutputCRLF,
@@ -162,6 +164,7 @@ export default function useInstallMods(): () => Promise<boolean> {
       finishOperation(operationToken);
     }
   }, [
+    disabledSources,
     d2rLoaderSettings.useD2RLoader,
     gamePath,
     hasUnsavedEdits,

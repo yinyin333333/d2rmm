@@ -12,6 +12,7 @@ import {
 import { useIsInstalling } from 'renderer/react/context/InstallContext';
 import useToast from 'renderer/react/hooks/useToast';
 import { isD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
+import { getPluginPreferenceKey } from 'shared/D2RLoaderPluginPreferences';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -29,17 +30,18 @@ import {
   Box,
   Button,
   Chip,
+  Checkbox,
   Collapse,
   Dialog,
   DialogActions,
   DialogContent,
   DialogContentText,
+  DialogTitle,
   Divider,
   IconButton,
   InputAdornment,
   LinearProgress,
   List,
-  ListItem,
   ListItemText,
   Paper,
   Stack,
@@ -78,6 +80,179 @@ function groupInventoryItems(
     }
   }
   return Array.from(groups.values());
+}
+
+function InventoryPreferences({
+  disabled,
+  item,
+  showPreferences,
+  children,
+}: {
+  disabled: boolean;
+  item: D2RLoaderPluginInventoryItem;
+  showPreferences: boolean;
+  children: React.ReactNode;
+}): JSX.Element {
+  const { t } = useTranslation();
+  const { preferences, setPluginPreference } = useD2RLoaderPluginManager();
+  const preference = preferences[getPluginPreferenceKey(item.deletionSource)];
+  const [isNotesOpen, setIsNotesOpen] = useState(false);
+  const [notesDraft, setNotesDraft] = useState('');
+  const [tagsDraft, setTagsDraft] = useState('');
+  return (
+    <Box>
+      <Stack
+        alignItems="center"
+        direction="row"
+        spacing={1}
+        sx={{ px: 1.5, py: 1, flexWrap: 'wrap' }}
+      >
+        {showPreferences ? (
+          <>
+            <Tooltip
+              title={t(
+                item.sourceType === 'managed'
+                  ? 'plugins.selection.packageHint'
+                  : 'plugins.selection.hint',
+              )}
+            >
+              <span>
+                <Checkbox
+                  checked={preference?.enabled !== false}
+                  disabled={disabled}
+                  inputProps={{
+                    'aria-label': t(
+                      item.sourceType === 'managed'
+                        ? 'plugins.selection.packageAria'
+                        : 'plugins.selection.aria',
+                      {
+                        file: item.name,
+                        source: item.sourceName,
+                      },
+                    ),
+                  }}
+                  onChange={(_, enabled) =>
+                    setPluginPreference(item.deletionSource, { enabled })
+                  }
+                />
+              </span>
+            </Tooltip>
+          </>
+        ) : null}
+        {children}
+        {showPreferences ? (
+          <>
+            <Button
+              aria-label={t(
+                item.sourceType === 'managed'
+                  ? 'plugins.notes.packageAria'
+                  : 'plugins.notes.aria',
+                {
+                  file: item.name,
+                  source: item.sourceName,
+                },
+              )}
+              disabled={disabled}
+              onClick={() => {
+                setNotesDraft(preference?.notes ?? '');
+                setTagsDraft((preference?.tags ?? []).join(', '));
+                setIsNotesOpen(true);
+              }}
+              size="small"
+            >
+              {t('plugins.notes.edit')}
+            </Button>
+          </>
+        ) : null}
+      </Stack>
+      {showPreferences ? (
+        <>
+          {(preference?.tags.length ?? 0) > 0 || preference?.notes ? (
+            <Box sx={{ px: 2, pb: 1 }}>
+              <Stack
+                direction="row"
+                flexWrap="wrap"
+                spacing={0.5}
+                useFlexGap={true}
+              >
+                {preference?.tags.map((tag) => (
+                  <Chip key={tag} label={tag} size="small" />
+                ))}
+              </Stack>
+              {preference?.notes ? (
+                <Typography
+                  color="text.secondary"
+                  sx={{
+                    mt: 0.5,
+                    whiteSpace: 'pre-wrap',
+                    overflowWrap: 'anywhere',
+                  }}
+                  variant="body2"
+                >
+                  {preference.notes}
+                </Typography>
+              ) : null}
+            </Box>
+          ) : null}
+          <Dialog
+            fullWidth={true}
+            maxWidth="sm"
+            onClose={() => setIsNotesOpen(false)}
+            open={isNotesOpen}
+          >
+            <DialogTitle>
+              {t('plugins.notes.title', { file: item.name })}
+            </DialogTitle>
+            <DialogContent>
+              <TextField
+                autoFocus={true}
+                fullWidth={true}
+                helperText={t('plugins.notes.tagsHint')}
+                label={t('plugins.notes.tags')}
+                margin="normal"
+                onChange={(event) => setTagsDraft(event.target.value)}
+                value={tagsDraft}
+              />
+              <TextField
+                fullWidth={true}
+                label={t('plugins.notes.label')}
+                margin="normal"
+                minRows={4}
+                multiline={true}
+                onChange={(event) => setNotesDraft(event.target.value)}
+                value={notesDraft}
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setIsNotesOpen(false)}>
+                {t('plugins.action.cancel')}
+              </Button>
+              <Button
+                disabled={disabled}
+                onClick={() => {
+                  setPluginPreference(item.deletionSource, {
+                    notes: notesDraft,
+                    tags: Array.from(
+                      new Set(
+                        tagsDraft
+                          .split(/[,，]/)
+                          .map((tag) => tag.trim())
+                          .filter(Boolean),
+                      ),
+                    ),
+                  });
+                  setIsNotesOpen(false);
+                }}
+                variant="contained"
+              >
+                {t('plugins.editor.save')}
+              </Button>
+            </DialogActions>
+          </Dialog>
+        </>
+      ) : null}
+    </Box>
+  );
 }
 
 function EditableInventoryFile({
@@ -276,15 +451,10 @@ function EditableInventoryFile({
 
   return (
     <Box>
-      <ListItem
-        component="div"
-        sx={{
-          alignItems: { sm: 'center', xs: 'stretch' },
-          flexDirection: { sm: 'row', xs: 'column' },
-          gap: 1,
-          paddingX: 1.5,
-          paddingY: 1,
-        }}
+      <InventoryPreferences
+        disabled={disabled}
+        item={item}
+        showPreferences={item.sourceType === 'mod'}
       >
         <ListItemText
           primary={
@@ -346,13 +516,15 @@ function EditableInventoryFile({
               {t('plugins.editor.edit')}
             </Button>
           ) : null}
-          <InventoryDeleteAction
-            disabled={disabled || hasUnsavedEdits || isLoading || isSaving}
-            item={item}
-            onDelete={onDelete}
-          />
+          {item.sourceType === 'mod' ? (
+            <InventoryDeleteAction
+              disabled={disabled || hasUnsavedEdits || isLoading || isSaving}
+              item={item}
+              onDelete={onDelete}
+            />
+          ) : null}
         </Stack>
-      </ListItem>
+      </InventoryPreferences>
       {isEditable ? (
         <Collapse in={isExpanded} timeout="auto" unmountOnExit={true}>
           <Box
@@ -511,11 +683,10 @@ function InventoryGroupCard({
       }}
       variant="outlined"
     >
-      <Stack
-        alignItems="center"
-        direction="row"
-        spacing={1}
-        sx={{ bgcolor: 'action.hover', px: 1.5, py: 1 }}
+      <InventoryPreferences
+        disabled={disabled}
+        item={{ ...group.items[0], name: group.sourceName }}
+        showPreferences={group.sourceType === 'managed'}
       >
         <Typography sx={{ flex: 1, fontWeight: 600 }} variant="subtitle2">
           {sourceLabel}
@@ -552,7 +723,14 @@ function InventoryGroupCard({
         >
           {t(isExpanded ? 'plugins.action.hide' : 'plugins.action.show')}
         </Button>
-      </Stack>
+        {group.sourceType === 'managed' ? (
+          <InventoryDeleteAction
+            disabled={disabled || hasUnsavedEdits}
+            item={group.items[0]}
+            onDelete={onDelete}
+          />
+        ) : null}
+      </InventoryPreferences>
       <Collapse in={isExpanded} timeout="auto" unmountOnExit={true}>
         <Box
           aria-label={t('plugins.group.filesAria', { source: sourceLabel })}
@@ -692,8 +870,7 @@ function InventoryDeleteAction({
   const packageName = item.packageName ?? item.sourceName;
   const label =
     item.sourceType === 'managed'
-      ? t('plugins.file.delete.tooltip.managed', {
-          file: item.name,
+      ? t('plugins.package.delete.tooltip', {
           package: packageName,
         })
       : t('plugins.file.delete.tooltip.mod', {
@@ -725,6 +902,7 @@ export default function ModManagerPlugins(): JSX.Element {
   const [isInstalling] = useIsInstalling();
   const {
     deleteSource,
+    preferences,
     error,
     hasUnsavedEdits,
     inventory,
@@ -801,9 +979,14 @@ export default function ModManagerPlugins(): JSX.Element {
           item.relativePath,
           item.sourceName,
           item.packageName ?? '',
+          item.pluginInfo?.name ?? '',
+          item.pluginInfo?.description ?? '',
+          preferences[getPluginPreferenceKey(item.deletionSource)]?.notes ?? '',
+          ...(preferences[getPluginPreferenceKey(item.deletionSource)]?.tags ??
+            []),
         ].some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
       }),
-    [categoryItems, normalizedSearch, sourceFilter],
+    [categoryItems, normalizedSearch, sourceFilter, preferences],
   );
   const totalFileCount =
     inventory.plugins.length +

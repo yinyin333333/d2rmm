@@ -1,4 +1,5 @@
 import type { Mod } from 'bridge/BridgeAPI';
+import type { D2RLoaderPluginSource } from 'bridge/D2RLoaderPluginAPI';
 import useInstallMods from 'renderer/react/modlist/hooks/useInstallMods';
 import { act, render } from '@testing-library/react';
 
@@ -13,6 +14,7 @@ const mockTryStartOperation = jest.fn();
 const mockSetTab = jest.fn();
 const mockShowToast = jest.fn();
 let mockModsToInstall: Mod[] = [];
+let mockDisabledSources: D2RLoaderPluginSource[] = [];
 let mockHasUnsavedEdits = false;
 let mockIsDeploymentChanged = false;
 let mockIsInventoryCurrent = true;
@@ -28,6 +30,7 @@ jest.mock('renderer/BridgeAPI', () => ({
 
 jest.mock('renderer/react/context/D2RLoaderPluginContext', () => ({
   useD2RLoaderPluginManager: () => ({
+    disabledSources: mockDisabledSources,
     hasUnsavedEdits: mockHasUnsavedEdits,
     inventory: { managedSignature: mockManagedSignature },
     isDeploymentChanged: mockIsDeploymentChanged,
@@ -137,7 +140,30 @@ function expectInstallingRestored(): void {
 }
 
 describe('useInstallMods installation results', () => {
+  it('passes individual plugin exclusions to an output-only reinstall', async () => {
+    mockUseD2RLoader = true;
+    mockIsDeploymentChanged = true;
+    mockDisabledSources = [
+      {
+        sourceType: 'managed',
+        packageName: 'ThreePlugins',
+        sourcePath: 'two.dll',
+      },
+    ];
+    mockInstallMods.mockResolvedValue([]);
+    expect(await invokeInstallMods(renderUseInstallMods())).toBe(true);
+    expect(mockInstallMods).toHaveBeenCalledWith(
+      [],
+      expect.objectContaining({
+        useD2RLoader: true,
+        syncD2RLoaderOutput: true,
+        disabledD2RLoaderSources: mockDisabledSources,
+      }),
+    );
+    expect(mockMarkDeploymentInstalled).toHaveBeenCalledTimes(1);
+  });
   beforeEach(() => {
+    mockDisabledSources = [];
     localStorage.clear();
     mockModsToInstall = [];
     mockHasUnsavedEdits = false;

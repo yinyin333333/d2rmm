@@ -1,4 +1,5 @@
 import path from 'path';
+import { isModPluginDisabled } from 'shared/D2RLoaderPluginPreferences';
 import { tl } from '../../shared/i18n';
 import { InstallationRuntime } from './InstallationRuntime';
 
@@ -120,6 +121,7 @@ export class FileManager {
   }
 
   public async write(filePath: string, mod: string): Promise<void> {
+    if (this.isPluginDisabled(filePath, mod)) return;
     const fileStatus = this.get(filePath);
     this.rememberForRollback(fileStatus.filePath);
 
@@ -166,6 +168,11 @@ export class FileManager {
   }
 
   public setData(filePath: string, data: Buffer): void {
+    if (
+      this.runtime.isModInstalling() &&
+      this.isPluginDisabled(filePath, this.runtime.mod.id)
+    )
+      return;
     const fileStatus = this.get(filePath);
     this.rememberForRollback(fileStatus.filePath);
     fileStatus.data = data;
@@ -174,6 +181,17 @@ export class FileManager {
 
   public getData(filePath: string): Buffer | null {
     return this.get(filePath).data;
+  }
+
+  private isPluginDisabled(filePath: string, modID: string): boolean {
+    return (
+      this.runtime.options.useD2RLoader === true &&
+      isModPluginDisabled(
+        this.runtime.options.disabledD2RLoaderSources,
+        modID,
+        getFileManagerPathIdentity(filePath).filePath,
+      )
+    );
   }
 
   public getModifiedFiles(): Array<{ filePath: string; data: Buffer }> {

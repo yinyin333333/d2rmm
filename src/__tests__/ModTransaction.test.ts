@@ -51,6 +51,50 @@ function createRuntime(): {
 }
 
 describe('per-mod transaction integration', () => {
+  it('excludes a disabled mod plugin while retaining other files and enabled sources at the same target', async () => {
+    const { runtime } = createRuntime();
+    runtime.options = {
+      ...options,
+      useD2RLoader: true,
+      disabledD2RLoaderSources: [
+        {
+          sourceType: 'mod',
+          modID: 'A',
+          loaderRootPath: 'd2rloader',
+          category: 'plugins',
+          sourcePath: 'two.dll',
+        },
+      ],
+    };
+    runtime.mod = createMod('A');
+    for (const name of ['one.dll', 'two.dll', 'three.dll']) {
+      const target = `../../d2rloader/plugins/${name}`;
+      runtime.fileManager.setData(target, Buffer.from(name));
+      await runtime.fileManager.write(target, 'A');
+    }
+    expect(
+      runtime.fileManager
+        .getModifiedFiles()
+        .map((file) => file.data.toString()),
+    ).toEqual(['one.dll', 'three.dll']);
+    runtime.mod = createMod('B');
+    runtime.fileManager.setData(
+      '../../d2rloader/plugins/two.dll',
+      Buffer.from('enabled B'),
+    );
+    await runtime.fileManager.write('../../d2rloader/plugins/two.dll', 'B');
+    runtime.mod = createMod('A');
+    runtime.fileManager.setData(
+      '../../D2RLoader/plugins/TWO.dll',
+      Buffer.from('disabled A'),
+    );
+    await runtime.fileManager.write('../../D2RLoader/plugins/TWO.dll', 'A');
+    expect(
+      runtime.fileManager
+        .getData('../../d2rloader/plugins/two.dll')
+        ?.toString(),
+    ).toBe('enabled B');
+  });
   it('stages save writes and exposes them to later reads without touching disk', async () => {
     const { bridge, runtime } = createRuntime();
     runtime.mod = createMod('A');

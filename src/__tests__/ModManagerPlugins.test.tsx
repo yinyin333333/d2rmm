@@ -7,6 +7,10 @@ import {
 } from 'renderer/react/context/DialogContext';
 import '@testing-library/jest-dom';
 import { createD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
+import {
+  getPluginPreferenceKey,
+  type D2RLoaderPluginPreference,
+} from 'shared/D2RLoaderPluginPreferences';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const mockDeleteSource = jest.fn();
@@ -14,6 +18,8 @@ const mockReadEditableJSON = jest.fn();
 const mockRefresh = jest.fn();
 const mockSaveEditableJSON = jest.fn();
 const mockSetEditableJSONDirty = jest.fn();
+const mockSetPluginPreference = jest.fn();
+let mockPreferences: Record<string, D2RLoaderPluginPreference> = {};
 const mockShowToast = jest.fn();
 const mockCreateDirectory = jest.fn();
 const mockOpenPath = jest.fn();
@@ -177,6 +183,8 @@ jest.mock('renderer/ShellAPI', () => ({
 
 jest.mock('renderer/react/context/D2RLoaderPluginContext', () => ({
   useD2RLoaderPluginManager: () => ({
+    preferences: mockPreferences,
+    setPluginPreference: mockSetPluginPreference,
     deleteSource: mockDeleteSource,
     error: null,
     hasUnsavedEdits: false,
@@ -210,7 +218,70 @@ function renderPlugins(): void {
 }
 
 describe('ModManagerPlugins', () => {
+  it('keeps package controls and notes visible when collapsed and shares them with the config tab', () => {
+    const source = mockInventory.plugins[1].deletionSource;
+    mockPreferences[getPluginPreferenceKey(source)] = {
+      source,
+      enabled: false,
+      tags: ['package tag'],
+      notes: 'Entire plugin package',
+    };
+    renderPlugins();
+    const checkboxName =
+      'Include package eezstreet-plugin-pack-2.0 in installation';
+    expect(
+      screen.getAllByRole('checkbox', { name: checkboxName }),
+    ).toHaveLength(1);
+    expect(
+      screen.queryByRole('checkbox', { name: /Include plugin-items.dll/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Hide files for D2RMM package: eezstreet-plugin-pack-2.0',
+      }),
+    );
+    expect(
+      screen.getByRole('checkbox', { name: checkboxName }),
+    ).not.toBeChecked();
+    expect(screen.getByText('Entire plugin package')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Plugin Configs · 1' }));
+    expect(
+      screen.getByRole('checkbox', { name: checkboxName }),
+    ).not.toBeChecked();
+    expect(screen.getByText('package tag')).toBeInTheDocument();
+    expect(screen.getByText('Entire plugin package')).toBeInTheDocument();
+  });
+  it('changes the package from its header and saves custom tags and notes', () => {
+    renderPlugins();
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Include package eezstreet-plugin-pack-2.0 in installation',
+      }),
+    );
+    expect(mockSetPluginPreference).toHaveBeenCalledTimes(1);
+    expect(mockSetPluginPreference).toHaveBeenCalledWith(
+      mockInventory.plugins[0].deletionSource,
+      { enabled: false },
+    );
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Edit tags and notes for package eezstreet-plugin-pack-2.0',
+      }),
+    );
+    fireEvent.change(screen.getByLabelText('Custom tags'), {
+      target: { value: '아이템, 테스트, 아이템' },
+    });
+    fireEvent.change(screen.getByLabelText('My notes'), {
+      target: { value: '아이템 기능을 변경함' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(mockSetPluginPreference).toHaveBeenLastCalledWith(
+      mockInventory.plugins[0].deletionSource,
+      { tags: ['아이템', '테스트'], notes: '아이템 기능을 변경함' },
+    );
+  });
   beforeEach(() => {
+    mockPreferences = {};
     jest.clearAllMocks();
     mockCreateDirectory.mockResolvedValue(undefined);
     mockDeleteSource.mockResolvedValue(undefined);
@@ -256,6 +327,30 @@ describe('ModManagerPlugins', () => {
       sha256: 'e'.repeat(64),
       warnings: [],
     });
+  });
+
+  it('displays and searches custom notes and tags on disabled plugins', () => {
+    const source = mockInventory.plugins[1].deletionSource;
+    mockPreferences[getPluginPreferenceKey(source)] = {
+      source,
+      enabled: false,
+      tags: ['내태그'],
+      notes: '기능 설명 메모',
+    };
+    renderPlugins();
+    const search = screen.getByRole('textbox', { name: /Search/ });
+    for (const query of ['내태그', '설명 메모']) {
+      fireEvent.change(search, { target: { value: query } });
+      expect(screen.getByText('Items Plus (2.0.0)')).toBeInTheDocument();
+      expect(screen.getByText('내태그')).toBeInTheDocument();
+      expect(screen.getByText('기능 설명 메모')).toBeInTheDocument();
+      expect(
+        screen.getByRole('checkbox', {
+          name: 'Include package eezstreet-plugin-pack-2.0 in installation',
+        }),
+      ).not.toBeChecked();
+      expect(screen.queryByText('mod-settings.json')).not.toBeInTheDocument();
+    }
   });
 
   it('separates files by package or mod source and exposes supported editors by category', () => {
@@ -564,16 +659,29 @@ describe('ModManagerPlugins', () => {
     expect(ShellAPI.openPath).toBeDefined();
   });
 
-  it('deletes a managed package from its file-library entry with a Material dialog', async () => {
+  it('deletes a whole managed package from its collapsed header with a Material dialog', async () => {
     const confirmSpy = jest.spyOn(window, 'confirm');
     renderPlugins();
+    expect(
+      screen.getAllByRole('button', {
+        name: 'Delete eezstreet-plugin-pack-2.0',
+      }),
+    ).toHaveLength(1);
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Hide files for D2RMM package: eezstreet-plugin-pack-2.0',
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText('Items Plus (2.0.0)')).not.toBeInTheDocument(),
+    );
 
     expect(
       screen.queryByRole('tab', { name: /Managed packages/i }),
     ).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', {
-        name: 'Delete managed package eezstreet-plugin-pack-2.0 (includes D2RPlugins.json)',
+        name: 'Delete eezstreet-plugin-pack-2.0',
       }),
     );
     expect(
@@ -591,7 +699,7 @@ describe('ModManagerPlugins', () => {
 
     fireEvent.click(
       screen.getByRole('button', {
-        name: 'Delete managed package eezstreet-plugin-pack-2.0 (includes D2RPlugins.json)',
+        name: 'Delete eezstreet-plugin-pack-2.0',
       }),
     );
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));

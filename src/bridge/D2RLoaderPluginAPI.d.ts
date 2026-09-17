@@ -93,7 +93,10 @@ export type ID2RLoaderPluginAPI = {
   readEditableJSON: (
     source: D2RLoaderPluginEditableSource,
   ) => Promise<D2RLoaderPluginEditableJSON>;
-  readInventory: (modIDs: string[]) => Promise<D2RLoaderPluginInventory>;
+  readInventory: (
+    modIDs: string[],
+    disabledSources?: D2RLoaderPluginSource[],
+  ) => Promise<D2RLoaderPluginInventory>;
   saveEditableJSON: (
     source: D2RLoaderPluginEditableSource,
     expectedSha256: string,
