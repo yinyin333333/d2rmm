@@ -32,6 +32,7 @@ import type { Stats } from 'fs';
 import os from 'os';
 import path from 'path';
 import { createD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
+import { getPluginPreferenceKey } from 'shared/D2RLoaderPluginPreferences';
 import { getAppPath } from './AppInfoAPI';
 import { inspectZipArchive } from './ArchiveResourceGuard';
 import { D2R_LOADER_CONFIG_FILE } from './D2RLoader';
@@ -1721,9 +1722,12 @@ export async function importD2RLoaderPluginSources(
       preparedSources.push(await preparePathSource(sourcePath));
     }
     for (const looseFiles of looseFilesByParent.values()) {
+      // Standalone DLLs are separate plugins. Keep loose companion files with
+      // their DLLs; explicitly dropped folders remain whole packages.
       if (
         looseFiles.length > 1 &&
-        looseFiles.some(isRecognizedLoosePluginDLL)
+        looseFiles.some(isRecognizedLoosePluginDLL) &&
+        !looseFiles.every(isRecognizedLoosePluginDLL)
       ) {
         preparedSources.push(prepareLooseFileGroup(looseFiles));
       } else {
@@ -2850,7 +2854,11 @@ function getInventoryConflicts(
 export function readD2RLoaderPluginInventory(
   appRoot: string,
   modIDs: string[],
+  disabledSources: D2RLoaderPluginSource[] = [],
 ): D2RLoaderPluginInventory {
+  const disabledKeys = new Set(disabledSources.map(getPluginPreferenceKey));
+  const isEnabled = (item: D2RLoaderPluginInventoryItem): boolean =>
+    !disabledKeys.has(getPluginPreferenceKey(item.deletionSource));
   const plugins: D2RLoaderPluginInventoryItem[] = [];
   const patches: D2RLoaderPluginInventoryItem[] = [];
   const configs: D2RLoaderPluginInventoryItem[] = [];
@@ -2945,33 +2953,43 @@ export function readD2RLoaderPluginInventory(
         managedSignatureParts.add(
           `${file.targetRoot}:${pathKey(file.targetPath)}:${sourceHash}`,
         );
-        const targetKey = `${file.targetRoot}:${pathKey(file.targetPath)}`;
-        const inventoryVisible =
-          file.targetRoot === 'd2rloader' &&
-          (file.role === 'plugin' || file.role === 'patch' || isPluginConfig);
-        const existing = managedTargets.get(targetKey);
         if (
-          existing != null &&
-          existing.sha256 !== sourceHash &&
-          !(existing.inventoryVisible && inventoryVisible)
+          !disabledKeys.has(
+            getPluginPreferenceKey({
+              sourceType: 'managed',
+              packageName: manifest.name,
+              sourcePath: file.sourcePath,
+            }),
+          )
         ) {
-          managedTargetConflicts.add(
-            `${path.join(file.targetRoot, file.targetPath)} differs between ${existing.packageName} and ${manifest.name}.`,
-          );
-        } else if (existing == null) {
-          const target = {
-            inventoryVisible,
-            packageName: manifest.name,
-            sha256: sourceHash,
-            targetPath: file.targetPath,
-            targetRoot: file.targetRoot,
-          };
-          managedTargets.set(targetKey, target);
-          managedTargetEntries.push({
-            scope: file.targetRoot,
-            targetPath: file.targetPath,
-            value: target,
-          });
+          const targetKey = `${file.targetRoot}:${pathKey(file.targetPath)}`;
+          const inventoryVisible =
+            file.targetRoot === 'd2rloader' &&
+            (file.role === 'plugin' || file.role === 'patch' || isPluginConfig);
+          const existing = managedTargets.get(targetKey);
+          if (
+            existing != null &&
+            existing.sha256 !== sourceHash &&
+            !(existing.inventoryVisible && inventoryVisible)
+          ) {
+            managedTargetConflicts.add(
+              `${path.join(file.targetRoot, file.targetPath)} differs between ${existing.packageName} and ${manifest.name}.`,
+            );
+          } else if (existing == null) {
+            const target = {
+              inventoryVisible,
+              packageName: manifest.name,
+              sha256: sourceHash,
+              targetPath: file.targetPath,
+              targetRoot: file.targetRoot,
+            };
+            managedTargets.set(targetKey, target);
+            managedTargetEntries.push({
+              scope: file.targetRoot,
+              targetPath: file.targetPath,
+              value: target,
+            });
+          }
         }
       }
       if (
@@ -3091,7 +3109,11 @@ export function readD2RLoaderPluginInventory(
   return {
     configs,
     conflicts: [
-      ...getInventoryConflicts(plugins, patches, configs),
+      ...getInventoryConflicts(
+        plugins.filter(isEnabled),
+        patches.filter(isEnabled),
+        configs.filter(isEnabled),
+      ),
       ...managedTargetConflicts,
     ],
     deploymentSignature,
@@ -3105,6 +3127,7 @@ export function readD2RLoaderPluginInventory(
 
 export function getManagedD2RLoaderDeployment(
   appRoot: string,
+  disabledSources: D2RLoaderPluginSource[] = [],
 ): ManagedD2RLoaderDeploymentFile[] {
   const deployment: ManagedD2RLoaderDeploymentFile[] = [];
   const deploymentBudget = new ResourceBudget(PACKAGE_RESOURCE_LIMITS);
@@ -3113,6 +3136,14 @@ export function getManagedD2RLoaderDeployment(
   for (const entry of getManagedPackageEntries(packagesRoot)) {
     const packagePath = path.resolve(packagesRoot, entry.name);
     const manifest = readPackageManifest(packagePath);
+    if (
+      disabledSources.some(
+        (source) =>
+          source.sourceType === 'managed' &&
+          pathKey(source.packageName) === pathKey(manifest.name),
+      )
+    )
+      continue;
     for (const file of manifest.files) {
       if (file.targetRoot == null || file.targetPath == null) continue;
       const sourcePath = getManagedPackageSourcePath(
@@ -3170,6 +3201,7 @@ export async function applyManagedD2RLoaderPackages(
   }
   const deployment = getManagedD2RLoaderDeployment(
     await runtime.BridgeAPI.getAppPath(),
+    runtime.options.disabledD2RLoaderSources,
   );
   const modifiedFiles = runtime.fileManager.getModifiedFiles();
   type OutputTarget =
@@ -3477,10 +3509,10 @@ export async function initD2RLoaderPluginAPI(): Promise<void> {
       ),
     readEditableJSON: async (source) =>
       readD2RLoaderPluginSourceJSON(appRoot, source),
-    readInventory: async (modIDs) =>
+    readInventory: async (modIDs, disabledSources) =>
       runPackageMutation(async () => {
         await synchronizeD2RLoaderPluginDirectory(appRoot);
-        return readD2RLoaderPluginInventory(appRoot, modIDs);
+        return readD2RLoaderPluginInventory(appRoot, modIDs, disabledSources);
       }),
     saveEditableJSON: async (source, expectedSha256, contents) =>
       runPackageMutation(() =>

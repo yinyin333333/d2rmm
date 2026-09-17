@@ -16,6 +16,11 @@ import {
 } from 'renderer/react/context/ModsContext';
 import { useOutputPath } from 'renderer/react/context/OutputPathContext';
 import useSavedState from 'renderer/react/hooks/useSavedState';
+import {
+  getPluginPreferenceKey,
+  migratePluginPreferences,
+  type D2RLoaderPluginPreference,
+} from 'shared/D2RLoaderPluginPreferences';
 import React, {
   useCallback,
   useContext,
@@ -37,6 +42,12 @@ const EMPTY_INVENTORY: D2RLoaderPluginInventory = {
 };
 
 type D2RLoaderPluginContextValue = {
+  preferences: Record<string, D2RLoaderPluginPreference>;
+  setPluginPreference: (
+    source: D2RLoaderPluginSource,
+    changes: Partial<Omit<D2RLoaderPluginPreference, 'source'>>,
+  ) => void;
+  disabledSources: D2RLoaderPluginSource[];
   deletePackage: (packageName: string) => Promise<void>;
   deleteSource: (
     source: D2RLoaderPluginSource,
@@ -91,6 +102,41 @@ export function D2RLoaderPluginContextProvider({
   const modIDsRef = useRef(modIDs);
   modIDsRef.current = modIDs;
   const [inventory, setInventory] = useState(EMPTY_INVENTORY);
+  const [preferences, setPreferences] = useSavedState<
+    Record<string, D2RLoaderPluginPreference>
+  >('d2rloader-plugin-preferences', {}, JSON.stringify, (saved) =>
+    migratePluginPreferences(JSON.parse(saved)),
+  );
+  const setPluginPreference = useCallback(
+    (
+      source: D2RLoaderPluginSource,
+      changes: Partial<Omit<D2RLoaderPluginPreference, 'source'>>,
+    ) => {
+      const key = getPluginPreferenceKey(source);
+      setPreferences((previous) => ({
+        ...previous,
+        [key]: {
+          ...(previous[key] ?? { enabled: true, tags: [], notes: '' }),
+          ...changes,
+          source,
+        },
+      }));
+    },
+    [setPreferences],
+  );
+  const disabledSources = useMemo(
+    () =>
+      Object.keys(preferences)
+        .sort()
+        .filter((key) => preferences[key].enabled === false)
+        .map((key) => preferences[key].source),
+    [preferences],
+  );
+  const disabledSourcesRef = useRef(disabledSources);
+  disabledSourcesRef.current = disabledSources;
+  const disabledSourceSignature = JSON.stringify(
+    disabledSources.map(getPluginPreferenceKey),
+  );
   const [installedManagedSignature, setInstalledManagedSignature] =
     useSavedState('installed-d2rloader-packages-signature', '');
   const [installedOutputMode, setInstalledOutputMode] = useSavedState(
@@ -132,9 +178,12 @@ export function D2RLoaderPluginContextProvider({
     const generation = ++scanGeneration.current;
     setIsLoading(true);
     try {
-      const nextInventory = await D2RLoaderPluginAPI.readInventory(
-        modIDsRef.current,
-      );
+      const nextInventory = await (disabledSourcesRef.current.length === 0
+        ? D2RLoaderPluginAPI.readInventory(modIDsRef.current)
+        : D2RLoaderPluginAPI.readInventory(
+            modIDsRef.current,
+            disabledSourcesRef.current,
+          ));
       if (isMounted.current && generation === scanGeneration.current) {
         setInventory(nextInventory);
         setError(null);
@@ -158,7 +207,7 @@ export function D2RLoaderPluginContextProvider({
   useEffect(() => {
     if (isLoadingMods) return;
     refresh().catch(console.error);
-  }, [isLoadingMods, modsRevision, refresh]);
+  }, [isLoadingMods, modsRevision, refresh, disabledSourceSignature]);
 
   const runMutation = useCallback(
     async <T,>(operation: () => Promise<T>): Promise<T> => {
@@ -259,8 +308,12 @@ export function D2RLoaderPluginContextProvider({
     [refresh, runMutation],
   );
 
-  const deploymentSignature =
+  const baseDeploymentSignature =
     inventory.deploymentSignature ?? inventory.managedSignature;
+  const deploymentSignature =
+    disabledSources.length === 0
+      ? baseDeploymentSignature
+      : `${baseDeploymentSignature}\0${JSON.stringify(disabledSources.map(getPluginPreferenceKey))}`;
   const markDeploymentInstalled = useCallback(() => {
     setInstalledManagedSignature(
       deploymentSignature === '' ? '' : `${deploymentSignature}\0${outputPath}`,
@@ -297,6 +350,9 @@ export function D2RLoaderPluginContextProvider({
 
   const value = useMemo(
     (): D2RLoaderPluginContextValue => ({
+      preferences,
+      setPluginPreference,
+      disabledSources,
       deletePackage,
       deleteSource,
       error,
@@ -317,6 +373,9 @@ export function D2RLoaderPluginContextProvider({
       setEditableJSONDirty,
     }),
     [
+      preferences,
+      setPluginPreference,
+      disabledSources,
       deletePackage,
       deleteSource,
       error,

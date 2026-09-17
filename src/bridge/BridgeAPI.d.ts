@@ -1,3 +1,4 @@
+import type { D2RLoaderPluginSource } from './D2RLoaderPluginAPI';
 import type { JSONData } from './JSON';
 import type { ModConfig } from './ModConfig';
 import type { ModConfigValue } from './ModConfigValue';
@@ -9,6 +10,7 @@ export type IInstallModsOptions = {
   gamePath: string;
   isDryRun: boolean;
   useD2RLoader?: boolean;
+  disabledD2RLoaderSources?: D2RLoaderPluginSource[];
   isPreExtractedData: boolean;
   mergedPath: string;
   normalizeOutputCRLF: boolean;

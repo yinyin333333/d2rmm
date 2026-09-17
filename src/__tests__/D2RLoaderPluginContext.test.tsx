@@ -84,6 +84,43 @@ function Probe(): JSX.Element {
 }
 
 describe('D2RLoaderPluginContext deployment state', () => {
+  it('persists notes and selection independently and only selection requires installation', async () => {
+    const source = {
+      sourceType: 'managed' as const,
+      packageName: 'pack',
+      sourcePath: 'two.dll',
+    };
+    const view = render(
+      <D2RLoaderPluginContextProvider>
+        <Probe />
+      </D2RLoaderPluginContextProvider>,
+    );
+    await waitFor(() => expect(mockReadInventory).toHaveBeenCalled());
+    act(() => pluginManager!.markDeploymentInstalled());
+    act(() =>
+      pluginManager!.setPluginPreference(source, {
+        notes: '내가 이해한 기능',
+        tags: ['테스트'],
+      }),
+    );
+    expect(pluginManager!.isDeploymentChanged).toBe(false);
+    act(() => pluginManager!.setPluginPreference(source, { enabled: false }));
+    expect(pluginManager!.isDeploymentChanged).toBe(true);
+    expect(pluginManager!.disabledSources).toEqual([source]);
+    view.unmount();
+    render(
+      <D2RLoaderPluginContextProvider>
+        <Probe />
+      </D2RLoaderPluginContextProvider>,
+    );
+    await waitFor(() => expect(pluginManager!.isLoading).toBe(false));
+    expect(Object.values(pluginManager!.preferences)).toEqual([
+      { source, enabled: false, tags: ['테스트'], notes: '내가 이해한 기능' },
+    ]);
+    act(() => pluginManager!.setPluginPreference(source, { enabled: true }));
+    expect(pluginManager!.disabledSources).toEqual([]);
+    expect(pluginManager!.isDeploymentChanged).toBe(false);
+  });
   beforeEach(() => {
     localStorage.clear();
     pluginManager = null;

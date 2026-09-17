@@ -95,6 +95,126 @@ describe('D2RLoader plugin package manager', () => {
     expect(readFileSync(sentinelPath, 'utf8')).toBe('outside sentinel');
   }
 
+  it.each(['import', 'manual'] as const)(
+    'selects whole folder packages independently after %s',
+    async (method) => {
+      const roots = ['First', 'Second', 'Third'].map((name) =>
+        path.join(
+          method === 'import'
+            ? incomingRoot
+            : path.join(appRoot, D2R_LOADER_PACKAGES_DIRECTORY),
+          name,
+        ),
+      );
+      for (const [index, root] of roots.entries()) {
+        const name = `plugin-${index}`;
+        writeFile(
+          path.join(root, `${name}.dll`),
+          fakePluginDLL(`Data\\Global\\Excel\\${name}.txt`),
+        );
+        writeFile(path.join(root, `${name}.mpq`), 'mpq');
+        writeFile(path.join(root, 'config', `${name}.toml`), 'enabled = true');
+        writeFile(path.join(root, `${name}.txt`), 'key\tvalue');
+      }
+      if (method === 'import')
+        await importD2RLoaderPluginSources(appRoot, roots);
+      else await synchronizeD2RLoaderPluginDirectory(appRoot);
+      const all = getManagedD2RLoaderDeployment(appRoot);
+      const second = readD2RLoaderPluginInventory(appRoot, []).plugins.find(
+        (item) => item.packageName === 'Second',
+      )!;
+      expect(
+        all
+          .filter((file) => file.packageName === 'Second')
+          .map((file) => path.extname(file.sourcePath))
+          .sort(),
+      ).toEqual(['.dll', '.mpq', '.toml', '.txt']);
+      const selected = getManagedD2RLoaderDeployment(appRoot, [
+        second.deletionSource,
+      ]);
+      expect(selected).toEqual(
+        all.filter((file) => file.packageName !== 'Second'),
+      );
+      expect(getManagedD2RLoaderDeployment(appRoot)).toEqual(all);
+      expect(readD2RLoaderPluginInventory(appRoot, []).packages).toHaveLength(
+        3,
+      );
+    },
+  );
+
+  it('imports standalone DLLs as separate packages even when dropped together', async () => {
+    const files = ['First.dll', 'Second.dll', 'Third.dll'].map((name) =>
+      path.join(incomingRoot, name),
+    );
+    files.forEach((file) => writeFile(file, fakePluginDLL()));
+    const result = await importD2RLoaderPluginSources(appRoot, files);
+    expect(result.packages).toHaveLength(3);
+    const inventory = readD2RLoaderPluginInventory(appRoot, []);
+    expect(inventory.plugins).toHaveLength(3);
+    const selected = getManagedD2RLoaderDeployment(appRoot, [
+      inventory.plugins[1].deletionSource,
+    ]);
+    expect(selected).toHaveLength(2);
+    expect(
+      selected.every(
+        (file) => file.packageName !== inventory.plugins[1].packageName,
+      ),
+    ).toBe(true);
+  });
+
+  it('resolves a deployment conflict by disabling only one source while keeping both visible', async () => {
+    for (const name of ['First', 'Second']) {
+      const source = path.join(incomingRoot, name);
+      writeFile(path.join(source, 'same.dll'), fakePluginDLL(name));
+      await importD2RLoaderPluginSources(appRoot, [source]);
+    }
+    const inventory = readD2RLoaderPluginInventory(appRoot, []);
+    expect(inventory.conflicts.length).toBeGreaterThan(0);
+    expect(() => getManagedD2RLoaderDeployment(appRoot)).toThrow();
+    const disabled = [inventory.plugins[0].deletionSource];
+    expect(
+      readD2RLoaderPluginInventory(appRoot, [], disabled).plugins,
+    ).toHaveLength(2);
+    expect(
+      readD2RLoaderPluginInventory(appRoot, [], disabled).conflicts,
+    ).toEqual([]);
+    expect(getManagedD2RLoaderDeployment(appRoot, disabled)).toHaveLength(1);
+  });
+
+  it.each(['import', 'manual'] as const)(
+    'excludes every DLL in a package added by %s and restores it without deleting sources',
+    async (method) => {
+      const source =
+        method === 'import'
+          ? path.join(incomingRoot, 'ThreePlugins')
+          : path.join(appRoot, D2R_LOADER_PACKAGES_DIRECTORY, 'ThreePlugins');
+      for (const name of ['one.dll', 'two.dll', 'three.dll']) {
+        writeFile(path.join(source, name), fakePluginDLL());
+      }
+      if (method === 'import')
+        await importD2RLoaderPluginSources(appRoot, [source]);
+      else await synchronizeD2RLoaderPluginDirectory(appRoot);
+      const inventory = readD2RLoaderPluginInventory(appRoot, []);
+      expect(inventory.plugins).toHaveLength(3);
+      const second = inventory.plugins.find((item) => item.name === 'two.dll')!;
+      const selected = getManagedD2RLoaderDeployment(appRoot, [
+        second.deletionSource,
+      ]);
+      expect(
+        selected
+          .filter((file) => file.targetPath.endsWith('.dll'))
+          .map((file) => path.basename(file.targetPath))
+          .sort(),
+      ).toEqual([]);
+      expect(readD2RLoaderPluginInventory(appRoot, []).plugins).toHaveLength(3);
+      expect(
+        getManagedD2RLoaderDeployment(appRoot).filter((file) =>
+          file.targetPath.endsWith('.dll'),
+        ),
+      ).toHaveLength(3);
+    },
+  );
+
   it('creates d2rloader before any plugin is imported', () => {
     const packagesRoot = path.join(appRoot, D2R_LOADER_PACKAGES_DIRECTORY);
     expect(existsSync(packagesRoot)).toBe(false);
