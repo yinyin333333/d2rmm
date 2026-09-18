@@ -13,6 +13,11 @@ import { useIsInstalling } from 'renderer/react/context/InstallContext';
 import useToast from 'renderer/react/hooks/useToast';
 import { isD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
 import { getPluginPreferenceKey } from 'shared/D2RLoaderPluginPreferences';
+import {
+  PLUGIN_SORT_OPTIONS,
+  sortPluginInventory,
+  type PluginSortOrder,
+} from 'shared/D2RLoaderPluginSort';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -43,6 +48,7 @@ import {
   LinearProgress,
   List,
   ListItemText,
+  MenuItem,
   Paper,
   Stack,
   Tab,
@@ -140,6 +146,17 @@ function InventoryPreferences({
           </>
         ) : null}
         {children}
+        {showPreferences &&
+        item.addedAt &&
+        Number.isFinite(Date.parse(item.addedAt)) ? (
+          <Tooltip title={t('plugins.sort.dateHint')}>
+            <Typography color="text.secondary" variant="caption">
+              {t('plugins.addedAt', {
+                date: new Date(item.addedAt).toLocaleDateString(),
+              })}
+            </Typography>
+          </Tooltip>
+        ) : null}
         {showPreferences ? (
           <>
             <Button
@@ -897,7 +914,7 @@ function InventoryDeleteAction({
 }
 
 export default function ModManagerPlugins(): JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const showToast = useToast();
   const [isInstalling] = useIsInstalling();
   const {
@@ -918,6 +935,7 @@ export default function ModManagerPlugins(): JSX.Element {
     'all',
   );
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState<PluginSortOrder>('default');
 
   const onOpenManagedRoot = useCallback(async () => {
     try {
@@ -969,24 +987,39 @@ export default function ModManagerPlugins(): JSX.Element {
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
   const visibleItems = useMemo(
     () =>
-      categoryItems.filter((item) => {
-        if (sourceFilter !== 'all' && item.sourceType !== sourceFilter) {
-          return false;
-        }
-        if (normalizedSearch === '') return true;
-        return [
-          item.name,
-          item.relativePath,
-          item.sourceName,
-          item.packageName ?? '',
-          item.pluginInfo?.name ?? '',
-          item.pluginInfo?.description ?? '',
-          preferences[getPluginPreferenceKey(item.deletionSource)]?.notes ?? '',
-          ...(preferences[getPluginPreferenceKey(item.deletionSource)]?.tags ??
-            []),
-        ].some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
-      }),
-    [categoryItems, normalizedSearch, sourceFilter, preferences],
+      sortPluginInventory(
+        categoryItems.filter((item) => {
+          if (sourceFilter !== 'all' && item.sourceType !== sourceFilter) {
+            return false;
+          }
+          if (normalizedSearch === '') return true;
+          return [
+            item.name,
+            item.relativePath,
+            item.sourceName,
+            item.packageName ?? '',
+            item.pluginInfo?.name ?? '',
+            item.pluginInfo?.description ?? '',
+            preferences[getPluginPreferenceKey(item.deletionSource)]?.notes ??
+              '',
+            ...(preferences[getPluginPreferenceKey(item.deletionSource)]
+              ?.tags ?? []),
+          ].some((value) =>
+            value.toLocaleLowerCase().includes(normalizedSearch),
+          );
+        }),
+        preferences,
+        sortOrder,
+        i18n.language,
+      ),
+    [
+      categoryItems,
+      normalizedSearch,
+      sourceFilter,
+      preferences,
+      sortOrder,
+      i18n.language,
+    ],
   );
   const totalFileCount =
     inventory.plugins.length +
@@ -1235,6 +1268,24 @@ export default function ModManagerPlugins(): JSX.Element {
                 </ToggleButton>
               </ToggleButtonGroup>
             </Stack>
+
+            <TextField
+              disabled={hasUnsavedEdits}
+              label={t('plugins.sort.label')}
+              onChange={(event) =>
+                setSortOrder(event.target.value as PluginSortOrder)
+              }
+              select={true}
+              size="small"
+              sx={{ mt: 2, minWidth: 220 }}
+              value={sortOrder}
+            >
+              {PLUGIN_SORT_OPTIONS.map((option) => (
+                <MenuItem key={option} value={option}>
+                  {t(`plugins.sort.${option}`)}
+                </MenuItem>
+              ))}
+            </TextField>
 
             <Tabs
               aria-label={t('plugins.category.aria')}

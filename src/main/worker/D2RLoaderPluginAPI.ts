@@ -2787,8 +2787,8 @@ function listInventoryFiles(
           sourcePath: relativePath,
           sourceType: 'mod' as const,
         };
-        result.push(
-          inventoryItem(
+        result.push({
+          ...inventoryItem(
             'mod',
             sourceName,
             relativePath,
@@ -2799,7 +2799,9 @@ function listInventoryFiles(
             editableSourcePath,
             editableSource,
           ),
-        );
+          addedAt:
+            stat.birthtimeMs > 0 ? stat.birthtime.toISOString() : undefined,
+        });
       }
     }
   }
@@ -3044,6 +3046,7 @@ export function readD2RLoaderPluginInventory(
         editableSourcePath,
         editableSource,
       );
+      item.addedAt = manifest.importedAt;
       if (file.role === 'plugin') plugins.push(item);
       else if (file.role === 'patch') patches.push(item);
       else configs.push(item);
