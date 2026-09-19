@@ -542,6 +542,20 @@ function EditableInventoryFile({
           ) : null}
         </Stack>
       </InventoryPreferences>
+      {(item.pluginInfo?.description ?? item.description)?.trim() ? (
+        <Typography
+          color="text.secondary"
+          sx={{
+            px: 2,
+            pb: 1,
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'anywhere',
+          }}
+          variant="body2"
+        >
+          {(item.pluginInfo?.description ?? item.description)?.trim()}
+        </Typography>
+      ) : null}
       {isEditable ? (
         <Collapse in={isExpanded} timeout="auto" unmountOnExit={true}>
           <Box

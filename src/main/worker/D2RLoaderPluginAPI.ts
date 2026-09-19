@@ -2692,6 +2692,24 @@ type ModInventoryLocation = Omit<
   'sourcePath' | 'sourceType'
 >;
 
+function readPatchDescription(filePath: string): string | undefined {
+  if (!/\.jsonc?$/i.test(filePath)) return undefined;
+  try {
+    if (lstatSync(filePath).size > MAX_EDITABLE_TEXT_BYTES) return undefined;
+    const value = parseJSONC(readBoundedFile(filePath));
+    if (typeof value !== 'object' || value == null || Array.isArray(value)) {
+      return undefined;
+    }
+    const { description } = value as { description?: unknown };
+    return typeof description === 'string'
+      ? description.trim() || undefined
+      : undefined;
+  } catch {
+    // Optional metadata must not hide an invalid patch from the file library.
+    return undefined;
+  }
+}
+
 function inventoryItem(
   sourceType: 'managed' | 'mod',
   sourceName: string,
@@ -2801,6 +2819,9 @@ function listInventoryFiles(
           ),
           addedAt:
             stat.birthtimeMs > 0 ? stat.birthtime.toISOString() : undefined,
+          ...(location.category === 'patches'
+            ? { description: readPatchDescription(entryPath) }
+            : {}),
         });
       }
     }
@@ -3047,6 +3068,9 @@ export function readD2RLoaderPluginInventory(
         editableSource,
       );
       item.addedAt = manifest.importedAt;
+      if (file.role === 'patch') {
+        item.description = readPatchDescription(sourcePath);
+      }
       if (file.role === 'plugin') plugins.push(item);
       else if (file.role === 'patch') patches.push(item);
       else configs.push(item);
