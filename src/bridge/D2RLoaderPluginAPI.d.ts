@@ -19,6 +19,10 @@ export type D2RLoaderPluginSource =
 export type D2RLoaderPluginEditableSource = D2RLoaderPluginSource;
 
 export type D2RLoaderPluginInventoryItem = {
+  /** Import time for packages; filesystem creation time for mod files. */
+  addedAt?: string;
+  /** Top-level description from a patch JSON/JSONC file. */
+  description?: string;
   deletionSource: D2RLoaderPluginSource;
   editableSource: D2RLoaderPluginEditableSource | null;
   editableSourcePath: string | null;
