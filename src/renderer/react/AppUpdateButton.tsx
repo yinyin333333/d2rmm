@@ -27,6 +27,8 @@ export default function AppUpdateButton(): JSX.Element | null {
   const [busy, setBusy] = useState(false);
   const [handoff, setHandoff] = useState(false);
   const cancelled = useRef(false);
+  const pollGeneration = useRef(0);
+  const polling = useRef(false);
   const [error, setError] = useState('');
   const [isInstalling] = useIsInstalling();
   const { tryStartOperation, finishOperation } = useInstallationOperation();
@@ -35,22 +37,50 @@ export default function AppUpdateButton(): JSX.Element | null {
   }, []);
   useEffect(() => {
     if (!busy) return undefined;
+    const generation = pollGeneration.current;
+    let active = true;
+    let pending = false;
     const timer = setInterval(() => {
-      AppUpdaterAPI.status().then(setStatus).catch(console.error);
+      if (!polling.current || pending) return;
+      pending = true;
+      AppUpdaterAPI.status()
+        .then((latest) => {
+          if (
+            active &&
+            polling.current &&
+            generation === pollGeneration.current
+          )
+            setStatus(latest);
+        })
+        .catch(console.error)
+        .finally(() => {
+          pending = false;
+        });
     }, 500);
-    return () => clearInterval(timer);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [busy]);
   if (!status?.supported) return null;
   const check = async () => {
     cancelled.current = false;
+    pollGeneration.current += 1;
+    polling.current = true;
     setOpen(true);
     setBusy(true);
     setError('');
     try {
       setStatus(await AppUpdaterAPI.check());
     } catch (failure) {
+      polling.current = false;
+      pollGeneration.current += 1;
+      const latest = await AppUpdaterAPI.status().catch(() => null);
+      if (latest != null) setStatus(latest);
       setError(String(failure));
     } finally {
+      polling.current = false;
+      pollGeneration.current += 1;
       setBusy(false);
     }
   };
@@ -58,6 +88,8 @@ export default function AppUpdateButton(): JSX.Element | null {
     const token = tryStartOperation(t('appUpdate.title'));
     if (token == null) return;
     cancelled.current = false;
+    pollGeneration.current += 1;
+    polling.current = true;
     flushSync(() => {
       setBusy(true);
       setError('');
@@ -74,12 +106,14 @@ export default function AppUpdateButton(): JSX.Element | null {
       await flushUpdateState();
       await AppUpdaterAPI.install();
     } catch (failure) {
+      polling.current = false;
+      pollGeneration.current += 1;
       await AppUpdaterAPI.cancel().catch(console.error);
       resumeAfterUpdateFailure();
       setError(String(failure));
       const latest = await AppUpdaterAPI.status().catch(() => null);
+      if (latest != null) setStatus(latest);
       if (latest?.cleanupError != null) {
-        setStatus(latest);
         setError(latest.cleanupError);
         setOpen(true);
       }
