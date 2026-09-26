@@ -10,6 +10,7 @@ import {
   useDialogContext,
 } from 'renderer/react/context/DialogContext';
 import { useIsInstalling } from 'renderer/react/context/InstallContext';
+import useListSelection from 'renderer/react/hooks/useListSelection';
 import useToast from 'renderer/react/hooks/useToast';
 import { isD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
 import { getPluginPreferenceKey } from 'shared/D2RLoaderPluginPreferences';
@@ -18,7 +19,15 @@ import {
   sortPluginInventory,
   type PluginSortOrder,
 } from 'shared/D2RLoaderPluginSort';
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import {
+  createContext,
+  useContext,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   DeleteOutline,
@@ -59,6 +68,10 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+
+const InventorySelectionContext = createContext<ReturnType<
+  typeof useListSelection
+> | null>(null);
 
 type InventoryGroup = {
   id: string;
@@ -101,7 +114,10 @@ function InventoryPreferences({
 }): JSX.Element {
   const { t } = useTranslation();
   const { preferences, setPluginPreference } = useD2RLoaderPluginManager();
-  const preference = preferences[getPluginPreferenceKey(item.deletionSource)];
+  const selection = useContext(InventorySelectionContext);
+  const selectionID = getPluginPreferenceKey(item.deletionSource);
+  const selected = showPreferences && selection?.selected.includes(selectionID);
+  const preference = preferences[selectionID];
   const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState('');
   const [tagsDraft, setTagsDraft] = useState('');
@@ -109,9 +125,24 @@ function InventoryPreferences({
     <Box>
       <Stack
         alignItems="center"
+        data-selected={selected || undefined}
+        data-selection-row={showPreferences || undefined}
         direction="row"
+        onClick={
+          showPreferences
+            ? (event) => selection?.select(selectionID, event)
+            : undefined
+        }
         spacing={1}
-        sx={{ px: 1.5, py: 1, flexWrap: 'wrap' }}
+        sx={{
+          px: 1.5,
+          py: 1,
+          flexWrap: 'wrap',
+          bgcolor: selected ? 'action.selected' : undefined,
+          cursor: showPreferences ? 'pointer' : undefined,
+          userSelect: showPreferences ? 'none' : undefined,
+        }}
+        tabIndex={showPreferences ? 0 : undefined}
       >
         {showPreferences ? (
           <>
@@ -701,17 +732,39 @@ function InventoryGroupCard({
   const filesID = useId();
   const { hasUnsavedEdits } = useD2RLoaderPluginManager();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const selection = useContext(InventorySelectionContext);
+  const selectionID = getPluginPreferenceKey(group.items[0].deletionSource);
+  const isManaged = group.sourceType === 'managed';
   const sourceLabel =
     group.sourceType === 'managed'
       ? t('plugins.group.managed', { source: group.sourceName })
       : t('plugins.group.mod', { source: group.sourceName });
   return (
     <Paper
+      data-selection-item={true}
+      onClick={
+        isManaged
+          ? (event) => {
+              if (
+                event.target instanceof Element &&
+                event.target.closest('[data-selection-row]')
+              )
+                return;
+              selection?.select(selectionID, event);
+            }
+          : undefined
+      }
       sx={{
+        bgcolor:
+          isManaged && selection?.selected.includes(selectionID)
+            ? 'action.selected'
+            : undefined,
+        userSelect: isManaged ? 'none' : undefined,
         borderColor:
           group.sourceType === 'managed' ? 'primary.light' : 'divider',
         overflow: 'hidden',
       }}
+      tabIndex={isManaged ? 0 : undefined}
       variant="outlined"
     >
       <InventoryPreferences
@@ -1011,9 +1064,6 @@ export default function ModManagerPlugins(): JSX.Element {
       ),
     [categoryItems],
   );
-  const enabledSourceCount = categorySources.filter(
-    (source) => preferences[getPluginPreferenceKey(source)]?.enabled !== false,
-  ).length;
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
   const visibleItems = useMemo(
     () =>
@@ -1051,6 +1101,26 @@ export default function ModManagerPlugins(): JSX.Element {
       i18n.language,
     ],
   );
+  const selectableIDs = Array.from(
+    new Set(
+      groupInventoryItems(visibleItems).flatMap((group) =>
+        group.items.map((item) => getPluginPreferenceKey(item.deletionSource)),
+      ),
+    ),
+  );
+  const selection = useListSelection(
+    selectableIDs,
+    fileCategory + sourceFilter + normalizedSearch,
+  );
+  const actionSources =
+    selection.selected.length > 0
+      ? categorySources.filter((source) =>
+          selection.selected.includes(getPluginPreferenceKey(source)),
+        )
+      : categorySources;
+  const enabledSourceCount = actionSources.filter(
+    (source) => preferences[getPluginPreferenceKey(source)]?.enabled !== false,
+  ).length;
   const totalFileCount =
     inventory.plugins.length +
     inventory.patches.length +
@@ -1093,6 +1163,7 @@ export default function ModManagerPlugins(): JSX.Element {
 
   return (
     <Box
+      onClick={selection.onBackgroundClick}
       sx={{
         display: 'flex',
         flex: 1,
@@ -1348,22 +1419,35 @@ export default function ModManagerPlugins(): JSX.Element {
               <Button
                 disabled={
                   isBulkActionDisabled ||
-                  enabledSourceCount === categorySources.length
+                  enabledSourceCount === actionSources.length
                 }
-                onClick={() => setPluginsEnabled(categorySources, true)}
+                onClick={() => setPluginsEnabled(actionSources, true)}
                 size="small"
                 variant="outlined"
               >
-                {t('plugins.selection.enableAll')}
+                {selection.selected.length
+                  ? t('selection.enableCount', {
+                      count: selection.selected.length,
+                    })
+                  : t('plugins.selection.enableAll')}
               </Button>
               <Button
                 disabled={isBulkActionDisabled || enabledSourceCount === 0}
-                onClick={() => setPluginsEnabled(categorySources, false)}
+                onClick={() => setPluginsEnabled(actionSources, false)}
                 size="small"
                 variant="outlined"
               >
-                {t('plugins.selection.disableAll')}
+                {selection.selected.length
+                  ? t('selection.disableCount', {
+                      count: selection.selected.length,
+                    })
+                  : t('plugins.selection.disableAll')}
               </Button>
+              {selection.selected.length > 0 && (
+                <Button onClick={selection.clear} size="small">
+                  {t('selection.clear')}
+                </Button>
+              )}
             </Stack>
             <Typography
               color="text.secondary"
@@ -1371,7 +1455,13 @@ export default function ModManagerPlugins(): JSX.Element {
               sx={{ mt: 1 }}
               variant="caption"
             >
-              {t('plugins.selection.allHint')}
+              {t(
+                selection.selected.length
+                  ? 'selection.hint'
+                  : 'plugins.selection.allHint',
+              )}
+              <br />
+              {!selection.selected.length && t('selection.hint')}
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 1 }} variant="caption">
               {t('plugins.category.showing', {
@@ -1387,14 +1477,27 @@ export default function ModManagerPlugins(): JSX.Element {
             </Typography>
           </Box>
           <Divider />
-          <Box sx={{ p: 2 }}>
-            <InventorySection
-              disabled={isEditorActionDisabled}
-              emptyText={categoryEmptyText}
-              items={visibleItems}
-              onDelete={onDeleteItem}
-              title={categoryTitle}
-            />
+          <Box
+            onKeyDownCapture={(event) =>
+              selection.onKeyDown(event, () => {
+                if (!isBulkActionDisabled)
+                  setPluginsEnabled(
+                    actionSources,
+                    enabledSourceCount !== actionSources.length,
+                  );
+              })
+            }
+            sx={{ p: 2 }}
+          >
+            <InventorySelectionContext.Provider value={selection}>
+              <InventorySection
+                disabled={isEditorActionDisabled}
+                emptyText={categoryEmptyText}
+                items={visibleItems}
+                onDelete={onDeleteItem}
+                title={categoryTitle}
+              />
+            </InventorySelectionContext.Provider>
           </Box>
         </Paper>
       </Box>
