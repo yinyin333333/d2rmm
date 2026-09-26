@@ -941,6 +941,7 @@ export default function ModManagerPlugins(): JSX.Element {
     isLoading,
     isMutating,
     refresh,
+    setPluginsEnabled,
   } = useD2RLoaderPluginManager();
   const [fileCategory, setFileCategory] = useState<
     'plugins' | 'patches' | 'configs'
@@ -998,6 +999,21 @@ export default function ModManagerPlugins(): JSX.Element {
   );
 
   const categoryItems = inventory[fileCategory];
+  const categorySources = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          categoryItems.map(({ deletionSource }) => [
+            getPluginPreferenceKey(deletionSource),
+            deletionSource,
+          ]),
+        ).values(),
+      ),
+    [categoryItems],
+  );
+  const enabledSourceCount = categorySources.filter(
+    (source) => preferences[getPluginPreferenceKey(source)]?.enabled !== false,
+  ).length;
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
   const visibleItems = useMemo(
     () =>
@@ -1059,6 +1075,8 @@ export default function ModManagerPlugins(): JSX.Element {
           ? t('plugins.empty.patches')
           : t('plugins.empty.configs');
   const isEditorActionDisabled = isInstalling || isMutating;
+  const isBulkActionDisabled =
+    isEditorActionDisabled || isLoading || !isInventoryCurrent || error != null;
   const workspaceStatus =
     error != null
       ? { color: 'error' as const, label: t('plugins.status.scanFailed') }
@@ -1326,6 +1344,35 @@ export default function ModManagerPlugins(): JSX.Element {
                 value="configs"
               />
             </Tabs>
+            <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+              <Button
+                disabled={
+                  isBulkActionDisabled ||
+                  enabledSourceCount === categorySources.length
+                }
+                onClick={() => setPluginsEnabled(categorySources, true)}
+                size="small"
+                variant="outlined"
+              >
+                {t('plugins.selection.enableAll')}
+              </Button>
+              <Button
+                disabled={isBulkActionDisabled || enabledSourceCount === 0}
+                onClick={() => setPluginsEnabled(categorySources, false)}
+                size="small"
+                variant="outlined"
+              >
+                {t('plugins.selection.disableAll')}
+              </Button>
+            </Stack>
+            <Typography
+              color="text.secondary"
+              display="block"
+              sx={{ mt: 1 }}
+              variant="caption"
+            >
+              {t('plugins.selection.allHint')}
+            </Typography>
             <Typography color="text.secondary" sx={{ mt: 1 }} variant="caption">
               {t('plugins.category.showing', {
                 category: categoryTitle,

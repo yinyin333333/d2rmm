@@ -43,6 +43,10 @@ const EMPTY_INVENTORY: D2RLoaderPluginInventory = {
 
 type D2RLoaderPluginContextValue = {
   preferences: Record<string, D2RLoaderPluginPreference>;
+  setPluginsEnabled: (
+    sources: D2RLoaderPluginSource[],
+    enabled: boolean,
+  ) => void;
   setPluginPreference: (
     source: D2RLoaderPluginSource,
     changes: Partial<Omit<D2RLoaderPluginPreference, 'source'>>,
@@ -121,6 +125,22 @@ export function D2RLoaderPluginContextProvider({
           source,
         },
       }));
+    },
+    [setPreferences],
+  );
+  const setPluginsEnabled = useCallback(
+    (sources: D2RLoaderPluginSource[], enabled: boolean) => {
+      setPreferences((previous) => {
+        const next = { ...previous };
+        for (const source of sources) {
+          const key = getPluginPreferenceKey(source);
+          next[key] = {
+            ...(next[key] ?? { source, tags: [], notes: '' }),
+            enabled,
+          };
+        }
+        return next;
+      });
     },
     [setPreferences],
   );
@@ -352,6 +372,7 @@ export function D2RLoaderPluginContextProvider({
     (): D2RLoaderPluginContextValue => ({
       preferences,
       setPluginPreference,
+      setPluginsEnabled,
       disabledSources,
       deletePackage,
       deleteSource,
@@ -375,6 +396,7 @@ export function D2RLoaderPluginContextProvider({
     [
       preferences,
       setPluginPreference,
+      setPluginsEnabled,
       disabledSources,
       deletePackage,
       deleteSource,
