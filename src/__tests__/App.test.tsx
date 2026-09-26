@@ -159,22 +159,21 @@ describe('App', () => {
     expect(logsTab).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('moves the D2RMM update action from the top bar into Settings', async () => {
+  it('shows the D2RMM update action in the top bar without a Settings entry', async () => {
     render(<App />);
 
-    expect(
-      screen.queryByRole('button', { name: 'Update D2RMM' }),
-    ).not.toBeInTheDocument();
+    const updateButton = await screen.findByRole('button', {
+      name: 'Update D2RMM',
+    });
+    expect(updateButton).toBeVisible();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
     const settingsNavigation = await screen.findByRole('navigation', {
       name: 'Settings sections',
     });
-    fireEvent.click(within(settingsNavigation).getByText('Update D2RMM'));
-
-    const updateButton = await screen.findByRole('button', {
-      name: 'Update D2RMM',
-    });
+    expect(
+      within(settingsNavigation).queryByText('Update D2RMM'),
+    ).not.toBeInTheDocument();
     fireEvent.click(updateButton);
 
     await waitFor(() => expect(mockState.appUpdaterCheck).toHaveBeenCalled());
