@@ -11,6 +11,7 @@ import {
   digest,
   validateManifest,
 } from '../updater/manifest';
+import { fetchUpdate } from './AppUpdateNetwork';
 import { createReadStream, createWriteStream, fs } from './UpdateFileSystem';
 
 export type ReleaseAsset = {
@@ -83,11 +84,13 @@ export async function downloadPackage(
     asset.size > 1024 ** 3
   )
     throw new Error('Invalid release asset.');
-  const response = await fetch(url, {
+  const response = await fetchUpdate(url.href, {
     signal: requestSignal,
   });
-  if (!response.ok || response.body == null)
+  if (!response.ok || response.body == null) {
+    await response.body?.cancel();
     throw new Error(`Download failed: HTTP ${response.status}`);
+  }
   let received = 0;
   const hash = createHash('sha256');
   const source = Readable.fromWeb(response.body as never);

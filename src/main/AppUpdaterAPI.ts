@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import { app, BrowserWindow, dialog } from 'electron';
 import { existsSync, promises as fs, openSync, closeSync } from 'fs';
 import path from 'path';
+import { fetchUpdate, updateFailure } from './AppUpdateNetwork';
 import {
   assertNoLinks,
   downloadPackage,
@@ -126,16 +127,23 @@ export function initAppUpdaterAPI(): void {
       busy = true;
       const controller = new AbortController();
       operation = controller;
+      selection = null;
+      work = null;
+      state.log = null;
+      state.version = null;
       try {
         await setStatus('checking');
-        const response = await fetch(
+        const response = await fetchUpdate(
           'https://api.github.com/repos/yinyin333333/d2rmm/releases?per_page=100',
           {
             headers: { Accept: 'application/vnd.github+json' },
             signal: updateRequestSignal(30000, controller.signal),
           },
         );
-        if (!response.ok) throw new Error(`GitHub: HTTP ${response.status}`);
+        if (!response.ok) {
+          await response.body?.cancel();
+          throw new Error(`GitHub: HTTP ${response.status}`);
+        }
         const releases = (await response.json()) as UpdateRelease[];
         controller.signal.throwIfAborted();
         selection = selectRelease(releases, app.getVersion());
@@ -144,8 +152,25 @@ export function initAppUpdaterAPI(): void {
         controller.signal.throwIfAborted();
         return state;
       } catch (error) {
-        await setStatus('failed', String(error));
-        throw error;
+        const failure = updateFailure(
+          controller.signal.aborted ? controller.signal.reason : error,
+          controller.signal.aborted
+            ? 'Update cancelled before shutdown.'
+            : 'Release lookup (api.github.com)',
+        );
+        await setStatus('failed', failure.message);
+        if (!controller.signal.aborted) {
+          try {
+            await assertNoLinks(root);
+            work = await fs.mkdtemp(path.join(root, '.d2rmm-update-'));
+            state.log = path.join(work, 'download.log');
+            await setStatus('failed', failure.message);
+          } catch {
+            work = null;
+            state.log = null;
+          }
+        }
+        throw failure;
       } finally {
         busy = false;
         operation = null;
@@ -199,8 +224,14 @@ export function initAppUpdaterAPI(): void {
         await setStatus('prepared');
         controller.signal.throwIfAborted();
       } catch (error) {
-        await setStatus('failed', String(error));
-        throw error;
+        const failure = updateFailure(
+          controller.signal.aborted ? controller.signal.reason : error,
+          controller.signal.aborted
+            ? 'Update cancelled before shutdown.'
+            : `Update ${state.phase}${state.phase === 'downloading' ? ' (request host: github.com; redirects may use a different host)' : ''}`,
+        );
+        await setStatus('failed', failure.message);
+        throw failure;
       } finally {
         try {
           if (controller.signal.aborted && jobDirectory != null)
