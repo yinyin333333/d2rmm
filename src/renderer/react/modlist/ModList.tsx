@@ -7,6 +7,7 @@ import {
   useMods,
   useOrdereredItems,
 } from 'renderer/react/context/ModsContext';
+import useListSelection from 'renderer/react/hooks/useListSelection';
 import AddSectionHeaderButton from 'renderer/react/modlist/AddSectionHeaderButton';
 import ModInstallButton from 'renderer/react/modlist/ModInstallButton';
 import ModListItem from 'renderer/react/modlist/ModListItem';
@@ -29,6 +30,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import { LoadingButton } from '@mui/lab';
 import {
   Box,
+  Button,
+  Tooltip,
   CircularProgress,
   Divider,
   InputAdornment,
@@ -55,7 +58,7 @@ export default function ModList(): JSX.Element {
   }, [onRefreshMods]);
 
   const [orderedItems, reorderItems] = useOrdereredItems();
-  const [enabledMods] = useEnabledMods();
+  const [enabledMods, setEnabledMods] = useEnabledMods();
   const isLoadingMods = useIsLoadingMods();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -112,6 +115,21 @@ export default function ModList(): JSX.Element {
     [searchFilter, orderedItems],
   );
 
+  const selection = useListSelection(
+    filteredItems.filter((item) => item.type === 'mod').map((item) => item.id),
+    searchFilter,
+  );
+  const setSelectionEnabled = (enabled: boolean) =>
+    setEnabledMods((previous) => {
+      const next = { ...previous };
+      selection.selected.forEach((id) => {
+        next[id] = enabled;
+      });
+      return next;
+    });
+  const allSelectedEnabled = selection.selected.every((id) => enabledMods[id]);
+  const anySelectedEnabled = selection.selected.some((id) => enabledMods[id]);
+
   const renderedItems = useMemo(
     () =>
       filteredItems
@@ -141,16 +159,26 @@ export default function ModList(): JSX.Element {
               index={index}
               isEnabled={enabledMods[item.mod.id] ?? false}
               isReorderEnabled={isReorderEnabled}
+              isSelected={selection.selected.includes(item.id)}
               mod={item.mod}
+              onSelect={(event) => selection.select(item.id, event)}
             />
           );
         })
         .filter(Boolean),
-    [enabledMods, filteredItems, orderedItems, isReorderEnabled],
+    [enabledMods, filteredItems, orderedItems, isReorderEnabled, selection],
   );
 
   return (
-    <>
+    <Box
+      onClick={selection.onBackgroundClick}
+      onKeyDownCapture={(event) =>
+        selection.onKeyDown(event, () =>
+          setSelectionEnabled(!allSelectedEnabled),
+        )
+      }
+      sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+    >
       <List
         dense={true}
         disablePadding={true}
@@ -237,6 +265,42 @@ export default function ModList(): JSX.Element {
           renderedItems
         )}
       </List>
+      {selection.selected.length > 0 && (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            px: 1,
+            py: 0.5,
+            borderTop: 1,
+            borderColor: 'divider',
+          }}
+        >
+          <Tooltip title={t('selection.hint')}>
+            <Typography variant="body2">
+              {t('selection.count', { count: selection.selected.length })}
+            </Typography>
+          </Tooltip>
+          <Button
+            disabled={allSelectedEnabled}
+            onClick={() => setSelectionEnabled(true)}
+            size="small"
+          >
+            {t('selection.enable')}
+          </Button>
+          <Button
+            disabled={!anySelectedEnabled}
+            onClick={() => setSelectionEnabled(false)}
+            size="small"
+          >
+            {t('selection.disable')}
+          </Button>
+          <Button onClick={selection.clear} size="small" sx={{ ml: 'auto' }}>
+            {t('selection.clear')}
+          </Button>
+        </Box>
+      )}
       <Divider />
       <Box
         sx={{
@@ -295,6 +359,6 @@ export default function ModList(): JSX.Element {
         </Box>
       </Box>
       <ModSettingsDrawer />
-    </>
+    </Box>
   );
 }

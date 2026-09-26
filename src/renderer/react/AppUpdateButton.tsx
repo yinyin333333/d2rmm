@@ -9,6 +9,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import SystemUpdateAltRounded from '@mui/icons-material/SystemUpdateAltRounded';
 import {
   Alert,
   Button,
@@ -142,8 +143,8 @@ export default function AppUpdateButton(): JSX.Element | null {
         onClick={() => {
           void check();
         }}
-        sx={{ mt: 2 }}
-        variant="contained"
+        startIcon={<SystemUpdateAltRounded />}
+        sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}
       >
         {t('appUpdate.title')}
       </Button>
