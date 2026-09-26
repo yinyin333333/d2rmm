@@ -34,6 +34,7 @@ import {
   EditOutlined,
   ExpandMore,
   FolderOpen,
+  HelpOutline,
   Refresh,
   Search,
   Security,
@@ -1002,6 +1003,7 @@ export default function ModManagerPlugins(): JSX.Element {
   const [sourceFilter, setSourceFilter] = useState<'all' | 'managed' | 'mod'>(
     'all',
   );
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<PluginSortOrder>('default');
 
@@ -1174,131 +1176,74 @@ export default function ModManagerPlugins(): JSX.Element {
       }}
     >
       <Box sx={{ maxWidth: 1320, mx: 'auto', width: '100%' }}>
-        <Paper
-          sx={{ overflow: 'hidden', p: { md: 2.5, xs: 2 } }}
-          variant="outlined"
-        >
-          <Stack
-            alignItems={{ md: 'flex-start', xs: 'stretch' }}
-            direction={{ md: 'row', xs: 'column' }}
-            spacing={2}
-          >
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Stack alignItems="center" direction="row" spacing={1}>
-                <Typography variant="h5">{t('plugins.title')}</Typography>
-                <Chip
-                  color={workspaceStatus.color}
-                  label={workspaceStatus.label}
-                  size="small"
-                  variant="outlined"
-                />
-              </Stack>
-              <Typography
-                color="text.secondary"
-                sx={{ mt: 0.5 }}
-                variant="body2"
-              >
-                {t('plugins.description')}
-              </Typography>
-            </Box>
-            <Stack
-              direction={{ sm: 'row', xs: 'column' }}
-              spacing={1}
-              sx={{ flexShrink: 0, width: { md: 'auto', xs: '100%' } }}
-            >
-              <Button
-                disabled={inventory.managedRoot === '' || isMutating}
-                onClick={() => onOpenManagedRoot().catch(console.error)}
-                startIcon={<FolderOpen />}
-                sx={{ width: { sm: 'auto', xs: '100%' } }}
-                variant="outlined"
-              >
-                {t('plugins.action.openStorage')}
-              </Button>
-              <LoadingButton
-                disabled={hasUnsavedEdits || isMutating}
-                loading={isLoading || isMutating}
-                onClick={() => refresh().catch(console.error)}
-                startIcon={<Refresh />}
-                sx={{ width: { sm: 'auto', xs: '100%' } }}
-                variant="contained"
-              >
-                {t('plugins.action.refresh')}
-              </LoadingButton>
-            </Stack>
-          </Stack>
-
+        <Paper sx={{ p: 1.5 }} variant="outlined">
           <Box
             sx={{
-              alignItems: 'center',
-              border: 1,
-              borderColor: 'divider',
-              borderRadius: 2,
-              borderStyle: 'dashed',
               display: 'flex',
-              gap: 1.5,
-              mt: 2,
-              p: 1.75,
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 1,
             }}
           >
-            <FolderOpen color="primary" />
-            <Box>
-              <Typography sx={{ fontWeight: 600 }} variant="body2">
-                {t('plugins.import.title')}
-              </Typography>
-              <Typography color="text.secondary" variant="caption">
-                {t('plugins.import.description')}
-              </Typography>
-            </Box>
+            <Typography variant="h6">{t('plugins.title')}</Typography>
+            <Chip
+              color={workspaceStatus.color}
+              label={workspaceStatus.label}
+              size="small"
+              variant="outlined"
+            />
+            <Box sx={{ flex: 1 }} />
+            <Button
+              aria-controls="plugin-workspace-help"
+              aria-expanded={isHelpOpen}
+              onClick={() => setIsHelpOpen((open) => !open)}
+              size="small"
+              startIcon={<HelpOutline />}
+            >
+              {t('plugins.help')}
+            </Button>
+            <Button
+              disabled={inventory.managedRoot === '' || isMutating}
+              onClick={() => onOpenManagedRoot().catch(console.error)}
+              size="small"
+              startIcon={<FolderOpen />}
+              variant="outlined"
+            >
+              {t('plugins.action.openStorage')}
+            </Button>
+            <LoadingButton
+              disabled={hasUnsavedEdits || isMutating}
+              loading={isLoading || isMutating}
+              onClick={() => refresh().catch(console.error)}
+              size="small"
+              startIcon={<Refresh />}
+              variant="contained"
+            >
+              {t('plugins.action.refresh')}
+            </LoadingButton>
           </Box>
-        </Paper>
-
-        <Stack
-          direction={{ md: 'row', xs: 'column' }}
-          spacing={1.5}
-          sx={{ mt: 1.5 }}
-        >
-          {[
-            {
-              count: inventory.plugins.length,
-              description: t('plugins.summary.plugins.description'),
-              label: t('plugins.summary.plugins.label'),
-            },
-            {
-              count: inventory.patches.length,
-              description: t('plugins.summary.patches.description'),
-              label: t('plugins.summary.patches.label'),
-            },
-            {
-              count: inventory.configs.length,
-              description: t('plugins.summary.configs.description'),
-              label: t('plugins.summary.configs.label'),
-            },
-            {
-              count: totalFileCount,
-              description: t('plugins.summary.sources', { count: sourceCount }),
-              label: t('plugins.summary.all.label'),
-            },
-          ].map(({ count, description, label }) => (
-            <Paper key={label} sx={{ flex: 1, p: 1.5 }} variant="outlined">
-              <Stack alignItems="baseline" direction="row" spacing={1}>
-                <Typography sx={{ fontWeight: 700 }} variant="h6">
-                  {count}
-                </Typography>
-                <Typography sx={{ fontWeight: 600 }} variant="body2">
-                  {label}
-                </Typography>
-              </Stack>
-              <Typography color="text.secondary" variant="caption">
-                {description}
+          <Collapse in={isHelpOpen}>
+            <Stack id="plugin-workspace-help" spacing={1} sx={{ pt: 1.5 }}>
+              <Typography color="text.secondary" variant="body2">
+                {t('plugins.description')}
               </Typography>
-            </Paper>
-          ))}
-        </Stack>
-
-        <Alert icon={<Security />} severity="warning" sx={{ mt: 1.5 }}>
-          {t('plugins.securityWarning')}
-        </Alert>
+              <Box>
+                <Typography sx={{ fontWeight: 600 }} variant="body2">
+                  {t('plugins.import.title')}
+                </Typography>
+                <Typography color="text.secondary" variant="caption">
+                  {t('plugins.import.description')}
+                </Typography>
+              </Box>
+              <Typography color="text.secondary" variant="caption">
+                {t('plugins.summary.sources', { count: sourceCount })}
+              </Typography>
+              <Alert icon={<Security />} severity="warning">
+                {t('plugins.securityWarning')}
+              </Alert>
+            </Stack>
+          </Collapse>
+        </Paper>
 
         {error != null ? (
           <Alert severity="error" sx={{ mt: 1.5 }}>
@@ -1321,10 +1266,10 @@ export default function ModManagerPlugins(): JSX.Element {
           </Alert>
         ))}
 
-        <Paper sx={{ mt: 2, overflow: 'hidden' }} variant="outlined">
+        <Paper sx={{ mt: 1.5, overflow: 'hidden' }} variant="outlined">
           {isLoading ? <LinearProgress /> : null}
-          <Box sx={{ px: 2, py: 1.5 }}>
-            <Typography variant="h6">
+          <Box sx={{ px: 2, py: 1 }}>
+            <Typography variant="subtitle2">
               {t('plugins.workspace.files', { count: totalFileCount })}
             </Typography>
           </Box>
@@ -1358,6 +1303,7 @@ export default function ModManagerPlugins(): JSX.Element {
                   if (value != null) setSourceFilter(value);
                 }}
                 size="small"
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
                 value={sourceFilter}
               >
                 <ToggleButton disabled={hasUnsavedEdits} value="all">
@@ -1370,32 +1316,35 @@ export default function ModManagerPlugins(): JSX.Element {
                   {t('plugins.sourceFilter.mods')}
                 </ToggleButton>
               </ToggleButtonGroup>
+              <TextField
+                disabled={hasUnsavedEdits}
+                label={t('plugins.sort.label')}
+                onChange={(event) =>
+                  setSortOrder(event.target.value as PluginSortOrder)
+                }
+                select={true}
+                size="small"
+                sx={{
+                  minWidth: 170,
+                  width: { md: 190, xs: '100%' },
+                  flexShrink: 0,
+                }}
+                value={sortOrder}
+              >
+                {PLUGIN_SORT_OPTIONS.map((option) => (
+                  <MenuItem key={option} value={option}>
+                    {t(`plugins.sort.${option}`)}
+                  </MenuItem>
+                ))}
+              </TextField>
             </Stack>
-
-            <TextField
-              disabled={hasUnsavedEdits}
-              label={t('plugins.sort.label')}
-              onChange={(event) =>
-                setSortOrder(event.target.value as PluginSortOrder)
-              }
-              select={true}
-              size="small"
-              sx={{ mt: 2, minWidth: 220 }}
-              value={sortOrder}
-            >
-              {PLUGIN_SORT_OPTIONS.map((option) => (
-                <MenuItem key={option} value={option}>
-                  {t(`plugins.sort.${option}`)}
-                </MenuItem>
-              ))}
-            </TextField>
 
             <Tabs
               aria-label={t('plugins.category.aria')}
               onChange={(_event, value) =>
                 setFileCategory(value as 'plugins' | 'patches' | 'configs')
               }
-              sx={{ mt: 1.5 }}
+              sx={{ mt: 1 }}
               value={fileCategory}
               variant="scrollable"
             >
@@ -1455,13 +1404,7 @@ export default function ModManagerPlugins(): JSX.Element {
               sx={{ mt: 1 }}
               variant="caption"
             >
-              {t(
-                selection.selected.length
-                  ? 'selection.hint'
-                  : 'plugins.selection.allHint',
-              )}
-              <br />
-              {!selection.selected.length && t('selection.hint')}
+              {t('selection.hint')}
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 1 }} variant="caption">
               {t('plugins.category.showing', {
