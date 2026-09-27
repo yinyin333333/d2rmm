@@ -8,7 +8,6 @@ import BridgeAPI from 'renderer/BridgeAPI';
 import { LocaleAPI } from 'renderer/LocaleAPI';
 import ShellAPI from 'renderer/ShellAPI';
 import { LOCALE_DISPLAY_NAMES } from 'renderer/i18n';
-import AppUpdateButton from 'renderer/react/AppUpdateButton';
 import type { D2RLoaderSettingsState } from 'renderer/react/context/D2RLoaderSettingsContext';
 import {
   useD2RLoaderConfigRefresh,
@@ -500,13 +499,6 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
       title: t('settings.nexus.title'),
       tone: isNexusReady ? 'success' : 'warning',
     },
-    {
-      description: t('appUpdate.phase.idle'),
-      id: 'update',
-      status: t('settings.status.ready'),
-      title: t('appUpdate.title'),
-      tone: 'info',
-    },
   ];
 
   const renderD2RLoaderTomlSetting = (
@@ -609,26 +601,6 @@ export default function ModManagerSettings(_props: Props): JSX.Element {
       onSectionChange={setActiveSection}
       sections={settingsSections}
     >
-      <StyledAccordion
-        disableGutters={true}
-        elevation={0}
-        expanded={true}
-        hidden={activeSection !== 'update'}
-        square={true}
-      >
-        <StyledAccordionSummary
-          aria-controls="update-content"
-          id="update-header"
-        >
-          <Typography sx={{ marginLeft: 1 }}>{t('appUpdate.title')}</Typography>
-        </StyledAccordionSummary>
-        <StyledAccordionDetails id="update-content">
-          <Typography color="text.secondary" variant="subtitle2">
-            {t('appUpdate.description')}
-          </Typography>
-          <AppUpdateButton />
-        </StyledAccordionDetails>
-      </StyledAccordion>
       <StyledAccordion
         disableGutters={true}
         elevation={0}

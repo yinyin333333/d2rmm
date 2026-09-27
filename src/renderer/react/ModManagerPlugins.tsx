@@ -10,6 +10,7 @@ import {
   useDialogContext,
 } from 'renderer/react/context/DialogContext';
 import { useIsInstalling } from 'renderer/react/context/InstallContext';
+import useListSelection from 'renderer/react/hooks/useListSelection';
 import useToast from 'renderer/react/hooks/useToast';
 import { isD2RLoaderPluginEditConflictError } from 'shared/D2RLoaderPluginEditError';
 import { getPluginPreferenceKey } from 'shared/D2RLoaderPluginPreferences';
@@ -18,13 +19,22 @@ import {
   sortPluginInventory,
   type PluginSortOrder,
 } from 'shared/D2RLoaderPluginSort';
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import {
+  createContext,
+  useContext,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   DeleteOutline,
   EditOutlined,
   ExpandMore,
   FolderOpen,
+  HelpOutline,
   Refresh,
   Search,
   Security,
@@ -59,6 +69,10 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+
+const InventorySelectionContext = createContext<ReturnType<
+  typeof useListSelection
+> | null>(null);
 
 type InventoryGroup = {
   id: string;
@@ -101,7 +115,10 @@ function InventoryPreferences({
 }): JSX.Element {
   const { t } = useTranslation();
   const { preferences, setPluginPreference } = useD2RLoaderPluginManager();
-  const preference = preferences[getPluginPreferenceKey(item.deletionSource)];
+  const selection = useContext(InventorySelectionContext);
+  const selectionID = getPluginPreferenceKey(item.deletionSource);
+  const selected = showPreferences && selection?.selected.includes(selectionID);
+  const preference = preferences[selectionID];
   const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState('');
   const [tagsDraft, setTagsDraft] = useState('');
@@ -109,9 +126,24 @@ function InventoryPreferences({
     <Box>
       <Stack
         alignItems="center"
+        data-selected={selected || undefined}
+        data-selection-row={showPreferences || undefined}
         direction="row"
+        onClick={
+          showPreferences
+            ? (event) => selection?.select(selectionID, event)
+            : undefined
+        }
         spacing={1}
-        sx={{ px: 1.5, py: 1, flexWrap: 'wrap' }}
+        sx={{
+          px: 1.5,
+          py: 1,
+          flexWrap: 'wrap',
+          bgcolor: selected ? 'action.selected' : undefined,
+          cursor: showPreferences ? 'pointer' : undefined,
+          userSelect: showPreferences ? 'none' : undefined,
+        }}
+        tabIndex={showPreferences ? 0 : undefined}
       >
         {showPreferences ? (
           <>
@@ -701,17 +733,39 @@ function InventoryGroupCard({
   const filesID = useId();
   const { hasUnsavedEdits } = useD2RLoaderPluginManager();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const selection = useContext(InventorySelectionContext);
+  const selectionID = getPluginPreferenceKey(group.items[0].deletionSource);
+  const isManaged = group.sourceType === 'managed';
   const sourceLabel =
     group.sourceType === 'managed'
       ? t('plugins.group.managed', { source: group.sourceName })
       : t('plugins.group.mod', { source: group.sourceName });
   return (
     <Paper
+      data-selection-item={true}
+      onClick={
+        isManaged
+          ? (event) => {
+              if (
+                event.target instanceof Element &&
+                event.target.closest('[data-selection-row]')
+              )
+                return;
+              selection?.select(selectionID, event);
+            }
+          : undefined
+      }
       sx={{
+        bgcolor:
+          isManaged && selection?.selected.includes(selectionID)
+            ? 'action.selected'
+            : undefined,
+        userSelect: isManaged ? 'none' : undefined,
         borderColor:
           group.sourceType === 'managed' ? 'primary.light' : 'divider',
         overflow: 'hidden',
       }}
+      tabIndex={isManaged ? 0 : undefined}
       variant="outlined"
     >
       <InventoryPreferences
@@ -949,6 +1003,7 @@ export default function ModManagerPlugins(): JSX.Element {
   const [sourceFilter, setSourceFilter] = useState<'all' | 'managed' | 'mod'>(
     'all',
   );
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<PluginSortOrder>('default');
 
@@ -1011,9 +1066,6 @@ export default function ModManagerPlugins(): JSX.Element {
       ),
     [categoryItems],
   );
-  const enabledSourceCount = categorySources.filter(
-    (source) => preferences[getPluginPreferenceKey(source)]?.enabled !== false,
-  ).length;
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
   const visibleItems = useMemo(
     () =>
@@ -1051,6 +1103,26 @@ export default function ModManagerPlugins(): JSX.Element {
       i18n.language,
     ],
   );
+  const selectableIDs = Array.from(
+    new Set(
+      groupInventoryItems(visibleItems).flatMap((group) =>
+        group.items.map((item) => getPluginPreferenceKey(item.deletionSource)),
+      ),
+    ),
+  );
+  const selection = useListSelection(
+    selectableIDs,
+    fileCategory + sourceFilter + normalizedSearch,
+  );
+  const actionSources =
+    selection.selected.length > 0
+      ? categorySources.filter((source) =>
+          selection.selected.includes(getPluginPreferenceKey(source)),
+        )
+      : categorySources;
+  const enabledSourceCount = actionSources.filter(
+    (source) => preferences[getPluginPreferenceKey(source)]?.enabled !== false,
+  ).length;
   const totalFileCount =
     inventory.plugins.length +
     inventory.patches.length +
@@ -1093,6 +1165,7 @@ export default function ModManagerPlugins(): JSX.Element {
 
   return (
     <Box
+      onClick={selection.onBackgroundClick}
       sx={{
         display: 'flex',
         flex: 1,
@@ -1103,131 +1176,74 @@ export default function ModManagerPlugins(): JSX.Element {
       }}
     >
       <Box sx={{ maxWidth: 1320, mx: 'auto', width: '100%' }}>
-        <Paper
-          sx={{ overflow: 'hidden', p: { md: 2.5, xs: 2 } }}
-          variant="outlined"
-        >
-          <Stack
-            alignItems={{ md: 'flex-start', xs: 'stretch' }}
-            direction={{ md: 'row', xs: 'column' }}
-            spacing={2}
-          >
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Stack alignItems="center" direction="row" spacing={1}>
-                <Typography variant="h5">{t('plugins.title')}</Typography>
-                <Chip
-                  color={workspaceStatus.color}
-                  label={workspaceStatus.label}
-                  size="small"
-                  variant="outlined"
-                />
-              </Stack>
-              <Typography
-                color="text.secondary"
-                sx={{ mt: 0.5 }}
-                variant="body2"
-              >
-                {t('plugins.description')}
-              </Typography>
-            </Box>
-            <Stack
-              direction={{ sm: 'row', xs: 'column' }}
-              spacing={1}
-              sx={{ flexShrink: 0, width: { md: 'auto', xs: '100%' } }}
-            >
-              <Button
-                disabled={inventory.managedRoot === '' || isMutating}
-                onClick={() => onOpenManagedRoot().catch(console.error)}
-                startIcon={<FolderOpen />}
-                sx={{ width: { sm: 'auto', xs: '100%' } }}
-                variant="outlined"
-              >
-                {t('plugins.action.openStorage')}
-              </Button>
-              <LoadingButton
-                disabled={hasUnsavedEdits || isMutating}
-                loading={isLoading || isMutating}
-                onClick={() => refresh().catch(console.error)}
-                startIcon={<Refresh />}
-                sx={{ width: { sm: 'auto', xs: '100%' } }}
-                variant="contained"
-              >
-                {t('plugins.action.refresh')}
-              </LoadingButton>
-            </Stack>
-          </Stack>
-
+        <Paper sx={{ p: 1.5 }} variant="outlined">
           <Box
             sx={{
-              alignItems: 'center',
-              border: 1,
-              borderColor: 'divider',
-              borderRadius: 2,
-              borderStyle: 'dashed',
               display: 'flex',
-              gap: 1.5,
-              mt: 2,
-              p: 1.75,
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 1,
             }}
           >
-            <FolderOpen color="primary" />
-            <Box>
-              <Typography sx={{ fontWeight: 600 }} variant="body2">
-                {t('plugins.import.title')}
-              </Typography>
-              <Typography color="text.secondary" variant="caption">
-                {t('plugins.import.description')}
-              </Typography>
-            </Box>
+            <Typography variant="h6">{t('plugins.title')}</Typography>
+            <Chip
+              color={workspaceStatus.color}
+              label={workspaceStatus.label}
+              size="small"
+              variant="outlined"
+            />
+            <Box sx={{ flex: 1 }} />
+            <Button
+              aria-controls="plugin-workspace-help"
+              aria-expanded={isHelpOpen}
+              onClick={() => setIsHelpOpen((open) => !open)}
+              size="small"
+              startIcon={<HelpOutline />}
+            >
+              {t('plugins.help')}
+            </Button>
+            <Button
+              disabled={inventory.managedRoot === '' || isMutating}
+              onClick={() => onOpenManagedRoot().catch(console.error)}
+              size="small"
+              startIcon={<FolderOpen />}
+              variant="outlined"
+            >
+              {t('plugins.action.openStorage')}
+            </Button>
+            <LoadingButton
+              disabled={hasUnsavedEdits || isMutating}
+              loading={isLoading || isMutating}
+              onClick={() => refresh().catch(console.error)}
+              size="small"
+              startIcon={<Refresh />}
+              variant="contained"
+            >
+              {t('plugins.action.refresh')}
+            </LoadingButton>
           </Box>
-        </Paper>
-
-        <Stack
-          direction={{ md: 'row', xs: 'column' }}
-          spacing={1.5}
-          sx={{ mt: 1.5 }}
-        >
-          {[
-            {
-              count: inventory.plugins.length,
-              description: t('plugins.summary.plugins.description'),
-              label: t('plugins.summary.plugins.label'),
-            },
-            {
-              count: inventory.patches.length,
-              description: t('plugins.summary.patches.description'),
-              label: t('plugins.summary.patches.label'),
-            },
-            {
-              count: inventory.configs.length,
-              description: t('plugins.summary.configs.description'),
-              label: t('plugins.summary.configs.label'),
-            },
-            {
-              count: totalFileCount,
-              description: t('plugins.summary.sources', { count: sourceCount }),
-              label: t('plugins.summary.all.label'),
-            },
-          ].map(({ count, description, label }) => (
-            <Paper key={label} sx={{ flex: 1, p: 1.5 }} variant="outlined">
-              <Stack alignItems="baseline" direction="row" spacing={1}>
-                <Typography sx={{ fontWeight: 700 }} variant="h6">
-                  {count}
-                </Typography>
-                <Typography sx={{ fontWeight: 600 }} variant="body2">
-                  {label}
-                </Typography>
-              </Stack>
-              <Typography color="text.secondary" variant="caption">
-                {description}
+          <Collapse in={isHelpOpen}>
+            <Stack id="plugin-workspace-help" spacing={1} sx={{ pt: 1.5 }}>
+              <Typography color="text.secondary" variant="body2">
+                {t('plugins.description')}
               </Typography>
-            </Paper>
-          ))}
-        </Stack>
-
-        <Alert icon={<Security />} severity="warning" sx={{ mt: 1.5 }}>
-          {t('plugins.securityWarning')}
-        </Alert>
+              <Box>
+                <Typography sx={{ fontWeight: 600 }} variant="body2">
+                  {t('plugins.import.title')}
+                </Typography>
+                <Typography color="text.secondary" variant="caption">
+                  {t('plugins.import.description')}
+                </Typography>
+              </Box>
+              <Typography color="text.secondary" variant="caption">
+                {t('plugins.summary.sources', { count: sourceCount })}
+              </Typography>
+              <Alert icon={<Security />} severity="warning">
+                {t('plugins.securityWarning')}
+              </Alert>
+            </Stack>
+          </Collapse>
+        </Paper>
 
         {error != null ? (
           <Alert severity="error" sx={{ mt: 1.5 }}>
@@ -1250,10 +1266,10 @@ export default function ModManagerPlugins(): JSX.Element {
           </Alert>
         ))}
 
-        <Paper sx={{ mt: 2, overflow: 'hidden' }} variant="outlined">
+        <Paper sx={{ mt: 1.5, overflow: 'hidden' }} variant="outlined">
           {isLoading ? <LinearProgress /> : null}
-          <Box sx={{ px: 2, py: 1.5 }}>
-            <Typography variant="h6">
+          <Box sx={{ px: 2, py: 1 }}>
+            <Typography variant="subtitle2">
               {t('plugins.workspace.files', { count: totalFileCount })}
             </Typography>
           </Box>
@@ -1287,6 +1303,7 @@ export default function ModManagerPlugins(): JSX.Element {
                   if (value != null) setSourceFilter(value);
                 }}
                 size="small"
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
                 value={sourceFilter}
               >
                 <ToggleButton disabled={hasUnsavedEdits} value="all">
@@ -1299,32 +1316,35 @@ export default function ModManagerPlugins(): JSX.Element {
                   {t('plugins.sourceFilter.mods')}
                 </ToggleButton>
               </ToggleButtonGroup>
+              <TextField
+                disabled={hasUnsavedEdits}
+                label={t('plugins.sort.label')}
+                onChange={(event) =>
+                  setSortOrder(event.target.value as PluginSortOrder)
+                }
+                select={true}
+                size="small"
+                sx={{
+                  minWidth: 170,
+                  width: { md: 190, xs: '100%' },
+                  flexShrink: 0,
+                }}
+                value={sortOrder}
+              >
+                {PLUGIN_SORT_OPTIONS.map((option) => (
+                  <MenuItem key={option} value={option}>
+                    {t(`plugins.sort.${option}`)}
+                  </MenuItem>
+                ))}
+              </TextField>
             </Stack>
-
-            <TextField
-              disabled={hasUnsavedEdits}
-              label={t('plugins.sort.label')}
-              onChange={(event) =>
-                setSortOrder(event.target.value as PluginSortOrder)
-              }
-              select={true}
-              size="small"
-              sx={{ mt: 2, minWidth: 220 }}
-              value={sortOrder}
-            >
-              {PLUGIN_SORT_OPTIONS.map((option) => (
-                <MenuItem key={option} value={option}>
-                  {t(`plugins.sort.${option}`)}
-                </MenuItem>
-              ))}
-            </TextField>
 
             <Tabs
               aria-label={t('plugins.category.aria')}
               onChange={(_event, value) =>
                 setFileCategory(value as 'plugins' | 'patches' | 'configs')
               }
-              sx={{ mt: 1.5 }}
+              sx={{ mt: 1 }}
               value={fileCategory}
               variant="scrollable"
             >
@@ -1348,22 +1368,35 @@ export default function ModManagerPlugins(): JSX.Element {
               <Button
                 disabled={
                   isBulkActionDisabled ||
-                  enabledSourceCount === categorySources.length
+                  enabledSourceCount === actionSources.length
                 }
-                onClick={() => setPluginsEnabled(categorySources, true)}
+                onClick={() => setPluginsEnabled(actionSources, true)}
                 size="small"
                 variant="outlined"
               >
-                {t('plugins.selection.enableAll')}
+                {selection.selected.length
+                  ? t('selection.enableCount', {
+                      count: selection.selected.length,
+                    })
+                  : t('plugins.selection.enableAll')}
               </Button>
               <Button
                 disabled={isBulkActionDisabled || enabledSourceCount === 0}
-                onClick={() => setPluginsEnabled(categorySources, false)}
+                onClick={() => setPluginsEnabled(actionSources, false)}
                 size="small"
                 variant="outlined"
               >
-                {t('plugins.selection.disableAll')}
+                {selection.selected.length
+                  ? t('selection.disableCount', {
+                      count: selection.selected.length,
+                    })
+                  : t('plugins.selection.disableAll')}
               </Button>
+              {selection.selected.length > 0 && (
+                <Button onClick={selection.clear} size="small">
+                  {t('selection.clear')}
+                </Button>
+              )}
             </Stack>
             <Typography
               color="text.secondary"
@@ -1371,7 +1404,7 @@ export default function ModManagerPlugins(): JSX.Element {
               sx={{ mt: 1 }}
               variant="caption"
             >
-              {t('plugins.selection.allHint')}
+              {t('selection.hint')}
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 1 }} variant="caption">
               {t('plugins.category.showing', {
@@ -1387,14 +1420,27 @@ export default function ModManagerPlugins(): JSX.Element {
             </Typography>
           </Box>
           <Divider />
-          <Box sx={{ p: 2 }}>
-            <InventorySection
-              disabled={isEditorActionDisabled}
-              emptyText={categoryEmptyText}
-              items={visibleItems}
-              onDelete={onDeleteItem}
-              title={categoryTitle}
-            />
+          <Box
+            onKeyDownCapture={(event) =>
+              selection.onKeyDown(event, () => {
+                if (!isBulkActionDisabled)
+                  setPluginsEnabled(
+                    actionSources,
+                    enabledSourceCount !== actionSources.length,
+                  );
+              })
+            }
+            sx={{ p: 2 }}
+          >
+            <InventorySelectionContext.Provider value={selection}>
+              <InventorySection
+                disabled={isEditorActionDisabled}
+                emptyText={categoryEmptyText}
+                items={visibleItems}
+                onDelete={onDeleteItem}
+                title={categoryTitle}
+              />
+            </InventorySelectionContext.Provider>
           </Box>
         </Paper>
       </Box>

@@ -6,7 +6,6 @@ import LinkRounded from '@mui/icons-material/LinkRounded';
 import PaletteRounded from '@mui/icons-material/PaletteRounded';
 import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
 import SettingsRounded from '@mui/icons-material/SettingsRounded';
-import SystemUpdateAltRounded from '@mui/icons-material/SystemUpdateAltRounded';
 import TuneRounded from '@mui/icons-material/TuneRounded';
 import {
   Avatar,
@@ -26,8 +25,7 @@ export type SettingsSectionId =
   | 'd2rLoader'
   | 'launcher'
   | 'display'
-  | 'nexus'
-  | 'update';
+  | 'nexus';
 
 export type SettingsSectionTone =
   | 'default'
@@ -63,8 +61,6 @@ function getSectionIcon(section: SettingsSectionId): JSX.Element {
       return <PaletteRounded fontSize="small" />;
     case 'nexus':
       return <LinkRounded fontSize="small" />;
-    case 'update':
-      return <SystemUpdateAltRounded fontSize="small" />;
   }
 }
 

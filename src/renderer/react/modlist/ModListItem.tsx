@@ -24,6 +24,7 @@ import {
   MenuListMenuContextProvider,
   useModListMenuContext,
 } from 'renderer/react/modlist/context/ModListMenuContext';
+import type { MouseEvent } from 'react';
 import { Draggable } from 'react-beautiful-dnd';
 import DragIndicator from '@mui/icons-material/DragIndicator';
 import Help from '@mui/icons-material/Help';
@@ -39,6 +40,8 @@ import {
 } from '@mui/material';
 
 type Props = {
+  isSelected?: boolean;
+  onSelect?: (event: MouseEvent<HTMLElement>) => void;
   index: number;
   isEnabled: boolean;
   isReorderEnabled: boolean;
@@ -47,6 +50,8 @@ type Props = {
 
 export default function ModListItem({
   index,
+  isSelected,
+  onSelect,
   isEnabled,
   isReorderEnabled,
   mod,
@@ -56,7 +61,9 @@ export default function ModListItem({
       index={index}
       isEnabled={isEnabled}
       isReorderEnabled={isReorderEnabled}
+      isSelected={isSelected}
       mod={mod}
+      onSelect={onSelect}
     />
   );
 
@@ -91,22 +98,35 @@ export default function ModListItem({
   );
 }
 
-function ModListItemContent({ isEnabled, isReorderEnabled, mod }: Props) {
+function ModListItemContent({
+  isEnabled,
+  isReorderEnabled,
+  mod,
+  isSelected,
+  onSelect,
+}: Props) {
   const onToggleMod = useToggleMod();
   const { onOpenContextMenu } = useModListMenuContext();
 
   return (
     <ListItem disablePadding={true}>
       <ListItemButton
-        onClick={() => onToggleMod(mod)}
+        aria-selected={isSelected}
+        onClick={onSelect ?? (() => onToggleMod(mod))}
         onContextMenu={onOpenContextMenu}
-        sx={{ width: 'auto', flexGrow: 1, flexShrink: 1 }}
+        onKeyUp={(event) => {
+          if (onSelect && event.key === ' ') event.preventDefault();
+        }}
+        selected={isSelected}
+        sx={{ width: 'auto', flexGrow: 1, flexShrink: 1, userSelect: 'none' }}
       >
         <ListItemIcon>
           <Checkbox
             checked={isEnabled}
             disableRipple={true}
             edge="start"
+            onChange={() => onToggleMod(mod)}
+            onClick={(event) => event.stopPropagation()}
             tabIndex={-1}
           />
         </ListItemIcon>
