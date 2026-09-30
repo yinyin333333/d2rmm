@@ -1,6 +1,10 @@
-import { IShellAPI } from 'bridge/ShellAPI';
+import { D2RLoaderLogScope, IShellAPI } from 'bridge/ShellAPI';
 import { dialog, shell } from 'electron';
 import { stat } from 'fs/promises';
+import {
+  collectD2RLoaderLogs,
+  writeD2RLoaderLogZip,
+} from './D2RLoaderLogExport';
 import { provideAPI } from './IPC';
 
 type WebContents = Electron.BrowserWindow['webContents'];
@@ -55,6 +59,25 @@ export async function selectDirectory(
   return result.canceled ? null : result.filePaths[0] ?? null;
 }
 
+export async function exportD2RLoaderLogs(
+  gamePath: string,
+  outputModName: string,
+  scope: D2RLoaderLogScope,
+) {
+  const plan = await collectD2RLoaderLogs(gamePath, outputModName, scope);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const result = await dialog.showSaveDialog({
+    defaultPath: `d2rloader-logs-${timestamp}.zip`,
+    filters: [{ name: 'ZIP', extensions: ['zip'] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  const destination = /\.zip$/i.test(result.filePath)
+    ? result.filePath
+    : `${result.filePath}.zip`;
+  await writeD2RLoaderLogZip(plan, destination);
+  return { path: destination, missingDirectories: plan.missingDirectories };
+}
+
 function getDocumentIdentity(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -101,6 +124,7 @@ export async function initShellAPI(): Promise<void> {
     },
     openPath,
     selectDirectory,
+    exportD2RLoaderLogs,
     showItemInFolder: async (path) => {
       return shell.showItemInFolder(path);
     },
