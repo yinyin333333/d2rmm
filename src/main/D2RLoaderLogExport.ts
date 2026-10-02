@@ -12,11 +12,32 @@ export type LogExportPlan = {
   missingDirectories: string[];
 };
 
+function getCrashTime(name: string): Date | null {
+  const match = path
+    .basename(name)
+    .match(
+      /^d2r-(?:lastresort-)?crash-report \((\d{4})_(\d{2})_(\d{2}) (\d{2})_(\d{2})_(\d{2}) UTC(?: pid-\d+)?\)\.(?:log|dmp)$/i,
+    );
+  if (match == null) return null;
+  const [, year, month, day, hour, minute, second] = match;
+  const iso = `${year}-${month}-${day}T${hour}:${minute}:${second}.000Z`;
+  const date = new Date(iso);
+  // Reject invalid dates, including dates that JavaScript would normalize.
+  return !Number.isNaN(date.getTime()) && date.toISOString() === iso
+    ? date
+    : null;
+}
+
 export async function collectD2RLoaderLogs(
   gamePath: string,
   outputModName: string,
   scope: D2RLoaderLogScope,
+  now: Date = new Date(),
 ): Promise<LogExportPlan> {
+  // Capture the local calendar day once, before asynchronous file collection.
+  // Calendar arithmetic also handles 23/25-hour days at DST transitions.
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   if (!['loader', 'loader-and-mod', 'all'].includes(scope)) {
     throw new Error('Invalid D2RLoader log export scope.');
   }
@@ -40,16 +61,20 @@ export async function collectD2RLoaderLogs(
   if (scope === 'all') directories.push('d2rloader/crashes');
   const plan: LogExportPlan = { files: [], missingDirectories: [] };
 
-  const visit = async (name: string): Promise<void> => {
+  const visit = async (name: string, crashes: boolean): Promise<void> => {
     const source = path.join(gameRoot, name);
     const stats = await lstat(source);
     // Do not follow links or junctions outside the requested log folders.
     if (stats.isSymbolicLink()) return;
     if (stats.isDirectory()) {
       for (const entry of await readdir(source)) {
-        await visit(`${name}/${entry}`);
+        await visit(`${name}/${entry}`, crashes);
       }
     } else if (stats.isFile()) {
+      if (crashes) {
+        const time = getCrashTime(name);
+        if (time == null || time < start || time >= end) return;
+      }
       plan.files.push({ source, name, mtime: stats.mtime });
     }
   };
@@ -70,7 +95,7 @@ export async function collectD2RLoaderLogs(
       if (unavailable) break;
     }
     if (unavailable) plan.missingDirectories.push(directory);
-    else await visit(directory);
+    else await visit(directory, directory === 'd2rloader/crashes');
   }
   if (plan.files.length === 0) throw te('logs.loader.noFiles');
   return plan;
