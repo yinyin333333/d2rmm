@@ -53,7 +53,7 @@ describe('locale normalization', () => {
       const english = resources[DEFAULT_LOCALE].translation;
       const translation = resources[locale].translation;
       const uiKeys = Object.keys(english).filter((key) =>
-        /^(appUpdate|d2rLoader|install|modlist|plugins|run|settings|tabs)\./.test(
+        /^(appUpdate|d2rLoader|install|logs|modlist|plugins|run|settings|tabs)\./.test(
           key,
         ),
       );

@@ -2,6 +2,7 @@ import ModManagerLogs from 'renderer/react/ModManagerLogs';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const mockClear = jest.fn();
+jest.mock('renderer/react/D2RLoaderLogExportButton', () => () => null);
 const mockSetLevels = jest.fn();
 const mockLogs = [
   { data: ['first log'], id: 1, level: 'log', timestamp: 1 },

@@ -1,4 +1,5 @@
 import type { ILogLevel } from 'bridge/ConsoleAPI';
+import D2RLoaderLogExportButton from 'renderer/react/D2RLoaderLogExportButton';
 import { useIsInstalling } from 'renderer/react/context/InstallContext';
 import {
   useLogLevels,
@@ -254,6 +255,8 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
           flexShrink: 0,
           display: 'flex',
           m: 1,
+          flexWrap: 'wrap',
+          rowGap: 1,
         }}
       >
         <TextField
@@ -283,6 +286,7 @@ export default function ModManagerLogs(_props: Props): JSX.Element {
           value={filter}
           variant="outlined"
         />
+        <D2RLoaderLogExportButton />
         <Box sx={{ flex: 1 }} />
         <ToggleButtonGroup
           aria-label="text alignment"
